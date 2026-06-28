@@ -1,8 +1,27 @@
-import { useState, useEffect, type MouseEvent } from "react";
+import { type ReactNode, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import AuthPage from "./AuthPage";
-import { getSession, signOut, updateUserNickname, type User } from "../lib/auth";
-import { getUserProfile, saveUserProfile, type ProfileField } from "../lib/profile";
+import {
+  AVATAR_ITEMS,
+  BOARD_POSTS,
+  GUESTBOOK_COLORS,
+  INIT_ENTRIES,
+  INIT_FIELDS,
+  INITIAL_ENTRIES,
+  NEIGHBORS,
+  PALETTE,
+  PHOTO_BOOTH_GRADIENTS,
+  PIXEL_COLS,
+  PIXEL_ROWS,
+  SAMPLE_EMOTICONS,
+  STICKER_OPTIONS,
+  TABS,
+  WEATHER_OPTIONS,
+  type Neighbor,
+  type Privacy,
+  type VisitMode,
+} from "./data";
+import { useSharedPhotos } from "./hooks/useSharedPhotos";
+import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils/date";
 
 /* ═══════════════════════════════════════════
    SHARED ATOMS
@@ -53,7 +72,7 @@ const Corner = ({ flip }: { flip?: boolean }) => (
   </svg>
 );
 
-const ChromeBadge = ({ children }: { children: React.ReactNode }) => (
+const ChromeBadge = ({ children }: { children: ReactNode }) => (
   <div className="px-4 py-1 rounded-full text-xs font-semibold tracking-widest uppercase" style={{
     fontFamily: "'Quicksand', sans-serif",
     background: "linear-gradient(135deg, #fff 0%, #f0c0e8 30%, #e8a0d8 60%, #fff 100%)",
@@ -62,7 +81,7 @@ const ChromeBadge = ({ children }: { children: React.ReactNode }) => (
   }}>{children}</div>
 );
 
-function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string }) {
+function CoverPage({ onOpen }: { onOpen: () => void }) {
   const stars = [
     { x: "7%", y: "9%", size: 22, delay: 0, color: "#ff2d78" },
     { x: "83%", y: "6%", size: 18, delay: 0.5, color: "#c44dff" },
@@ -132,8 +151,10 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
             ))}
           </motion.div>
           <motion.div className="text-center" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.75, duration: 1, ease: [0.22, 1, 0.36, 1] }}>
-            <h1 
-              style={{ fontFamily: '"Great Vibes", "Comic Sans MS", "Malgun Gothic", sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1',
+            <h1 style={{
+              fontFamily: "'Great Vibes', cursive",
+              fontSize: "clamp(3.2rem, 11vw, 5rem)",
+              lineHeight: 1,
               background: "linear-gradient(135deg, #d4006a 0%, #ff2d78 30%, #c44dff 60%, #ff2d78 80%, #d4006a 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
               filter: "drop-shadow(0 2px 8px rgba(255,45,120,0.35))",
@@ -175,7 +196,7 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 2, repeat: Infinity }}
           >
-            {nickname ? `${nickname}님, ` : ""}클릭해서 열기 ▶
+            클릭해서 열기 ▶
           </motion.p>
         </div>
         <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none rounded-t-2xl" style={{
@@ -202,46 +223,17 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
 /* ═══════════════════════════════════════════
    PIXEL AVATAR SVG
 ═══════════════════════════════════════════ */
-type AvatarConfig = {
-  hairDark: string;
-  hairLight: string;
-  skin: string;
-  outfit: string;
-  outfitDark: string;
-  outfitInner: string;
-  pants: string;
-};
-
-const DEFAULT_AVATAR: AvatarConfig = {
-  hairDark: "#3d1a00",
-  hairLight: "#5c2800",
-  skin: "#ffc8a0",
-  outfit: "#ff80c8",
-  outfitDark: "#ff60b8",
-  outfitInner: "#ffe0f4",
-  pants: "#c8a0ff",
-};
-
-function PixelAvatar({
-  config = DEFAULT_AVATAR,
-  width = 72,
-  height = 90,
-}: {
-  config?: AvatarConfig;
-  width?: number;
-  height?: number;
-}) {
-  const c = config;
+function PixelAvatar() {
   return (
-    <svg width={width} height={height} viewBox="0 0 18 22" style={{ imageRendering: "pixelated" }}>
+    <svg width="72" height="90" viewBox="0 0 18 22" style={{ imageRendering: "pixelated" }}>
       {/* hair */}
-      <rect x="5" y="1" width="8" height="1" fill={c.hairDark} />
-      <rect x="4" y="2" width="10" height="1" fill={c.hairDark} />
-      <rect x="4" y="3" width="10" height="4" fill={c.hairLight} />
-      <rect x="3" y="4" width="1" height="3" fill={c.hairLight} />
-      <rect x="14" y="4" width="1" height="3" fill={c.hairLight} />
+      <rect x="5" y="1" width="8" height="1" fill="#3d1a00" />
+      <rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
+      <rect x="4" y="3" width="10" height="4" fill="#5c2800" />
+      <rect x="3" y="4" width="1" height="3" fill="#5c2800" />
+      <rect x="14" y="4" width="1" height="3" fill="#5c2800" />
       {/* face */}
-      <rect x="4" y="5" width="10" height="7" fill={c.skin} />
+      <rect x="4" y="5" width="10" height="7" fill="#ffc8a0" />
       {/* eyes */}
       <rect x="6" y="7" width="2" height="2" fill="#2d1a00" />
       <rect x="10" y="7" width="2" height="2" fill="#2d1a00" />
@@ -253,75 +245,27 @@ function PixelAvatar({
       {/* mouth */}
       <rect x="8" y="10" width="2" height="1" fill="#ff8080" />
       {/* neck */}
-      <rect x="7" y="12" width="4" height="2" fill={c.skin} />
-      {/* outfit */}
-      <rect x="3" y="14" width="12" height="6" fill={c.outfit} />
-      <rect x="2" y="14" width="3" height="5" fill={c.outfitDark} />
-      <rect x="13" y="14" width="3" height="5" fill={c.outfitDark} />
-      <rect x="7" y="14" width="4" height="1" fill={c.outfitDark} />
-      <rect x="7" y="15" width="4" height="3" fill={c.outfitInner} />
+      <rect x="7" y="12" width="4" height="2" fill="#ffc8a0" />
+      {/* outfit - pink hoodie */}
+      <rect x="3" y="14" width="12" height="6" fill="#ff80c8" />
+      <rect x="2" y="14" width="3" height="5" fill="#ff60b8" />
+      <rect x="13" y="14" width="3" height="5" fill="#ff60b8" />
+      {/* hoodie detail */}
+      <rect x="7" y="14" width="4" height="1" fill="#ff60b8" />
+      <rect x="7" y="15" width="4" height="3" fill="#ffe0f4" />
       {/* legs */}
-      <rect x="5" y="20" width="3" height="2" fill={c.pants} />
-      <rect x="10" y="20" width="3" height="2" fill={c.pants} />
+      <rect x="5" y="20" width="3" height="2" fill="#c8a0ff" />
+      <rect x="10" y="20" width="3" height="2" fill="#c8a0ff" />
     </svg>
-  );
-}
-
-function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avatar: AvatarConfig; color: string; size?: number; showOnline?: boolean }) {
-  return (
-    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-      <div
-        className="rounded-xl flex items-end justify-center overflow-hidden w-full h-full"
-        style={{
-          background: `linear-gradient(135deg, ${color}55, ${color}22)`,
-          border: `2px solid ${color}`,
-        }}
-      >
-        <PixelAvatar config={avatar} width={size * 0.72} height={size * 0.9} />
-      </div>
-      {showOnline && (
-        <div
-          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
-          style={{ background: "#4cda64", zIndex: 10 }}
-        />
-      )}
-    </div>
   );
 }
 
 /* ═══════════════════════════════════════════
    MINI ROOM SVG
 ═══════════════════════════════════════════ */
-type PlacedRoomItem = { uid: string; itemId: string; emoji: string; x: number; y: number };
-
-function MiniRoom({
-  placedItems = [],
-  onRoomClick,
-  onItemClick,
-  eraseMode = false,
-}: {
-  placedItems?: PlacedRoomItem[];
-  onRoomClick?: (x: number, y: number) => void;
-  onItemClick?: (uid: string) => void;
-  eraseMode?: boolean;
-}) {
-  const handleClick = (e: MouseEvent<SVGSVGElement>) => {
-    if (!onRoomClick) return;
-    const svg = e.currentTarget;
-    const rect = svg.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 220;
-    const y = ((e.clientY - rect.top) / rect.height) * 160;
-    onRoomClick(x, y);
-  };
-
+function MiniRoom() {
   return (
-    <svg
-      width="100%"
-      height="100%"
-      viewBox="0 0 220 160"
-      style={{ imageRendering: "pixelated", cursor: onRoomClick ? (eraseMode ? "not-allowed" : "crosshair") : undefined }}
-      onClick={onRoomClick ? handleClick : undefined}
-    >
+    <svg width="100%" height="100%" viewBox="0 0 220 160" style={{ imageRendering: "pixelated" }}>
       {/* floor */}
       <rect x="0" y="100" width="220" height="60" fill="#e8d4f8" />
       {/* floor pattern */}
@@ -399,76 +343,19 @@ function MiniRoom({
       <rect x="50" y="112" width="100" height="40" fill="#ff99cc" opacity="0.5" />
       <rect x="54" y="116" width="92" height="32" fill="none" stroke="#ff60b0" strokeWidth="2" />
       <rect x="58" y="120" width="84" height="24" fill="none" stroke="#ff80c8" strokeWidth="1" />
-      {/* user-placed items */}
-      {placedItems.map((item) => (
-        <g
-          key={item.uid}
-          transform={`translate(${item.x}, ${item.y})`}
-          style={{ cursor: eraseMode && onItemClick ? "pointer" : undefined }}
-          onClick={eraseMode && onItemClick ? (e) => { e.stopPropagation(); onItemClick(item.uid); } : undefined}
-        >
-          <text
-            x={0}
-            y={0}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            style={{ fontSize: 20, userSelect: "none" }}
-          >
-            {item.emoji}
-          </text>
-        </g>
-      ))}
     </svg>
   );
 }
 
-/* ═══════════════════════════════════════════
-   BOOKMARK TABS
-═══════════════════════════════════════════ */
-const TABS = [
-  { id: "home",    label: "홈",       color: "#ff80c8", active: true  },
-  { id: "profile", label: "프로필",   color: "#c8a0ff", active: false },
-  { id: "diary",   label: "다이어리", color: "#80c8ff", active: false },
-  { id: "miniroom",label: "미니룸",   color: "#80e0b0", active: false },
-  { id: "photo",   label: "사진첩",   color: "#ffe080", active: false },
-  { id: "guest",   label: "방명록",   color: "#ffa880", active: false },
-  { id: "emoticon",label: "이모티콘룸",color: "#ff80a0", active: false },
-];
-
-/* ═══════════════════════════════════════════
-   LEFT PAGE — PROFILE
-═══════════════════════════════════════════ */
-function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: User) => void }) {
+function LeftPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [status, setStatus] = useState("일상 기록중 🌸");
-  const [tags, setTags] = useState<string[]>(() => getUserProfile(user.id, user.nickname).tags);
-  const [fields, setFields] = useState<ProfileField[]>(() => getUserProfile(user.id, user.nickname).fields);
-  const [draft, setDraft] = useState<ProfileField[]>(fields);
-
-  useEffect(() => {
-    const profile = getUserProfile(user.id, user.nickname);
-    setFields(profile.fields);
-    setDraft(profile.fields);
-    setStatus(profile.status);
-    setTags(profile.tags);
-  }, [user.id, user.nickname]);
-
-  const displayName = fields.find((f) => f.label === "이름")?.value || user.nickname;
+  const [fields, setFields] = useState(INIT_FIELDS);
+  const [draft, setDraft] = useState(INIT_FIELDS);
 
   const startEdit = () => { setDraft([...fields]); setEditing(true); };
-  const saveEdit = () => {
-    setFields(draft);
-    saveUserProfile(user.id, { fields: draft, status, tags });
-    setEditing(false);
-
-    const nameValue = draft.find((f) => f.label === "이름")?.value.trim();
-    if (nameValue && nameValue !== user.nickname) {
-      const updated = updateUserNickname(user.id, nameValue);
-      if (updated) onUserUpdate(updated);
-    }
-  };
-  const cancelEdit = () => { setDraft([...fields]); setEditing(false); };
+  const saveEdit = () => { setFields(draft); setEditing(false); };
+  const cancelEdit = () => setEditing(false);
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
@@ -517,10 +404,10 @@ function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: Use
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
         </div>
         <div className="flex flex-col gap-1 min-w-0">
-          <p style={{ fontFamily: 'Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: '#d4006a', lineHeight: '1.1', fontWeight: 'bold' }}>{displayName}</p>
-          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#9060b0", fontWeight: 500 }}>{status}</p>
+          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: "1.3rem", color: "#d4006a", lineHeight: 1.1 }}>Re:world</p>
+          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#9060b0", fontWeight: 500 }}>일상 기록중 🌸</p>
           <div className="flex gap-1 mt-0.5 flex-wrap">
-            {tags.map(tag => (
+            {["#daily", "#y2k", "#diary"].map(tag => (
               <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{
                 fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600,
                 background: "rgba(255,45,120,0.1)", color: "#ff2d78",
@@ -622,8 +509,16 @@ function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: Use
 /* ═══════════════════════════════════════════
    RIGHT PAGE — PHOTO ALBUM
 ═══════════════════════════════════════════ */
+function AlbumPhoto({ src }: { src: string }) {
+  if (src.startsWith("linear-gradient(")) {
+    return <div className="w-full h-full" style={{ background: src }} />;
+  }
+
+  return <img src={src} alt="" className="w-full h-full object-cover" />;
+}
+
 function PhotoPage() {
-  const { urls: sharedUrls, add: addPhoto } = useSharedPhotos();
+  const { urls: sharedUrls } = useSharedPhotos();
   const [localPhotos, setLocalPhotos] = useState<string[]>([]);
   const photos = [...localPhotos, ...sharedUrls];
 
@@ -688,7 +583,7 @@ function PhotoPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <img src={src} alt="" className="w-full h-full object-cover" />
+                <AlbumPhoto src={src} />
               </motion.div>
             ))}
             {/* add more cell */}
@@ -724,25 +619,6 @@ function PhotoPage() {
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════
-   PROFILE AVATAR CUSTOMIZER
-═══════════════════════════════════════════ */
-
-const AVATAR_ITEMS = [
-  { id: "hat1",   cat: "모자",    emoji: "🎀", label: "리본 모자",   color: "#ff80c8" },
-  { id: "hat2",   cat: "모자",    emoji: "👑", label: "크라운",      color: "#ffe060" },
-  { id: "top1",   cat: "상의",    emoji: "👚", label: "핑크 후디",   color: "#ffb0d0" },
-  { id: "top2",   cat: "상의",    emoji: "🎽", label: "보라 조끼",   color: "#c8a0ff" },
-  { id: "acc1",   cat: "악세서리", emoji: "💎", label: "목걸이",      color: "#80e8ff" },
-  { id: "acc2",   cat: "악세서리", emoji: "⭐", label: "별 귀걸이",   color: "#ffe060" },
-  { id: "acc3",   cat: "악세서리", emoji: "🌸", label: "꽃 핀",      color: "#ff80c8" },
-  { id: "shoes1", cat: "신발",    emoji: "👟", label: "스니커즈",    color: "#c8a0ff" },
-];
-
-const PIXEL_COLS = 16;
-const PIXEL_ROWS = 16;
-const PALETTE = ["#ff2d78","#c44dff","#ff80c8","#ffe060","#80c8ff","#80e0b0","#ffffff","#3d1a00","#000000","#f9a0e8","#b0f0ff","#ffb0d0"];
 
 function PixelEditor({ onClose }: { onClose: () => void }) {
   const [grid, setGrid] = useState<string[][]>(() =>
@@ -945,20 +821,8 @@ function ProfileAvatarPage() {
   );
 }
 
-/* ═══════════════════════════════════════════
-   EMOTICON ROOM
-═══════════════════════════════════════════ */
-
-const SAMPLE_EMOTICONS = [
-  { id: 1, emoji: "😎", label: "쿨가이" },
-  { id: 2, emoji: "🥺", label: "눈물눈물" },
-  { id: 3, emoji: "💅", label: "우아해" },
-  { id: 4, emoji: "🤩", label: "반짝반짝" },
-  { id: 5, emoji: "😤", label: "으쌰으쌰" },
-];
-
 /* ── Face camera placeholder ── */
-function FakeCameraView({ children }: { children?: React.ReactNode }) {
+function FakeCameraView({ children }: { children?: ReactNode }) {
   return (
     <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
       style={{ background: "linear-gradient(160deg, #1a0a2e 0%, #0d0820 100%)" }}>
@@ -1114,22 +978,6 @@ function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-/* shared photo store — simple module-level ref so PhotoPage and PhotoBooth share state */
-const sharedPhotoStore: { urls: string[]; listeners: Array<() => void> } = { urls: [], listeners: [] };
-function useSharedPhotos() {
-  const [urls, setUrls] = useState<string[]>(sharedPhotoStore.urls);
-  const add = (url: string) => {
-    sharedPhotoStore.urls = [url, ...sharedPhotoStore.urls];
-    sharedPhotoStore.listeners.forEach(l => l());
-  };
-  useState(() => {
-    const update = () => setUrls([...sharedPhotoStore.urls]);
-    sharedPhotoStore.listeners.push(update);
-    return () => { sharedPhotoStore.listeners = sharedPhotoStore.listeners.filter(l => l !== update); };
-  });
-  return { urls, add };
-}
-
 const PixelCharSvg = () => (
   <svg width="50" height="64" viewBox="0 0 18 22" style={{ imageRendering: "pixelated", filter: "drop-shadow(0 2px 6px rgba(196,77,255,0.6))" }}>
     <rect x="5" y="1" width="8" height="1" fill="#3d1a00" /><rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
@@ -1154,18 +1002,10 @@ function PhotoBoothPage({ onBack }: { onBack: () => void }) {
   const [flash, setFlash] = useState(false);
   const { add: addToAlbum } = useSharedPhotos();
 
-  const GRADIENTS = [
-    "linear-gradient(135deg,#ffb3e8,#c8a0ff)",
-    "linear-gradient(135deg,#a0e8ff,#80c8ff)",
-    "linear-gradient(135deg,#ffe080,#ffb040)",
-    "linear-gradient(135deg,#80e0b0,#40c080)",
-    "linear-gradient(135deg,#ff80c8,#ff2d78)",
-  ];
-
   const takePhoto = () => {
     setFlash(true);
     setTimeout(() => setFlash(false), 300);
-    const gradient = GRADIENTS[shots.length % GRADIENTS.length];
+    const gradient = PHOTO_BOOTH_GRADIENTS[shots.length % PHOTO_BOOTH_GRADIENTS.length];
     setShots(prev => {
       const next = [gradient, ...prev];
       setShotIdx(0);
@@ -1334,28 +1174,21 @@ function EmoticonRoomPage() {
   );
 }
 
-/* ═══════════════════════════════════════════
-   RIGHT PAGE — GUESTBOOK
-═══════════════════════════════════════════ */
-const INITIAL_ENTRIES = [
-  { id: 1, name: "별빛소녀✨", msg: "다이어리 너무 예뻐요!! 자주 올게요 🌸", date: "2026.06.22", color: "#ff80c8" },
-  { id: 2, name: "하늘이💙", msg: "오늘도 행복한 하루 보내요~~ 또 놀러올게용", date: "2026.06.21", color: "#80c8ff" },
-  { id: 3, name: "민트초코🍃", msg: "Y2K 감성 너무 좋다!! bgm도 최고야 ㅠㅠ💜", date: "2026.06.20", color: "#80e0b0" },
-];
-
 function GuestbookPage() {
   const [entries, setEntries] = useState(INITIAL_ENTRIES);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [msg, setMsg] = useState("");
 
-  const COLORS = ["#ff80c8", "#c8a0ff", "#80c8ff", "#80e0b0", "#ffe080", "#ffa880"];
-
   const handleSubmit = () => {
     if (!name.trim() || !msg.trim()) return;
-    const today = new Date();
-    const date = `${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,"0")}.${String(today.getDate()).padStart(2,"0")}`;
-    setEntries(prev => [{ id: Date.now(), name: name.trim(), msg: msg.trim(), date, color: COLORS[prev.length % COLORS.length] }, ...prev]);
+    setEntries(prev => [{
+      id: Date.now(),
+      name: name.trim(),
+      msg: msg.trim(),
+      date: formatDottedDate(),
+      color: GUESTBOOK_COLORS[prev.length % GUESTBOOK_COLORS.length],
+    }, ...prev]);
     setName(""); setMsg(""); setShowForm(false);
   };
 
@@ -1487,191 +1320,19 @@ function GuestbookPage() {
   );
 }
 
-/* ═══════════════════════════════════════════
-   RIGHT PAGE — MINI ROOM
-═══════════════════════════════════════════ */
-const ROOM_ITEMS = [
-  { id: "sofa",    emoji: "🛋️", label: "소파",     color: "#ff80c8" },
-  { id: "lamp",    emoji: "💡", label: "램프",     color: "#ffe060" },
-  { id: "plant",   emoji: "🪴", label: "화분",     color: "#80e0b0" },
-  { id: "books",   emoji: "📚", label: "책장",     color: "#80c8ff" },
-  { id: "bear",    emoji: "🧸", label: "인형",     color: "#e8c090" },
-  { id: "clock",   emoji: "🕰️", label: "시계",     color: "#c8a0ff" },
-  { id: "frame",   emoji: "🖼️", label: "액자",     color: "#ffa880" },
-  { id: "rug",     emoji: "🟫", label: "러그",     color: "#d4a060" },
-  { id: "pc",      emoji: "💻", label: "컴퓨터",   color: "#9090e0" },
-  { id: "music",   emoji: "🎵", label: "스피커",   color: "#ff80a0" },
-  { id: "star",    emoji: "⭐", label: "별 장식",  color: "#ffe060" },
-  { id: "flower",  emoji: "🌸", label: "꽃병",     color: "#ffb0d0" },
-];
-
-function MiniRoomPage() {
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [eraseMode, setEraseMode] = useState(false);
-  const [placedItems, setPlacedItems] = useState<PlacedRoomItem[]>([]);
-
-  const handleRoomClick = (x: number, y: number) => {
-    if (eraseMode || !selectedItemId) return;
-    const item = ROOM_ITEMS.find((i) => i.id === selectedItemId);
-    if (!item) return;
-    setPlacedItems((prev) => [
-      ...prev,
-      { uid: `${Date.now()}-${Math.random()}`, itemId: item.id, emoji: item.emoji, x, y },
-    ]);
-  };
-
-  const handleItemClick = (uid: string) => {
-    if (!eraseMode) return;
-    setPlacedItems((prev) => prev.filter((p) => p.uid !== uid));
-  };
-
-  const selectItem = (id: string) => {
-    setEraseMode(false);
-    setSelectedItemId((prev) => (prev === id ? null : id));
-  };
-
-  const selectErase = () => {
-    setEraseMode((prev) => !prev);
-    if (!eraseMode) setSelectedItemId(null);
-  };
-
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
-    }}>
-      {/* header */}
-      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(128,224,176,0.3)" }}>
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#40b080" }}>★</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#40b080", letterSpacing: "0.12em" }}>MINI ROOM</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {placedItems.length > 0 && (
-            <button
-              onClick={() => setPlacedItems([])}
-              className="px-2 py-0.5 rounded-full"
-              style={{
-                fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 600,
-                color: "#9060b0", background: "rgba(255,255,255,0.7)",
-                border: "1px solid rgba(196,77,255,0.2)",
-              }}
-            >
-              초기화
-            </button>
-          )}
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#80b0a0" }}>
-            {eraseMode ? "지울 아이템을 탭하세요" : selectedItemId ? "방을 탭해서 배치" : "아이템을 선택하세요"}
-          </span>
-        </div>
-      </div>
-
-      {/* room canvas */}
-      <div className="flex-1 rounded-xl overflow-hidden relative" style={{
-        border: "1.5px solid rgba(128,224,176,0.35)",
-        background: "#f0e8ff",
-        minHeight: 0,
-        boxShadow: "inset 0 2px 8px rgba(128,224,176,0.08)",
-      }}>
-        <MiniRoom
-          placedItems={placedItems}
-          onRoomClick={handleRoomClick}
-          onItemClick={handleItemClick}
-          eraseMode={eraseMode}
-        />
-      </div>
-
-      {/* bottom item palette */}
-      <div className="rounded-xl p-2 flex-shrink-0" style={{
-        background: "rgba(255,255,255,0.75)",
-        border: "1px solid rgba(128,224,176,0.25)",
-      }}>
-        <div className="flex items-center gap-1 mb-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#40b080", marginRight: 2 }}>ITEM</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#80b0a0" }}>꾸미기 아이템</span>
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "thin" }}>
-          <motion.button
-            onClick={selectErase}
-            className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{
-              background: eraseMode ? "rgba(255,100,100,0.2)" : "rgba(255,100,100,0.08)",
-              border: eraseMode ? "2px solid #ff6060" : "1.5px solid rgba(255,100,100,0.25)",
-            }}
-            whileTap={{ scale: 0.92 }}
-            title="지우기"
-          >
-            <span style={{ fontSize: 16 }}>🗑️</span>
-          </motion.button>
-          <div className="w-px h-7 flex-shrink-0" style={{ background: "rgba(128,224,176,0.3)" }} />
-          {ROOM_ITEMS.map((item) => {
-            const on = !eraseMode && selectedItemId === item.id;
-            return (
-              <motion.button
-                key={item.id}
-                onClick={() => selectItem(item.id)}
-                className="flex-shrink-0 flex flex-col items-center gap-0.5 w-9"
-                whileTap={{ scale: 0.92 }}
-                title={item.label}
-              >
-                <div
-                  className="w-9 h-9 rounded-lg flex items-center justify-center transition-transform"
-                  style={{
-                    background: on ? `${item.color}33` : "rgba(128,224,176,0.08)",
-                    border: on ? `2px solid ${item.color}` : "1.5px solid rgba(128,224,176,0.2)",
-                    transform: on ? "scale(1.08)" : undefined,
-                  }}
-                >
-                  <span style={{ fontSize: 18 }}>{item.emoji}</span>
-                </div>
-                <span style={{
-                  fontFamily: "'Quicksand', sans-serif", fontSize: "0.35rem", fontWeight: on ? 700 : 500,
-                  color: on ? item.color : "#80a090", whiteSpace: "nowrap",
-                }}>
-                  {item.label}
-                </span>
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   DIARY PAGE
-═══════════════════════════════════════════ */
-const WEATHER_OPTIONS = ["☀️","🌤️","⛅","🌧️","⛈️","❄️","🌈","🌙"];
-const STICKER_OPTIONS = ["🌸","⭐","💖","🎀","✨","🦋","🍀","🌙","💫","🎵","🌺","💝"];
-
-const INIT_ENTRIES = [
-  { id: 1, date: "2026-06-22", weather: "🌸", privacy: "public", content: "오늘은 날씨가 너무 좋았다. 카페에서 라떼 마시면서 음악 들었는데 너무 행복했어 ☕✨", stickers: ["💖","🎵"] },
-  { id: 2, date: "2026-06-19", weather: "🌧️", privacy: "private", content: "비 오는 날엔 괜히 감성적이 돼. 창밖 빗소리 들으면서 일기 썼다. 이런 날이 오히려 좋아.", stickers: ["🌙"] },
-  { id: 3, date: "2026-06-15", weather: "☀️", privacy: "public", content: "친구들이랑 한강 나갔다! 사진도 많이 찍고 웃음이 넘쳤던 하루였어 🌻💛", stickers: ["✨","🌸","💖"] },
-];
-
 function DiaryPage() {
   const [entries, setEntries] = useState(INIT_ENTRIES);
-  const [privacy, setPrivacy] = useState<"public"|"private">("public");
+  const [privacy, setPrivacy] = useState<Privacy>("public");
   const [selWeather, setSelWeather] = useState("☀️");
   const [content, setContent] = useState("");
   const [showStickers, setShowStickers] = useState(false);
   const [activeStickers, setActiveStickers] = useState<string[]>([]);
-  const [showBoard, setShowBoard] = useState(false);
-
-  const today = new Date().toLocaleDateString("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit" }).replace(/\. /g,".").replace(".",".");
+  const today = formatDottedDate();
 
   const saveEntry = () => {
     if (!content.trim()) return;
-    const now = new Date();
-    const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
-    setEntries(prev => [{ id: Date.now(), date, weather: selWeather, privacy, content, stickers: [...activeStickers] }, ...prev]);
+    setEntries(prev => [{ id: Date.now(), date: formatIsoDate(), weather: selWeather, privacy, content, stickers: [...activeStickers] }, ...prev]);
     setContent(""); setActiveStickers([]);
-  };
-
-  const fmtDate = (d: string) => {
-    const [y,m,day] = d.split("-");
-    return `${y}년 ${m}월 ${day}일`;
   };
 
   return (
@@ -1803,7 +1464,7 @@ function DiaryPage() {
             }}>
               <div className="flex items-center gap-2">
                 <span style={{ fontSize: 16 }}>{entry.weather}</span>
-                <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.58rem", color: "#c06030" }}>{fmtDate(entry.date)}</span>
+                <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.58rem", color: "#c06030" }}>{formatDiaryDisplayDate(entry.date)}</span>
               </div>
               <span style={{ fontSize: 12 }}>{entry.privacy === "private" ? "🔒" : "🔓"}</span>
             </div>
@@ -1823,38 +1484,6 @@ function DiaryPage() {
   );
 }
 
-/* ═══════════════════════════════════════════
-   HOME RIGHT — MINI ROOM + NEIGHBORS
-═══════════════════════════════════════════ */
-type Neighbor = {
-  id: number;
-  name: string;
-  color: string;
-  avatar: AvatarConfig;
-};
-
-const AVATAR_PRESETS: AvatarConfig[] = [
-  { hairDark: "#2a1060", hairLight: "#7040c0", skin: "#ffe0c8", outfit: "#ffe060", outfitDark: "#e0c030", outfitInner: "#fff8b0", pants: "#9060d0" },
-  { hairDark: "#103060", hairLight: "#4080c0", skin: "#ffc8a0", outfit: "#80c8ff", outfitDark: "#5090d0", outfitInner: "#c0e8ff", pants: "#4060a0" },
-  { hairDark: "#1a4030", hairLight: "#40a080", skin: "#ffd8b8", outfit: "#80e0b0", outfitDark: "#50c090", outfitInner: "#c0ffe0", pants: "#308060" },
-  { hairDark: "#501030", hairLight: "#c04080", skin: "#ffc8a0", outfit: "#ff80c8", outfitDark: "#ff60b8", outfitInner: "#ffe0f4", pants: "#c06090" },
-  { hairDark: "#3d1a00", hairLight: "#5c2800", skin: "#ffc8a0", outfit: "#c8a0ff", outfitDark: "#a080e0", outfitInner: "#e8d8ff", pants: "#6040a0" },
-  { hairDark: "#402010", hairLight: "#804030", skin: "#ffe0c0", outfit: "#ffa880", outfitDark: "#e08060", outfitInner: "#ffe0c0", pants: "#804040" },
-  { hairDark: "#204040", hairLight: "#408080", skin: "#ffd0b0", outfit: "#80e8ff", outfitDark: "#50c0d0", outfitInner: "#c0f8ff", pants: "#306070" },
-  { hairDark: "#402060", hairLight: "#8040a0", skin: "#ffe8d0", outfit: "#ffb0d0", outfitDark: "#ff80a0", outfitInner: "#ffe0f0", pants: "#804080" },
-];
-
-const FRIEND_COLORS = ["#ffe060", "#80c8ff", "#80e0b0", "#ff80c8", "#c8a0ff", "#ffa880", "#80e8ff", "#ffb0d0"];
-
-const INITIAL_NEIGHBORS: Neighbor[] = [
-  { id: 1, name: "별빛소녀", color: "#ffe060", avatar: AVATAR_PRESETS[0] },
-  { id: 2, name: "하늘이",   color: "#80c8ff", avatar: AVATAR_PRESETS[1] },
-  { id: 3, name: "민트초코", color: "#80e0b0", avatar: AVATAR_PRESETS[2] },
-  { id: 4, name: "핑크몽",   color: "#ff80c8", avatar: AVATAR_PRESETS[3] },
-];
-
-type VisitMode = "miniroom" | "guest" | "diary";
-
 function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
   const [mode, setMode] = useState<VisitMode>("miniroom");
   const MODES: { id: VisitMode; label: string; emoji: string }[] = [
@@ -1868,7 +1497,9 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
       {/* header */}
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: `${nb.color}44` }}>
         <div className="flex items-center gap-2">
-          <NeighborAvatar avatar={nb.avatar} color={nb.color} size={28} />
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${nb.color}33`, border: `1.5px solid ${nb.color}`, fontSize: 14 }}>
+            {nb.emoji}
+          </div>
           <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#4a2060" }}>{nb.name}</span>
         </div>
         <button onClick={onBack} className="px-2 py-0.5 rounded-full"
@@ -1900,9 +1531,8 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
         {mode === "miniroom" && (
           <div className="relative h-full" style={{ border: `1.5px solid ${nb.color}44`, background: "#f0e8ff", borderRadius: 12, overflow: "hidden" }}>
             <MiniRoom />
-            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "rgba(255,255,255,0.88)", border: `1px solid ${nb.color}` }}>
-              <NeighborAvatar avatar={nb.avatar} color={nb.color} size={18} showOnline={false} />
-              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, color: "#6040a0" }}>{nb.name}의 방</span>
+            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.88)", border: `1px solid ${nb.color}` }}>
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, color: "#6040a0" }}>{nb.emoji} {nb.name}의 방</span>
             </div>
           </div>
         )}
@@ -1950,103 +1580,13 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
   );
 }
 
-function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name: string) => void }) {
-  const [name, setName] = useState("");
-
-  const handleSubmit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    onAdd(trimmed);
-    onClose();
-  };
-
-  return (
-    <div
-      className="absolute inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(80,40,120,0.35)" }}
-      onClick={onClose}
-    >
-      <motion.div
-        className="w-full max-w-[220px] rounded-2xl p-4 flex flex-col gap-3"
-        style={{
-          background: "linear-gradient(160deg, #fff8ff 0%, #f8f0ff 100%)",
-          border: "2px solid rgba(196,77,255,0.25)",
-          boxShadow: "0 8px 32px rgba(196,77,255,0.2)",
-        }}
-        initial={{ opacity: 0, scale: 0.9, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>♡</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#6040a0" }}>친구 추가</span>
-        </div>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          placeholder="닉네임 입력"
-          maxLength={12}
-          autoFocus
-          className="w-full px-3 py-2 rounded-xl outline-none"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", fontWeight: 600,
-            background: "rgba(255,255,255,0.9)", border: "1.5px solid rgba(196,77,255,0.2)", color: "#4a2060",
-          }}
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 py-1.5 rounded-xl"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 600, color: "#9060b0", background: "rgba(196,77,255,0.08)" }}
-          >
-            취소
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!name.trim()}
-            className="flex-1 py-1.5 rounded-xl text-white"
-            style={{
-              fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
-              background: name.trim() ? "linear-gradient(90deg, #c44dff, #ff2d78)" : "rgba(196,77,255,0.25)",
-              opacity: name.trim() ? 1 : 0.6,
-            }}
-          >
-            추가
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
 function HomeRightPage() {
-  const [neighbors, setNeighbors] = useState<Neighbor[]>(INITIAL_NEIGHBORS);
   const [selectedFriend, setSelectedFriend] = useState<Neighbor | null>(null);
-  const [showAddFriend, setShowAddFriend] = useState(false);
-
-  const handleAddFriend = (name: string) => {
-    const presetIdx = neighbors.length % AVATAR_PRESETS.length;
-    const colorIdx = neighbors.length % FRIEND_COLORS.length;
-    setNeighbors((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        name,
-        color: FRIEND_COLORS[colorIdx],
-        avatar: AVATAR_PRESETS[presetIdx],
-      },
-    ]);
-  };
 
   if (selectedFriend) return <FriendVisitPage nb={selectedFriend} onBack={() => setSelectedFriend(null)} />;
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden relative" style={{ background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)" }}>
-      {showAddFriend && (
-        <AddFriendModal onClose={() => setShowAddFriend(false)} onAdd={handleAddFriend} />
-      )}
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)" }}>
 
       {/* ① 게시판 */}
       <HomeBoardSection onExpand={() => {}} />
@@ -2072,11 +1612,11 @@ function HomeRightPage() {
       <div className="flex-1 flex flex-col gap-1.5 overflow-hidden" style={{ minHeight: 0 }}>
         <div className="flex items-center justify-between flex-shrink-0">
           <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>이웃 ♡</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#9060b0" }}>{neighbors.length}명</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#9060b0" }}>{NEIGHBORS.length}명</span>
         </div>
         <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-            {neighbors.map((nb, i) => (
+            {NEIGHBORS.map((nb, i) => (
               <motion.button
                 key={nb.id}
                 onClick={() => setSelectedFriend(nb)}
@@ -2093,7 +1633,20 @@ function HomeRightPage() {
                 whileHover={{ scale: 1.04, boxShadow: `0 3px 12px ${nb.color}44` }}
                 whileTap={{ scale: 0.95 }}
               >
-                <NeighborAvatar avatar={nb.avatar} color={nb.color} />
+                {/* square avatar */}
+                <div className="rounded-xl flex items-center justify-center"
+                  style={{
+                    width: 40, height: 40,
+                    background: `linear-gradient(135deg, ${nb.color}55, ${nb.color}22)`,
+                    border: `2px solid ${nb.color}`,
+                    fontSize: 20,
+                    position: "relative",
+                  }}>
+                  {nb.emoji}
+                  {/* online dot */}
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                    style={{ background: "#4cda64" }} />
+                </div>
                 <span style={{
                   fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.45rem",
                   color: "#4a2060", textAlign: "center", lineHeight: 1.2,
@@ -2103,34 +1656,10 @@ function HomeRightPage() {
             ))}
           </div>
         </div>
-        <motion.button
-          onClick={() => setShowAddFriend(true)}
-          className="w-full py-2 rounded-xl flex items-center justify-center gap-1.5 flex-shrink-0"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #c44dff, #ff2d78)",
-            color: "white",
-            boxShadow: "0 2px 10px rgba(196,77,255,0.3)",
-          }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-        >
-          <span style={{ fontSize: 12 }}>＋</span>
-          친구 추가
-        </motion.button>
       </div>
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════
-   HOME LEFT — BULLETIN BOARD + PROFILE
-═══════════════════════════════════════════ */
-const BOARD_POSTS = [
-  { id: 1, user: "별빛소녀✨", content: "오늘 새로 산 픽셀 캐릭터 어때요?? 💖", likes: 24, time: "5분 전" },
-  { id: 2, user: "민트초코🍃", content: "Re:world 다이어리 테마 너무 예쁘다ㅠ 저도 써보고 싶어요!", likes: 18, time: "12분 전" },
-  { id: 3, user: "하늘이💙", content: "오늘 날씨 너무 좋아서 기분 최고 ☀️ 모두 좋은 하루 보내요~", likes: 31, time: "28분 전" },
-];
 
 function HomeBoardSection({ onExpand }: { onExpand: () => void }) {
   const [liked, setLiked] = useState<Set<number>>(new Set());
@@ -2254,7 +1783,7 @@ function HomeLeftPage() {
           </div>
         </div>
         <div>
-          <p style={{ fontFamily: 'Great Vibes, Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1' }}>Re:world</p>
+          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: "1.1rem", color: "#d4006a", lineHeight: 1 }}>Re:world</p>
           <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", color: "#9060b0" }}>일상 기록중 🌸</p>
         </div>
         <div className="ml-auto flex items-center gap-1">
@@ -2315,14 +1844,22 @@ function RightPage({ activeTab }: { activeTab: string }) {
   if (activeTab === "emoticon") return <EmoticonRoomPage />;
   if (activeTab === "diary") return <DiaryPage />;
   if (activeTab === "home") return <HomeRightPage />;
-  if (activeTab === "miniroom") return <MiniRoomPage />;
-  return null;
+  return (
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
+      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
+    }}>
+      {/* mini room — fallback */}
+      <div className="flex-1 rounded-xl overflow-hidden" style={{ border: "1.5px solid rgba(255,110,180,0.25)", background: "#f0e8ff", minHeight: 0 }}>
+        <MiniRoom />
+      </div>
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════════
    SPREAD PAGE
 ═══════════════════════════════════════════ */
-function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onClose: () => void; onLogout?: () => void; onUserUpdate: (user: User) => void }) {
+function SpreadPage({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState("home");
 
   return (
@@ -2355,7 +1892,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           overflow: "hidden",
           boxShadow: "inset -4px 0 12px rgba(0,0,0,0.06)",
         }}>
-          <LeftPage user={user} onUserUpdate={onUserUpdate} />
+          <LeftPage />
         </div>
 
         {/* SPINE */}
@@ -2429,46 +1966,23 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
       </motion.div>
 
       {/* back button */}
-      <div className="absolute top-4 left-4 flex items-center gap-2">
-        <motion.button
-          className="px-3 py-1.5 rounded-full text-white text-xs font-semibold"
-          style={{
-            fontFamily: "'Quicksand', sans-serif",
-            background: "linear-gradient(135deg, #ff2d78, #c44dff)",
-            boxShadow: "0 2px 10px rgba(255,45,120,0.35)",
-            fontSize: "0.65rem",
-          }}
-          onClick={onClose}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          ← 표지로
-        </motion.button>
-        {onLogout && (
-          <motion.button
-            className="px-3 py-1.5 rounded-full"
-            style={{
-              fontFamily: "'Quicksand', sans-serif",
-              fontSize: "0.58rem",
-              fontWeight: 600,
-              color: "#9060b0",
-              background: "rgba(255,255,255,0.85)",
-              border: "1px solid rgba(196,77,255,0.2)",
-            }}
-            onClick={onLogout}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.55 }}
-          >
-            로그아웃
-          </motion.button>
-        )}
-      </div>
+      <motion.button
+        className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-white text-xs font-semibold"
+        style={{
+          fontFamily: "'Quicksand', sans-serif",
+          background: "linear-gradient(135deg, #ff2d78, #c44dff)",
+          boxShadow: "0 2px 10px rgba(255,45,120,0.35)",
+          fontSize: "0.65rem",
+        }}
+        onClick={onClose}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+      >
+        ← 표지로
+      </motion.button>
     </div>
   );
 }
@@ -2476,44 +1990,19 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 /* ═══════════════════════════════════════════
    ROOT
 ═══════════════════════════════════════════ */
-type AppPage = "auth" | "cover" | "spread";
-
 export default function App() {
-  const [user, setUser] = useState<User | null>(() => getSession());
-  const [page, setPage] = useState<AppPage>(() => (getSession() ? "cover" : "auth"));
-
-  const handleAuthSuccess = (loggedIn: User) => {
-    setUser(loggedIn);
-    setPage("cover");
-  };
-
-  const handleLogout = () => {
-    signOut();
-    setUser(null);
-    setPage("auth");
-  };
+  const [page, setPage] = useState<"cover" | "spread">("cover");
 
   return (
     <div className="size-full">
       <AnimatePresence mode="wait">
-        {page === "auth" && (
-          <motion.div key="auth" className="size-full" exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-            <AuthPage onSuccess={handleAuthSuccess} />
-          </motion.div>
-        )}
-        {page === "cover" && (
+        {page === "cover" ? (
           <motion.div key="cover" className="size-full" exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.4 }}>
-            <CoverPage onOpen={() => setPage("spread")} nickname={user?.nickname} />
+            <CoverPage onOpen={() => setPage("spread")} />
           </motion.div>
-        )}
-        {page === "spread" && user && (
+        ) : (
           <motion.div key="spread" className="size-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-            <SpreadPage
-              user={user}
-              onClose={() => setPage("cover")}
-              onLogout={handleLogout}
-              onUserUpdate={setUser}
-            />
+            <SpreadPage onClose={() => setPage("cover")} />
           </motion.div>
         )}
       </AnimatePresence>
