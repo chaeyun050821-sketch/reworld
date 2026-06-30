@@ -20,8 +20,10 @@ export type AvatarItem = {
 
 export type Emoticon = {
   id: number;
-  emoji: string;
+  icon: string;
   label: string;
+  color: string;
+  category: string;
 };
 
 export type GuestbookEntry = {
@@ -61,13 +63,13 @@ export type BoardPost = {
 };
 
 export const TABS: TabConfig[] = [
-  { id: "home", label: "홈", color: "#ff80c8", active: true },
-  { id: "profile", label: "프로필", color: "#c8a0ff", active: false },
-  { id: "diary", label: "다이어리", color: "#80c8ff", active: false },
-  { id: "miniroom", label: "미니룸", color: "#80e0b0", active: false },
-  { id: "photo", label: "사진첩", color: "#ffe080", active: false },
-  { id: "guest", label: "방명록", color: "#ffa880", active: false },
-  { id: "emoticon", label: "이모티콘룸", color: "#ff80a0", active: false },
+  { id: "home", label: "홈", color: "#d8c49b", active: true },
+  { id: "profile", label: "아바타", color: "#c9b27f", active: false },
+  { id: "diary", label: "다이어리", color: "#b8ab89", active: false },
+  { id: "miniroom", label: "미니룸", color: "#aeb79b", active: false },
+  { id: "photo", label: "사진첩", color: "#e4d4a8", active: false },
+  { id: "guest", label: "방명록", color: "#c9a878", active: false },
+  { id: "emoticon", label: "이모티콘룸", color: "#d6c7a4", active: false },
 ];
 
 export const INIT_FIELDS: ProfileField[] = [
@@ -78,57 +80,98 @@ export const INIT_FIELDS: ProfileField[] = [
 ];
 
 export const AVATAR_ITEMS: AvatarItem[] = [
-  { id: "hat1", cat: "모자", emoji: "🎀", label: "리본 모자", color: "#ff80c8" },
-  { id: "hat2", cat: "모자", emoji: "👑", label: "크라운", color: "#ffe060" },
-  { id: "top1", cat: "상의", emoji: "👚", label: "핑크 후디", color: "#ffb0d0" },
-  { id: "top2", cat: "상의", emoji: "🎽", label: "보라 조끼", color: "#c8a0ff" },
-  { id: "acc1", cat: "악세서리", emoji: "💎", label: "목걸이", color: "#80e8ff" },
-  { id: "acc2", cat: "악세서리", emoji: "⭐", label: "별 귀걸이", color: "#ffe060" },
-  { id: "acc3", cat: "악세서리", emoji: "🌸", label: "꽃 핀", color: "#ff80c8" },
-  { id: "shoes1", cat: "신발", emoji: "👟", label: "스니커즈", color: "#c8a0ff" },
+  { id: "face-blush", cat: "얼굴", emoji: "", label: "블러셔", color: "#d99a86" },
+  { id: "face-glasses", cat: "얼굴", emoji: "", label: "픽셀 안경", color: "#5b4b2d" },
+  { id: "face-freckle", cat: "얼굴", emoji: "", label: "주근깨", color: "#9b6a3c" },
+  { id: "face-mask", cat: "얼굴", emoji: "", label: "마스크", color: "#f7efd9" },
+  { id: "outfit-cardigan", cat: "의상", emoji: "", label: "아이보리 가디건", color: "#ead8b5" },
+  { id: "outfit-sage", cat: "의상", emoji: "", label: "세이지 니트", color: "#b8c0a0" },
+  { id: "outfit-ribbon", cat: "의상", emoji: "", label: "리본 타이", color: "#b08a4a" },
+  { id: "outfit-pinktee", cat: "의상", emoji: "", label: "핑크 티셔츠", color: "#e58aa8" },
+  { id: "outfit-denim", cat: "의상", emoji: "", label: "데님 멜빵", color: "#6f8fb8" },
+  { id: "emote-heart", cat: "기타", emoji: "", label: "하트 픽셀", color: "#d8a878" },
+  { id: "emote-sparkle", cat: "기타", emoji: "", label: "반짝 픽셀", color: "#e4d4a8" },
+  { id: "emote-note", cat: "기타", emoji: "", label: "음표 픽셀", color: "#8b9a72" },
+  { id: "other-sneakers", cat: "기타", emoji: "", label: "스니커즈", color: "#f7efd9" },
+  { id: "other-crown", cat: "악세사리", emoji: "", label: "크라운", color: "#d4b45f" },
+  { id: "other-flower", cat: "악세사리", emoji: "", label: "꽃핀", color: "#d8c49b" },
+  { id: "other-bag", cat: "악세사리", emoji: "", label: "미니백", color: "#c9a878" },
+  { id: "other-headband", cat: "악세사리", emoji: "", label: "헤어밴드", color: "#d8a878" },
+  { id: "other-scarf", cat: "악세사리", emoji: "", label: "스카프", color: "#8b9a72" },
 ];
 
-export const PIXEL_COLS = 16;
-export const PIXEL_ROWS = 16;
+export const PIXEL_COLS = 32;
+export const PIXEL_ROWS = 48;
 
 export const PALETTE = [
-  "#ff2d78",
-  "#c44dff",
-  "#ff80c8",
-  "#ffe060",
-  "#80c8ff",
-  "#80e0b0",
   "#ffffff",
-  "#3d1a00",
-  "#000000",
-  "#f9a0e8",
-  "#b0f0ff",
-  "#ffb0d0",
+  "#f8fafc",
+  "#e5e7eb",
+  "#9ca3af",
+  "#111827",
+  "#2d1a00",
+  "#7f1d1d",
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#fde047",
+  "#84cc16",
+  "#22c55e",
+  "#14b8a6",
+  "#06b6d4",
+  "#3b82f6",
+  "#6366f1",
+  "#8b5cf6",
+  "#d946ef",
+  "#ec4899",
+  "#f9a8d4",
+  "#fecdd3",
+  "#fed7aa",
+  "#fde68a",
+  "#bbf7d0",
+  "#bae6fd",
+  "#ddd6fe",
+  "#b08a4a",
+  "#8b9a72",
+  "#d8c49b",
+  "#e4d4a8",
+  "#f7efd9",
+  "#c8d0b0",
+  "#ead3a1",
+  "#c9b27f",
+  "#b8ab89",
 ];
 
 export const SAMPLE_EMOTICONS: Emoticon[] = [
-  { id: 1, emoji: "😎", label: "쿨가이" },
-  { id: 2, emoji: "🥺", label: "눈물눈물" },
-  { id: 3, emoji: "💅", label: "우아해" },
-  { id: 4, emoji: "🤩", label: "반짝반짝" },
-  { id: 5, emoji: "😤", label: "으쌰으쌰" },
+  { id: 1, icon: "cool-face", label: "쿨픽셀", color: "#8b9a72", category: "감정" },
+  { id: 2, icon: "teary-face", label: "눈물톡", color: "#80c8ff", category: "감정" },
+  { id: 3, icon: "sparkle-face", label: "반짝눈", color: "#d8c49b", category: "감정" },
+  { id: 4, icon: "angry-face", label: "으쌰!", color: "#d99a86", category: "감정" },
+  { id: 5, icon: "ribbon-hat", label: "리본모자", color: "#d8a878", category: "모자" },
+  { id: 6, icon: "crown-hat", label: "왕관", color: "#d4b45f", category: "모자" },
+  { id: 7, icon: "cardigan", label: "가디건", color: "#ead8b5", category: "의상" },
+  { id: 8, icon: "sailor-outfit", label: "스쿨룩", color: "#8b9a72", category: "의상" },
+  { id: 9, icon: "pixel-glasses", label: "안경", color: "#5b4b2d", category: "악세사리" },
+  { id: 10, icon: "mini-bag", label: "미니백", color: "#c9a878", category: "악세사리" },
+  { id: 11, icon: "love-heart", label: "하트톡", color: "#d86f86", category: "하트" },
+  { id: 12, icon: "double-heart", label: "두근", color: "#e58aa8", category: "하트" },
 ];
 
 export const PHOTO_BOOTH_GRADIENTS = [
-  "linear-gradient(135deg,#ffb3e8,#c8a0ff)",
-  "linear-gradient(135deg,#a0e8ff,#80c8ff)",
-  "linear-gradient(135deg,#ffe080,#ffb040)",
-  "linear-gradient(135deg,#80e0b0,#40c080)",
-  "linear-gradient(135deg,#ff80c8,#ff2d78)",
+  "linear-gradient(135deg,#fff8e8,#d8c49b)",
+  "linear-gradient(135deg,#f7efd9,#b8c0a0)",
+  "linear-gradient(135deg,#f5e7c7,#c9a878)",
+  "linear-gradient(135deg,#fffaf0,#e4d4a8)",
+  "linear-gradient(135deg,#ead3a1,#b08a4a)",
 ];
 
 export const INITIAL_ENTRIES: GuestbookEntry[] = [
-  { id: 1, name: "별빛소녀✨", msg: "다이어리 너무 예뻐요!! 자주 올게요 🌸", date: "2026.06.22", color: "#ff80c8" },
+  { id: 1, name: "별빛소녀✨", msg: "다이어리 너무 예뻐요!! 자주 올게요 🌸", date: "2026.06.22", color: "#d8c49b" },
   { id: 2, name: "하늘이💙", msg: "오늘도 행복한 하루 보내요~~ 또 놀러올게용", date: "2026.06.21", color: "#80c8ff" },
   { id: 3, name: "민트초코🍃", msg: "Y2K 감성 너무 좋다!! bgm도 최고야 ㅠㅠ💜", date: "2026.06.20", color: "#80e0b0" },
 ];
 
-export const GUESTBOOK_COLORS = ["#ff80c8", "#c8a0ff", "#80c8ff", "#80e0b0", "#ffe080", "#ffa880"];
+export const GUESTBOOK_COLORS = ["#d8c49b", "#c9b27f", "#b8ab89", "#aeb79b", "#e4d4a8", "#c9a878"];
 
 export const WEATHER_OPTIONS = ["☀️", "🌤️", "⛅", "🌧️", "⛈️", "❄️", "🌈", "🌙"];
 export const STICKER_OPTIONS = ["🌸", "⭐", "💖", "🎀", "✨", "🦋", "🍀", "🌙", "💫", "🎵", "🌺", "💝"];
@@ -143,7 +186,7 @@ export const NEIGHBORS: Neighbor[] = [
   { id: 1, name: "별빛소녀", emoji: "🌟", color: "#ffe060" },
   { id: 2, name: "하늘이", emoji: "💙", color: "#80c8ff" },
   { id: 3, name: "민트초코", emoji: "🍃", color: "#80e0b0" },
-  { id: 4, name: "핑크몽", emoji: "🎀", color: "#ff80c8" },
+  { id: 4, name: "크림몽", emoji: "🎀", color: "#d8c49b" },
 ];
 
 export const BOARD_POSTS: BoardPost[] = [
