@@ -1,27 +1,60 @@
-import { type ReactNode, useState } from "react";
+import { useState, useEffect, type Dispatch, type SetStateAction, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import AuthPage from "./AuthPage";
+import { getSession, signOut, updateUserNickname, type User } from "../lib/auth";
+import { getUserProfile, saveUserProfile, type ProfileField } from "../lib/profile";
 import {
-  AVATAR_ITEMS,
-  BOARD_POSTS,
-  GUESTBOOK_COLORS,
-  INIT_ENTRIES,
-  INIT_FIELDS,
-  INITIAL_ENTRIES,
-  NEIGHBORS,
-  PALETTE,
-  PHOTO_BOOTH_GRADIENTS,
-  PIXEL_COLS,
-  PIXEL_ROWS,
-  SAMPLE_EMOTICONS,
-  STICKER_OPTIONS,
-  TABS,
-  WEATHER_OPTIONS,
-  type Neighbor,
-  type Privacy,
-  type VisitMode,
+  ROOM_CATEGORIES,
+  EMPTY_ROOM_SELECTIONS,
+  ROOM_VIEW_WIDTH,
+  ROOM_VIEW_HEIGHT,
+  ROOM_WALL_HEIGHT,
+  ROOM_FLOOR_Y,
+  getItemsByCategory,
+  getSelectedItems,
+  getItemById,
+  loadRoomSelections,
+  saveRoomSelections,
+  type RoomCategoryId,
+  type RoomSelections,
+  type PixelRect,
 } from "./data";
-import { useSharedPhotos } from "./hooks/useSharedPhotos";
-import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils/date";
+
+/* ── Fixed diary layout (non-responsive) ── */
+const DIARY = {
+  pageW: 420,
+  pageH: 640,
+  spineW: 12,
+  tabW: 28,
+} as const;
+const DIARY_SPREAD_W = DIARY.pageW * 2 + DIARY.spineW + DIARY.tabW;
+const ROOM_ASPECT = `${ROOM_VIEW_WIDTH} / ${ROOM_VIEW_HEIGHT}`;
+
+/** Mini room frame — preserves full viewBox, never crops */
+function RoomCanvas({
+  selections,
+  style,
+  className = "",
+  fillHeight = false,
+}: {
+  selections?: RoomSelections;
+  style?: CSSProperties;
+  className?: string;
+  fillHeight?: boolean;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden ${className}`}
+      style={
+        fillHeight
+          ? { width: "100%", height: "100%", ...style }
+          : { width: "100%", aspectRatio: ROOM_ASPECT, ...style }
+      }
+    >
+      <MiniRoom selections={selections} />
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════
    SHARED ATOMS
@@ -72,7 +105,7 @@ const Corner = ({ flip }: { flip?: boolean }) => (
   </svg>
 );
 
-const ChromeBadge = ({ children }: { children: ReactNode }) => (
+const ChromeBadge = ({ children }: { children: React.ReactNode }) => (
   <div className="px-4 py-1 rounded-full text-xs font-semibold tracking-widest uppercase" style={{
     fontFamily: "'Quicksand', sans-serif",
     background: "linear-gradient(135deg, #fff 0%, #f0c0e8 30%, #e8a0d8 60%, #fff 100%)",
@@ -81,7 +114,7 @@ const ChromeBadge = ({ children }: { children: ReactNode }) => (
   }}>{children}</div>
 );
 
-function CoverPage({ onOpen }: { onOpen: () => void }) {
+function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string }) {
   const stars = [
     { x: "7%", y: "9%", size: 22, delay: 0, color: "#ff2d78" },
     { x: "83%", y: "6%", size: 18, delay: 0.5, color: "#c44dff" },
@@ -108,7 +141,7 @@ function CoverPage({ onOpen }: { onOpen: () => void }) {
       <motion.div
         className="relative overflow-hidden cursor-pointer"
         style={{
-          width: "min(400px, 88vw)", height: "min(560px, 84vh)",
+          width: DIARY.pageW, height: DIARY.pageH,
           borderRadius: "4px 16px 16px 4px",
           boxShadow: "6px 10px 50px rgba(200,0,120,0.28), 2px 4px 16px rgba(180,50,255,0.2), 0 0 0 1px rgba(255,255,255,0.6)",
           background: "linear-gradient(148deg, #ffd6f4 0%, #ffb3e8 20%, #f9a0e8 40%, #e8b0ff 65%, #ffc0ea 85%, #ffd6f4 100%)",
@@ -151,10 +184,8 @@ function CoverPage({ onOpen }: { onOpen: () => void }) {
             ))}
           </motion.div>
           <motion.div className="text-center" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.75, duration: 1, ease: [0.22, 1, 0.36, 1] }}>
-            <h1 style={{
-              fontFamily: "'Great Vibes', cursive",
-              fontSize: "clamp(3.2rem, 11vw, 5rem)",
-              lineHeight: 1,
+            <h1 
+              style={{ fontFamily: '"Great Vibes", "Comic Sans MS", "Malgun Gothic", sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1',
               background: "linear-gradient(135deg, #d4006a 0%, #ff2d78 30%, #c44dff 60%, #ff2d78 80%, #d4006a 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
               filter: "drop-shadow(0 2px 8px rgba(255,45,120,0.35))",
@@ -196,7 +227,7 @@ function CoverPage({ onOpen }: { onOpen: () => void }) {
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 2, repeat: Infinity }}
           >
-            클릭해서 열기 ▶
+            {nickname ? `${nickname}님, ` : ""}클릭해서 열기 ▶
           </motion.p>
         </div>
         <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none rounded-t-2xl" style={{
@@ -210,8 +241,8 @@ function CoverPage({ onOpen }: { onOpen: () => void }) {
         }} />
       </motion.div>
       <div className="absolute" style={{
-        width: 12, height: "min(560px, 84vh)",
-        left: "calc(50% - min(200px, 44vw) - 8px)",
+        width: 12, height: DIARY.pageH,
+        left: `calc(50% - ${DIARY.pageW / 2}px - 8px)`,
         borderRadius: "4px 0 0 4px",
         background: "linear-gradient(to right, #e060b0, #f090c8)",
         boxShadow: "-3px 0 10px rgba(180,0,100,0.2)",
@@ -223,17 +254,46 @@ function CoverPage({ onOpen }: { onOpen: () => void }) {
 /* ═══════════════════════════════════════════
    PIXEL AVATAR SVG
 ═══════════════════════════════════════════ */
-function PixelAvatar() {
+type AvatarConfig = {
+  hairDark: string;
+  hairLight: string;
+  skin: string;
+  outfit: string;
+  outfitDark: string;
+  outfitInner: string;
+  pants: string;
+};
+
+const DEFAULT_AVATAR: AvatarConfig = {
+  hairDark: "#3d1a00",
+  hairLight: "#5c2800",
+  skin: "#ffc8a0",
+  outfit: "#ff80c8",
+  outfitDark: "#ff60b8",
+  outfitInner: "#ffe0f4",
+  pants: "#c8a0ff",
+};
+
+function PixelAvatar({
+  config = DEFAULT_AVATAR,
+  width = 72,
+  height = 90,
+}: {
+  config?: AvatarConfig;
+  width?: number;
+  height?: number;
+}) {
+  const c = config;
   return (
-    <svg width="72" height="90" viewBox="0 0 18 22" style={{ imageRendering: "pixelated" }}>
+    <svg width={width} height={height} viewBox="0 0 18 22" style={{ imageRendering: "pixelated" }}>
       {/* hair */}
-      <rect x="5" y="1" width="8" height="1" fill="#3d1a00" />
-      <rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
-      <rect x="4" y="3" width="10" height="4" fill="#5c2800" />
-      <rect x="3" y="4" width="1" height="3" fill="#5c2800" />
-      <rect x="14" y="4" width="1" height="3" fill="#5c2800" />
+      <rect x="5" y="1" width="8" height="1" fill={c.hairDark} />
+      <rect x="4" y="2" width="10" height="1" fill={c.hairDark} />
+      <rect x="4" y="3" width="10" height="4" fill={c.hairLight} />
+      <rect x="3" y="4" width="1" height="3" fill={c.hairLight} />
+      <rect x="14" y="4" width="1" height="3" fill={c.hairLight} />
       {/* face */}
-      <rect x="4" y="5" width="10" height="7" fill="#ffc8a0" />
+      <rect x="4" y="5" width="10" height="7" fill={c.skin} />
       {/* eyes */}
       <rect x="6" y="7" width="2" height="2" fill="#2d1a00" />
       <rect x="10" y="7" width="2" height="2" fill="#2d1a00" />
@@ -245,117 +305,164 @@ function PixelAvatar() {
       {/* mouth */}
       <rect x="8" y="10" width="2" height="1" fill="#ff8080" />
       {/* neck */}
-      <rect x="7" y="12" width="4" height="2" fill="#ffc8a0" />
-      {/* outfit - pink hoodie */}
-      <rect x="3" y="14" width="12" height="6" fill="#ff80c8" />
-      <rect x="2" y="14" width="3" height="5" fill="#ff60b8" />
-      <rect x="13" y="14" width="3" height="5" fill="#ff60b8" />
-      {/* hoodie detail */}
-      <rect x="7" y="14" width="4" height="1" fill="#ff60b8" />
-      <rect x="7" y="15" width="4" height="3" fill="#ffe0f4" />
+      <rect x="7" y="12" width="4" height="2" fill={c.skin} />
+      {/* outfit */}
+      <rect x="3" y="14" width="12" height="6" fill={c.outfit} />
+      <rect x="2" y="14" width="3" height="5" fill={c.outfitDark} />
+      <rect x="13" y="14" width="3" height="5" fill={c.outfitDark} />
+      <rect x="7" y="14" width="4" height="1" fill={c.outfitDark} />
+      <rect x="7" y="15" width="4" height="3" fill={c.outfitInner} />
       {/* legs */}
-      <rect x="5" y="20" width="3" height="2" fill="#c8a0ff" />
-      <rect x="10" y="20" width="3" height="2" fill="#c8a0ff" />
+      <rect x="5" y="20" width="3" height="2" fill={c.pants} />
+      <rect x="10" y="20" width="3" height="2" fill={c.pants} />
+    </svg>
+  );
+}
+
+function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avatar: AvatarConfig; color: string; size?: number; showOnline?: boolean }) {
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <div
+        className="rounded-xl flex items-end justify-center overflow-hidden w-full h-full"
+        style={{
+          background: `linear-gradient(135deg, ${color}55, ${color}22)`,
+          border: `2px solid ${color}`,
+        }}
+      >
+        <PixelAvatar config={avatar} width={size * 0.72} height={size * 0.9} />
+      </div>
+      {showOnline && (
+        <div
+          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+          style={{ background: "#4cda64", zIndex: 10 }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   MINI ROOM SVG — Slot-based interior
+═══════════════════════════════════════════ */
+
+function PixelRects({ pixels }: { pixels: PixelRect[] }) {
+  return (
+    <>
+      {pixels.map((p, i) => (
+        <rect
+          key={i}
+          x={p.x}
+          y={p.y}
+          width={p.w}
+          height={p.h}
+          fill={p.fill === "none" ? "none" : p.fill}
+          opacity={p.opacity}
+          stroke={p.stroke}
+          strokeWidth={p.strokeWidth}
+        />
+      ))}
+    </>
+  );
+}
+
+function MiniRoom({ selections = EMPTY_ROOM_SELECTIONS }: { selections?: RoomSelections }) {
+  const placed = getSelectedItems(selections);
+
+  return (
+    <svg
+      width="100%"
+      height="100%"
+      viewBox={`0 0 ${ROOM_VIEW_WIDTH} ${ROOM_VIEW_HEIGHT}`}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ imageRendering: "pixelated", display: "block" }}
+    >
+      {/* clean base wall */}
+      <rect x="0" y="0" width={ROOM_VIEW_WIDTH} height={ROOM_WALL_HEIGHT} fill="#fafafc" />
+      {Array.from({ length: 22 }, (_, i) =>
+        Array.from({ length: Math.ceil(ROOM_WALL_HEIGHT / 20) }, (_, j) => (
+          <rect
+            key={`wd${i}${j}`}
+            x={i * 20 + 3}
+            y={j * 20 + 3}
+            width="2"
+            height="2"
+            fill="#ececf0"
+            opacity="0.35"
+          />
+        )),
+      )}
+      {/* clean base floor */}
+      <rect x="0" y={ROOM_FLOOR_Y} width={ROOM_VIEW_WIDTH} height={ROOM_VIEW_HEIGHT - ROOM_FLOOR_Y} fill="#eeeef2" />
+      {Array.from({ length: 22 }, (_, i) =>
+        Array.from({ length: Math.ceil((ROOM_VIEW_HEIGHT - ROOM_FLOOR_Y) / 20) }, (_, j) => (
+          <rect
+            key={`fd${i}${j}`}
+            x={i * 20}
+            y={ROOM_FLOOR_Y + j * 20}
+            width="20"
+            height="20"
+            fill={(i + j) % 2 === 0 ? "#eeeef2" : "#e8e8ec"}
+          />
+        )),
+      )}
+      <rect x="0" y={ROOM_FLOOR_Y} width={ROOM_VIEW_WIDTH} height="3" fill="#dcdce4" />
+
+      {placed.map((item) => (
+        <g key={item.id}>
+          <PixelRects pixels={item.pixels} />
+        </g>
+      ))}
     </svg>
   );
 }
 
 /* ═══════════════════════════════════════════
-   MINI ROOM SVG
+   BOOKMARK TABS
 ═══════════════════════════════════════════ */
-function MiniRoom() {
-  return (
-    <svg width="100%" height="100%" viewBox="0 0 220 160" style={{ imageRendering: "pixelated" }}>
-      {/* floor */}
-      <rect x="0" y="100" width="220" height="60" fill="#e8d4f8" />
-      {/* floor pattern */}
-      {[0,1,2,3,4,5].map(i => [0,1,2].map(j => (
-        <rect key={`f${i}${j}`} x={i*40} y={100+j*20} width="40" height="20"
-          fill={((i+j)%2===0)?"#e0c8f0":"#d4b8e8"} />
-      )))}
-      {/* back wall */}
-      <rect x="0" y="0" width="220" height="102" fill="#f0e8ff" />
-      {/* wall stripes */}
-      {[0,1,2,3,4].map(i => (
-        <rect key={`w${i}`} x={i*44} y="0" width="22" height="102" fill="#ece0ff" opacity="0.5" />
-      ))}
-      {/* window */}
-      <rect x="140" y="12" width="60" height="50" fill="#c8eeff" />
-      <rect x="140" y="12" width="60" height="50" fill="none" stroke="#a0b8d8" strokeWidth="2" />
-      <rect x="168" y="12" width="2" height="50" fill="#a0b8d8" />
-      <rect x="140" y="35" width="60" height="2" fill="#a0b8d8" />
-      {/* curtains */}
-      <rect x="138" y="10" width="14" height="55" fill="#ffb3d9" opacity="0.7" />
-      <rect x="188" y="10" width="14" height="55" fill="#ffb3d9" opacity="0.7" />
-      {/* outside scene */}
-      <rect x="142" y="14" width="24" height="34" fill="#b8e0ff" />
-      <rect x="170" y="14" width="28" height="34" fill="#c0eaff" />
-      <rect x="148" y="30" width="10" height="18" fill="#80c060" opacity="0.8" />
-      <rect x="152" y="20" width="6" height="12" fill="#60a040" opacity="0.8" />
-      {/* desk */}
-      <rect x="20" y="80" width="70" height="8" fill="#d4a060" />
-      <rect x="22" y="88" width="5" height="18" fill="#b88040" />
-      <rect x="83" y="88" width="5" height="18" fill="#b88040" />
-      {/* computer on desk */}
-      <rect x="34" y="56" width="36" height="26" fill="#e0e0f8" />
-      <rect x="36" y="58" width="32" height="20" fill="#9090e0" />
-      <rect x="36" y="58" width="32" height="20" fill="#a0c0ff" opacity="0.6" />
-      {/* screen glow */}
-      <rect x="38" y="60" width="28" height="16" fill="#c8e0ff" opacity="0.5" />
-      <rect x="46" y="81" width="12" height="4" fill="#d0d0e8" />
-      {/* keyboard */}
-      <rect x="30" y="78" width="30" height="4" fill="#d8d8e8" />
-      {/* chair */}
-      <rect x="38" y="94" width="24" height="16" fill="#ff80c8" />
-      <rect x="38" y="88" width="24" height="8" fill="#ff60b8" />
-      <rect x="36" y="106" width="5" height="8" fill="#e060a8" />
-      <rect x="59" y="106" width="5" height="8" fill="#e060a8" />
-      {/* shelf on wall */}
-      <rect x="10" y="20" width="110" height="5" fill="#d4a060" />
-      <rect x="8" y="24" width="4" height="20" fill="#b88040" />
-      <rect x="118" y="24" width="4" height="20" fill="#b88040" />
-      {/* shelf items */}
-      {/* book 1 */}
-      <rect x="14" y="8" width="8" height="13" fill="#ff6060" />
-      <rect x="15" y="9" width="6" height="11" fill="#ff8080" />
-      {/* book 2 */}
-      <rect x="24" y="10" width="7" height="11" fill="#6080ff" />
-      <rect x="25" y="11" width="5" height="9" fill="#80a0ff" />
-      {/* book 3 */}
-      <rect x="33" y="8" width="8" height="13" fill="#60c060" />
-      {/* star lamp */}
-      <rect x="100" y="12" width="14" height="10" fill="#ffe060" />
-      <rect x="106" y="8" width="2" height="5" fill="#ffb020" />
-      <rect x="100" y="20" width="14" height="2" fill="#ffb020" />
-      {/* bear plushie */}
-      <rect x="76" y="12" width="14" height="13" fill="#e8c090" />
-      <rect x="73" y="14" width="5" height="5" fill="#e8c090" />
-      <rect x="88" y="14" width="5" height="5" fill="#e8c090" />
-      <rect x="78" y="15" width="4" height="4" fill="#3d1a00" />
-      <rect x="84" y="15" width="4" height="4" fill="#3d1a00" />
-      <rect x="80" y="21" width="6" height="2" fill="#3d1a00" />
-      {/* small plant */}
-      <rect x="170" y="82" width="14" height="14" fill="#80c060" />
-      <rect x="172" y="80" width="10" height="4" fill="#60a040" />
-      <rect x="174" y="76" width="6" height="5" fill="#80c060" />
-      <rect x="173" y="94" width="12" height="6" fill="#d4a060" />
-      {/* rug */}
-      <rect x="50" y="112" width="100" height="40" fill="#ff99cc" opacity="0.5" />
-      <rect x="54" y="116" width="92" height="32" fill="none" stroke="#ff60b0" strokeWidth="2" />
-      <rect x="58" y="120" width="84" height="24" fill="none" stroke="#ff80c8" strokeWidth="1" />
-    </svg>
-  );
-}
+const TABS = [
+  { id: "home",    label: "홈",       color: "#ff80c8", active: true  },
+  { id: "profile", label: "프로필",   color: "#c8a0ff", active: false },
+  { id: "diary",   label: "다이어리", color: "#80c8ff", active: false },
+  { id: "miniroom",label: "미니룸",   color: "#80e0b0", active: false },
+  { id: "photo",   label: "사진첩",   color: "#ffe080", active: false },
+  { id: "guest",   label: "방명록",   color: "#ffa880", active: false },
+  { id: "emoticon",label: "이모티콘룸",color: "#ff80a0", active: false },
+];
 
-function LeftPage() {
+/* ═══════════════════════════════════════════
+   LEFT PAGE — PROFILE
+═══════════════════════════════════════════ */
+function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: User) => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [fields, setFields] = useState(INIT_FIELDS);
-  const [draft, setDraft] = useState(INIT_FIELDS);
+  const [status, setStatus] = useState("일상 기록중 🌸");
+  const [tags, setTags] = useState<string[]>(() => getUserProfile(user.id, user.nickname).tags);
+  const [fields, setFields] = useState<ProfileField[]>(() => getUserProfile(user.id, user.nickname).fields);
+  const [draft, setDraft] = useState<ProfileField[]>(fields);
+
+  useEffect(() => {
+    const profile = getUserProfile(user.id, user.nickname);
+    setFields(profile.fields);
+    setDraft(profile.fields);
+    setStatus(profile.status);
+    setTags(profile.tags);
+  }, [user.id, user.nickname]);
+
+  const displayName = fields.find((f) => f.label === "이름")?.value || user.nickname;
 
   const startEdit = () => { setDraft([...fields]); setEditing(true); };
-  const saveEdit = () => { setFields(draft); setEditing(false); };
-  const cancelEdit = () => setEditing(false);
+  const saveEdit = () => {
+    setFields(draft);
+    saveUserProfile(user.id, { fields: draft, status, tags });
+    setEditing(false);
+
+    const nameValue = draft.find((f) => f.label === "이름")?.value.trim();
+    if (nameValue && nameValue !== user.nickname) {
+      const updated = updateUserNickname(user.id, nameValue);
+      if (updated) onUserUpdate(updated);
+    }
+  };
+  const cancelEdit = () => { setDraft([...fields]); setEditing(false); };
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
@@ -404,10 +511,10 @@ function LeftPage() {
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
         </div>
         <div className="flex flex-col gap-1 min-w-0">
-          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: "1.3rem", color: "#d4006a", lineHeight: 1.1 }}>Re:world</p>
-          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#9060b0", fontWeight: 500 }}>일상 기록중 🌸</p>
+          <p style={{ fontFamily: 'Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: '#d4006a', lineHeight: '1.1', fontWeight: 'bold' }}>{displayName}</p>
+          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#9060b0", fontWeight: 500 }}>{status}</p>
           <div className="flex gap-1 mt-0.5 flex-wrap">
-            {["#daily", "#y2k", "#diary"].map(tag => (
+            {tags.map(tag => (
               <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{
                 fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600,
                 background: "rgba(255,45,120,0.1)", color: "#ff2d78",
@@ -475,11 +582,6 @@ function LeftPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-3 mt-1.5 pl-10">
-          {["⏮", "⏭", "🔁"].map(btn => (
-            <button key={btn} style={{ fontSize: 10, color: "#c44dff", opacity: 0.7 }}>{btn}</button>
-          ))}
-        </div>
       </div>
 
       {/* visitor count */}
@@ -509,16 +611,8 @@ function LeftPage() {
 /* ═══════════════════════════════════════════
    RIGHT PAGE — PHOTO ALBUM
 ═══════════════════════════════════════════ */
-function AlbumPhoto({ src }: { src: string }) {
-  if (src.startsWith("linear-gradient(")) {
-    return <div className="w-full h-full" style={{ background: src }} />;
-  }
-
-  return <img src={src} alt="" className="w-full h-full object-cover" />;
-}
-
 function PhotoPage() {
-  const { urls: sharedUrls } = useSharedPhotos();
+  const { urls: sharedUrls, add: addPhoto } = useSharedPhotos();
   const [localPhotos, setLocalPhotos] = useState<string[]>([]);
   const photos = [...localPhotos, ...sharedUrls];
 
@@ -583,7 +677,7 @@ function PhotoPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <AlbumPhoto src={src} />
+                <img src={src} alt="" className="w-full h-full object-cover" />
               </motion.div>
             ))}
             {/* add more cell */}
@@ -619,6 +713,25 @@ function PhotoPage() {
     </div>
   );
 }
+
+/* ═══════════════════════════════════════════
+   PROFILE AVATAR CUSTOMIZER
+═══════════════════════════════════════════ */
+
+const AVATAR_ITEMS = [
+  { id: "hat1",   cat: "모자",    emoji: "🎀", label: "리본 모자",   color: "#ff80c8" },
+  { id: "hat2",   cat: "모자",    emoji: "👑", label: "크라운",      color: "#ffe060" },
+  { id: "top1",   cat: "상의",    emoji: "👚", label: "핑크 후디",   color: "#ffb0d0" },
+  { id: "top2",   cat: "상의",    emoji: "🎽", label: "보라 조끼",   color: "#c8a0ff" },
+  { id: "acc1",   cat: "악세서리", emoji: "💎", label: "목걸이",      color: "#80e8ff" },
+  { id: "acc2",   cat: "악세서리", emoji: "⭐", label: "별 귀걸이",   color: "#ffe060" },
+  { id: "acc3",   cat: "악세서리", emoji: "🌸", label: "꽃 핀",      color: "#ff80c8" },
+  { id: "shoes1", cat: "신발",    emoji: "👟", label: "스니커즈",    color: "#c8a0ff" },
+];
+
+const PIXEL_COLS = 16;
+const PIXEL_ROWS = 16;
+const PALETTE = ["#ff2d78","#c44dff","#ff80c8","#ffe060","#80c8ff","#80e0b0","#ffffff","#3d1a00","#000000","#f9a0e8","#b0f0ff","#ffb0d0"];
 
 function PixelEditor({ onClose }: { onClose: () => void }) {
   const [grid, setGrid] = useState<string[][]>(() =>
@@ -821,8 +934,20 @@ function ProfileAvatarPage() {
   );
 }
 
+/* ═══════════════════════════════════════════
+   EMOTICON ROOM
+═══════════════════════════════════════════ */
+
+const SAMPLE_EMOTICONS = [
+  { id: 1, emoji: "😎", label: "쿨가이" },
+  { id: 2, emoji: "🥺", label: "눈물눈물" },
+  { id: 3, emoji: "💅", label: "우아해" },
+  { id: 4, emoji: "🤩", label: "반짝반짝" },
+  { id: 5, emoji: "😤", label: "으쌰으쌰" },
+];
+
 /* ── Face camera placeholder ── */
-function FakeCameraView({ children }: { children?: ReactNode }) {
+function FakeCameraView({ children }: { children?: React.ReactNode }) {
   return (
     <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
       style={{ background: "linear-gradient(160deg, #1a0a2e 0%, #0d0820 100%)" }}>
@@ -978,6 +1103,22 @@ function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
   );
 }
 
+/* shared photo store — simple module-level ref so PhotoPage and PhotoBooth share state */
+const sharedPhotoStore: { urls: string[]; listeners: Array<() => void> } = { urls: [], listeners: [] };
+function useSharedPhotos() {
+  const [urls, setUrls] = useState<string[]>(sharedPhotoStore.urls);
+  const add = (url: string) => {
+    sharedPhotoStore.urls = [url, ...sharedPhotoStore.urls];
+    sharedPhotoStore.listeners.forEach(l => l());
+  };
+  useState(() => {
+    const update = () => setUrls([...sharedPhotoStore.urls]);
+    sharedPhotoStore.listeners.push(update);
+    return () => { sharedPhotoStore.listeners = sharedPhotoStore.listeners.filter(l => l !== update); };
+  });
+  return { urls, add };
+}
+
 const PixelCharSvg = () => (
   <svg width="50" height="64" viewBox="0 0 18 22" style={{ imageRendering: "pixelated", filter: "drop-shadow(0 2px 6px rgba(196,77,255,0.6))" }}>
     <rect x="5" y="1" width="8" height="1" fill="#3d1a00" /><rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
@@ -1002,10 +1143,18 @@ function PhotoBoothPage({ onBack }: { onBack: () => void }) {
   const [flash, setFlash] = useState(false);
   const { add: addToAlbum } = useSharedPhotos();
 
+  const GRADIENTS = [
+    "linear-gradient(135deg,#ffb3e8,#c8a0ff)",
+    "linear-gradient(135deg,#a0e8ff,#80c8ff)",
+    "linear-gradient(135deg,#ffe080,#ffb040)",
+    "linear-gradient(135deg,#80e0b0,#40c080)",
+    "linear-gradient(135deg,#ff80c8,#ff2d78)",
+  ];
+
   const takePhoto = () => {
     setFlash(true);
     setTimeout(() => setFlash(false), 300);
-    const gradient = PHOTO_BOOTH_GRADIENTS[shots.length % PHOTO_BOOTH_GRADIENTS.length];
+    const gradient = GRADIENTS[shots.length % GRADIENTS.length];
     setShots(prev => {
       const next = [gradient, ...prev];
       setShotIdx(0);
@@ -1174,21 +1323,38 @@ function EmoticonRoomPage() {
   );
 }
 
+/* ═══════════════════════════════════════════
+   RIGHT PAGE — GUESTBOOK
+═══════════════════════════════════════════ */
+const INITIAL_ENTRIES = [
+  { id: 1, name: "별빛소녀", msg: "다이어리 너무 예뻐요! 자주 올게요 🌸", date: "2026.06.22", color: "#ff80c8", avatarIndex: 0 },
+  { id: 2, name: "하늘이", msg: "오늘도 행복한 하루 보내요~ 또 놀러올게용", date: "2026.06.21", color: "#80c8ff", avatarIndex: 1 },
+  { id: 3, name: "민트초코", msg: "Y2K 감성 너무 좋다!! bgm도 최고예요", date: "2026.06.20", color: "#80e0b0", avatarIndex: 2 },
+];
+
 function GuestbookPage() {
   const [entries, setEntries] = useState(INITIAL_ENTRIES);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [msg, setMsg] = useState("");
 
+  const COLORS = ["#ff80c8", "#c8a0ff", "#80c8ff", "#80e0b0", "#ffe080", "#ffa880"];
+
   const handleSubmit = () => {
     if (!name.trim() || !msg.trim()) return;
-    setEntries(prev => [{
-      id: Date.now(),
-      name: name.trim(),
-      msg: msg.trim(),
-      date: formatDottedDate(),
-      color: GUESTBOOK_COLORS[prev.length % GUESTBOOK_COLORS.length],
-    }, ...prev]);
+    const today = new Date();
+    const date = `${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,"0")}.${String(today.getDate()).padStart(2,"0")}`;
+    setEntries(prev => [
+  {
+    id: Date.now(),
+    name: name.trim(),
+    msg: msg.trim(),
+    date,
+    color: COLORS[prev.length % COLORS.length],
+    avatarIndex: prev.length % AVATAR_PRESETS.length,
+  },
+  ...prev,
+]);
     setName(""); setMsg(""); setShowForm(false);
   };
 
@@ -1295,12 +1461,12 @@ function GuestbookPage() {
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
                 {/* avatar circle */}
-                <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                  background: `linear-gradient(135deg, ${entry.color}, ${entry.color}88)`,
-                  fontSize: 10,
-                }}>
-                  {entry.name[0]}
-                </div>
+                <NeighborAvatar
+  avatar={AVATAR_PRESETS[entry.avatarIndex % AVATAR_PRESETS.length]}
+  color={entry.color}
+  size={26}
+  showOnline={false}
+/>
                 <span style={{
                   fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.6rem", color: "#4a2030",
                 }}>{entry.name}</span>
@@ -1311,7 +1477,7 @@ function GuestbookPage() {
             </div>
             <p style={{
               fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", color: "#6a4060",
-              lineHeight: 1.5, paddingLeft: "1.6rem",
+              lineHeight: 1.5, paddingLeft: "2.1rem",
             }}>{entry.msg}</p>
           </motion.div>
         ))}
@@ -1320,19 +1486,199 @@ function GuestbookPage() {
   );
 }
 
+/* ═══════════════════════════════════════════
+   RIGHT PAGE — MINI ROOM (Slot-based)
+═══════════════════════════════════════════ */
+function MiniRoomPage({
+  selections,
+  setSelections,
+}: {
+  selections: RoomSelections;
+  setSelections: Dispatch<SetStateAction<RoomSelections>>;
+}) {
+  const [activeCategory, setActiveCategory] = useState<RoomCategoryId>("sofa");
+
+  const categoryItems = getItemsByCategory(activeCategory);
+  const selectedInCategory = selections[activeCategory];
+
+  const selectItem = (itemId: string) => {
+    setSelections((prev) => ({
+      ...prev,
+      [activeCategory]: prev[activeCategory] === itemId ? null : itemId,
+    }));
+  };
+
+  const resetRoom = () => setSelections({ ...EMPTY_ROOM_SELECTIONS });
+
+  const hasAnySelection = Object.values(selections).some((id) => {
+    if (!id) return false;
+    const item = getItemById(id);
+    return !!item && item.pixels.length > 0;
+  });
+
+  return (
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
+      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
+    }}>
+      {/* header */}
+      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(128,224,176,0.3)" }}>
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#40b080" }}>★</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#40b080", letterSpacing: "0.12em" }}>MINI ROOM</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {hasAnySelection && (
+            <button
+              onClick={resetRoom}
+              className="px-2 py-0.5 rounded-full"
+              style={{
+                fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 600,
+                color: "#9060b0", background: "rgba(255,255,255,0.7)",
+                border: "1px solid rgba(196,77,255,0.2)",
+              }}
+            >
+              초기화
+            </button>
+          )}
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#80b0a0" }}>
+            카테고리 선택 → 아이템 교체
+          </span>
+        </div>
+      </div>
+
+      {/* room canvas — grows to fill available height */}
+      <div className="flex-1 min-h-[340px] rounded-xl overflow-hidden" style={{
+        border: "1.5px solid rgba(128,224,176,0.35)",
+        background: "#fafafc",
+        boxShadow: "inset 0 2px 8px rgba(128,224,176,0.08)",
+      }}>
+        <RoomCanvas selections={selections} fillHeight />
+      </div>
+
+      {/* category tabs — horizontal scroll */}
+      <div className="rounded-xl px-2 pt-1.5 pb-1 flex-shrink-0" style={{
+        background: "rgba(255,255,255,0.75)",
+        border: "1px solid rgba(128,224,176,0.25)",
+      }}>
+        <div className="flex gap-1 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin" }}>
+          {ROOM_CATEGORIES.map((cat) => {
+            const on = activeCategory === cat.id;
+            const filled = (() => {
+              const id = selections[cat.id];
+              if (!id) return false;
+              const item = getItemById(id);
+              return !!item && item.pixels.length > 0;
+            })();
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className="flex-shrink-0 px-2.5 py-1 rounded-full flex items-center gap-1"
+                style={{
+                  fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600,
+                  background: on ? "linear-gradient(90deg, #40b080, #60d0a0)" : "rgba(128,224,176,0.1)",
+                  color: on ? "white" : "#508870",
+                  border: on ? "none" : "1px solid rgba(128,224,176,0.25)",
+                  transition: "all 0.15s",
+                }}
+              >
+                {cat.label}
+                {filled && !on && (
+                  <span style={{ width: 4, height: 4, borderRadius: "50%", background: "#40b080", display: "inline-block" }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* item list for active category — horizontal scroll */}
+      <div className="rounded-xl p-2 flex-shrink-0" style={{
+        background: "rgba(255,255,255,0.75)",
+        border: "1px solid rgba(128,224,176,0.25)",
+      }}>
+        <div className="flex items-center gap-1 mb-1.5">
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#40b080", marginRight: 2 }}>ITEM</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#80b0a0" }}>
+            {ROOM_CATEGORIES.find((c) => c.id === activeCategory)?.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "thin" }}>
+          {categoryItems.map((item) => {
+            const on = selectedInCategory === item.id;
+            return (
+              <motion.button
+                key={item.id}
+                onClick={() => selectItem(item.id)}
+                className="flex-shrink-0 flex flex-col items-center gap-0.5 w-11"
+                whileTap={{ scale: 0.92 }}
+                title={item.label}
+              >
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center transition-transform"
+                  style={{
+                    background: on ? `${item.color}33` : "rgba(128,224,176,0.08)",
+                    border: on ? `2px solid ${item.color}` : "1.5px solid rgba(128,224,176,0.2)",
+                    transform: on ? "scale(1.08)" : undefined,
+                  }}
+                >
+                  <span style={{ fontSize: 18 }}>{item.preview}</span>
+                </div>
+                <span style={{
+                  fontFamily: "'Quicksand', sans-serif", fontSize: "0.35rem", fontWeight: on ? 700 : 500,
+                  color: on ? item.color : "#80a090", whiteSpace: "nowrap", maxWidth: 44, overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {item.label}
+                </span>
+              </motion.button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   DIARY PAGE
+═══════════════════════════════════════════ */
+const WEATHER_OPTIONS = ["☀️","🌤️","⛅","🌧️","⛈️","❄️","🌈","🌙"];
+const STICKER_OPTIONS = ["🌸","⭐","💖","🎀","✨","🦋","🍀","🌙","💫","🎵","🌺","💝"];
+
+const INIT_ENTRIES = [
+  { id: 1, date: "2026-06-22", weather: "🌸", privacy: "public", content: "오늘은 날씨가 너무 좋았다. 카페에서 라떼 마시면서 음악 들었는데 너무 행복했어 ☕✨", stickers: ["💖","🎵"] },
+  { id: 2, date: "2026-06-19", weather: "🌧️", privacy: "private", content: "비 오는 날엔 괜히 감성적이 돼. 창밖 빗소리 들으면서 일기 썼다. 이런 날이 오히려 좋아.", stickers: ["🌙"] },
+  { id: 3, date: "2026-06-15", weather: "☀️", privacy: "public", content: "친구들이랑 한강 나갔다! 사진도 많이 찍고 웃음이 넘쳤던 하루였어 🌻💛", stickers: ["✨","🌸","💖"] },
+];
+
 function DiaryPage() {
   const [entries, setEntries] = useState(INIT_ENTRIES);
-  const [privacy, setPrivacy] = useState<Privacy>("public");
+  const [privacy, setPrivacy] = useState<"public"|"private">("public");
   const [selWeather, setSelWeather] = useState("☀️");
   const [content, setContent] = useState("");
   const [showStickers, setShowStickers] = useState(false);
   const [activeStickers, setActiveStickers] = useState<string[]>([]);
-  const today = formatDottedDate();
+  const [showBoard, setShowBoard] = useState(false);
+
+  const today = new Date().toLocaleDateString("ko-KR", { year:"numeric", month:"2-digit", day:"2-digit" }).replace(/\. /g,".").replace(".",".");
 
   const saveEntry = () => {
     if (!content.trim()) return;
-    setEntries(prev => [{ id: Date.now(), date: formatIsoDate(), weather: selWeather, privacy, content, stickers: [...activeStickers] }, ...prev]);
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+    setEntries(prev => [{ id: Date.now(), date, weather: selWeather, privacy, content, stickers: [...activeStickers] }, ...prev]);
     setContent(""); setActiveStickers([]);
+  };
+  const toggleEntryPrivacy = (entryId: number) => {
+  setEntries(prev => prev.map(entry => (
+    entry.id === entryId
+      ? { ...entry, privacy: entry.privacy === "private" ? "public" : "private" }
+      : entry
+  )));
+};
+  const fmtDate = (d: string) => {
+    const [y,m,day] = d.split("-");
+    return `${y}년 ${m}월 ${day}일`;
   };
 
   return (
@@ -1464,9 +1810,25 @@ function DiaryPage() {
             }}>
               <div className="flex items-center gap-2">
                 <span style={{ fontSize: 16 }}>{entry.weather}</span>
-                <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.58rem", color: "#c06030" }}>{formatDiaryDisplayDate(entry.date)}</span>
+                <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.58rem", color: "#c06030" }}>{fmtDate(entry.date)}</span>
               </div>
-              <span style={{ fontSize: 12 }}>{entry.privacy === "private" ? "🔒" : "🔓"}</span>
+              <button
+  type="button"
+  onClick={() => toggleEntryPrivacy(entry.id)}
+  aria-label={entry.privacy === "private" ? "공개로 바꾸기" : "비공개로 바꾸기"}
+  title={entry.privacy === "private" ? "비공개 상태" : "공개 상태"}
+  className="rounded-full flex items-center justify-center transition-all"
+  style={{
+    width: 24,
+    height: 24,
+    fontSize: 12,
+    background: entry.privacy === "private" ? "rgba(80,80,80,0.12)" : "rgba(255,128,64,0.14)",
+    border: entry.privacy === "private" ? "1px solid rgba(80,80,80,0.22)" : "1px solid rgba(255,128,64,0.25)",
+    cursor: "pointer",
+  }}
+>
+  {entry.privacy === "private" ? "🔒" : "🔓"}
+</button>
             </div>
             {/* entry body */}
             <div className="px-3 py-2">
@@ -1484,6 +1846,38 @@ function DiaryPage() {
   );
 }
 
+/* ═══════════════════════════════════════════
+   HOME RIGHT — MINI ROOM + NEIGHBORS
+═══════════════════════════════════════════ */
+type Neighbor = {
+  id: number;
+  name: string;
+  color: string;
+  avatar: AvatarConfig;
+};
+
+const AVATAR_PRESETS: AvatarConfig[] = [
+  { hairDark: "#2a1060", hairLight: "#7040c0", skin: "#ffe0c8", outfit: "#ffe060", outfitDark: "#e0c030", outfitInner: "#fff8b0", pants: "#9060d0" },
+  { hairDark: "#103060", hairLight: "#4080c0", skin: "#ffc8a0", outfit: "#80c8ff", outfitDark: "#5090d0", outfitInner: "#c0e8ff", pants: "#4060a0" },
+  { hairDark: "#1a4030", hairLight: "#40a080", skin: "#ffd8b8", outfit: "#80e0b0", outfitDark: "#50c090", outfitInner: "#c0ffe0", pants: "#308060" },
+  { hairDark: "#501030", hairLight: "#c04080", skin: "#ffc8a0", outfit: "#ff80c8", outfitDark: "#ff60b8", outfitInner: "#ffe0f4", pants: "#c06090" },
+  { hairDark: "#3d1a00", hairLight: "#5c2800", skin: "#ffc8a0", outfit: "#c8a0ff", outfitDark: "#a080e0", outfitInner: "#e8d8ff", pants: "#6040a0" },
+  { hairDark: "#402010", hairLight: "#804030", skin: "#ffe0c0", outfit: "#ffa880", outfitDark: "#e08060", outfitInner: "#ffe0c0", pants: "#804040" },
+  { hairDark: "#204040", hairLight: "#408080", skin: "#ffd0b0", outfit: "#80e8ff", outfitDark: "#50c0d0", outfitInner: "#c0f8ff", pants: "#306070" },
+  { hairDark: "#402060", hairLight: "#8040a0", skin: "#ffe8d0", outfit: "#ffb0d0", outfitDark: "#ff80a0", outfitInner: "#ffe0f0", pants: "#804080" },
+];
+
+const FRIEND_COLORS = ["#ffe060", "#80c8ff", "#80e0b0", "#ff80c8", "#c8a0ff", "#ffa880", "#80e8ff", "#ffb0d0"];
+
+const INITIAL_NEIGHBORS: Neighbor[] = [
+  { id: 1, name: "별빛소녀", color: "#ffe060", avatar: AVATAR_PRESETS[0] },
+  { id: 2, name: "하늘이",   color: "#80c8ff", avatar: AVATAR_PRESETS[1] },
+  { id: 3, name: "민트초코", color: "#80e0b0", avatar: AVATAR_PRESETS[2] },
+  { id: 4, name: "핑크몽",   color: "#ff80c8", avatar: AVATAR_PRESETS[3] },
+];
+
+type VisitMode = "miniroom" | "guest" | "diary";
+
 function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
   const [mode, setMode] = useState<VisitMode>("miniroom");
   const MODES: { id: VisitMode; label: string; emoji: string }[] = [
@@ -1497,9 +1891,7 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
       {/* header */}
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: `${nb.color}44` }}>
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${nb.color}33`, border: `1.5px solid ${nb.color}`, fontSize: 14 }}>
-            {nb.emoji}
-          </div>
+          <NeighborAvatar avatar={nb.avatar} color={nb.color} size={28} />
           <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#4a2060" }}>{nb.name}</span>
         </div>
         <button onClick={onBack} className="px-2 py-0.5 rounded-full"
@@ -1529,10 +1921,11 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
       {/* content */}
       <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0 }}>
         {mode === "miniroom" && (
-          <div className="relative h-full" style={{ border: `1.5px solid ${nb.color}44`, background: "#f0e8ff", borderRadius: 12, overflow: "hidden" }}>
-            <MiniRoom />
-            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.88)", border: `1px solid ${nb.color}` }}>
-              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, color: "#6040a0" }}>{nb.emoji} {nb.name}의 방</span>
+          <div className="relative flex flex-col p-2 h-full" style={{ border: `1.5px solid ${nb.color}44`, background: "#fafafc", borderRadius: 12, overflow: "hidden" }}>
+            <RoomCanvas selections={EMPTY_ROOM_SELECTIONS} />
+            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "rgba(255,255,255,0.88)", border: `1px solid ${nb.color}` }}>
+              <NeighborAvatar avatar={nb.avatar} color={nb.color} size={18} showOnline={false} />
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, color: "#6040a0" }}>{nb.name}의 방</span>
             </div>
           </div>
         )}
@@ -1580,43 +1973,143 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
   );
 }
 
-function HomeRightPage() {
+function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+
+  const handleSubmit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    onClose();
+  };
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(80,40,120,0.35)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="w-full max-w-[220px] rounded-2xl p-4 flex flex-col gap-3"
+        style={{
+          background: "linear-gradient(160deg, #fff8ff 0%, #f8f0ff 100%)",
+          border: "2px solid rgba(196,77,255,0.25)",
+          boxShadow: "0 8px 32px rgba(196,77,255,0.2)",
+        }}
+        initial={{ opacity: 0, scale: 0.9, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>♡</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#6040a0" }}>친구 추가</span>
+        </div>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          placeholder="닉네임 입력"
+          maxLength={12}
+          autoFocus
+          className="w-full px-3 py-2 rounded-xl outline-none"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", fontWeight: 600,
+            background: "rgba(255,255,255,0.9)", border: "1.5px solid rgba(196,77,255,0.2)", color: "#4a2060",
+          }}
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 py-1.5 rounded-xl"
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 600, color: "#9060b0", background: "rgba(196,77,255,0.08)" }}
+          >
+            취소
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!name.trim()}
+            className="flex-1 py-1.5 rounded-xl text-white"
+            style={{
+              fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
+              background: name.trim() ? "linear-gradient(90deg, #c44dff, #ff2d78)" : "rgba(196,77,255,0.25)",
+              opacity: name.trim() ? 1 : 0.6,
+            }}
+          >
+            추가
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function HomeRightPage({
+  roomSelections,
+  onDecorate,
+}: {
+  roomSelections: RoomSelections;
+  onDecorate: () => void;
+}) {
+  const [neighbors, setNeighbors] = useState<Neighbor[]>(INITIAL_NEIGHBORS);
   const [selectedFriend, setSelectedFriend] = useState<Neighbor | null>(null);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+
+  const handleAddFriend = (name: string) => {
+    const presetIdx = neighbors.length % AVATAR_PRESETS.length;
+    const colorIdx = neighbors.length % FRIEND_COLORS.length;
+    setNeighbors((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        name,
+        color: FRIEND_COLORS[colorIdx],
+        avatar: AVATAR_PRESETS[presetIdx],
+      },
+    ]);
+  };
 
   if (selectedFriend) return <FriendVisitPage nb={selectedFriend} onBack={() => setSelectedFriend(null)} />;
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)" }}>
+    <div className="h-full overflow-y-auto flex flex-col gap-2 p-3 relative" style={{
+      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
+      scrollbarWidth: "thin",
+    }}>
+      {showAddFriend && (
+        <AddFriendModal onClose={() => setShowAddFriend(false)} onAdd={handleAddFriend} />
+      )}
 
       {/* ① 게시판 */}
       <HomeBoardSection onExpand={() => {}} />
 
       {/* ② 미니룸 (compact) */}
       <div className="rounded-xl overflow-hidden flex-shrink-0 relative" style={{
-        height: "30%",
         border: "1.5px solid rgba(255,110,180,0.25)",
-        background: "#f0e8ff",
+        background: "#fafafc",
         boxShadow: "inset 0 2px 8px rgba(196,77,255,0.06)",
       }}>
-        <MiniRoom />
+        <RoomCanvas selections={roomSelections} />
         <div className="absolute top-1.5 left-2 flex items-center gap-1">
           <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.32rem", color: "#ff2d78" }}>★ MINI ROOM</span>
         </div>
-        <button className="absolute top-1.5 right-2 px-1.5 py-0.5 rounded-full text-white"
+        <button
+          onClick={onDecorate}
+          className="absolute top-1.5 right-2 px-1.5 py-0.5 rounded-full text-white"
           style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", fontWeight: 700, background: "linear-gradient(90deg,#ff2d78,#c44dff)" }}>
           꾸미기
         </button>
       </div>
 
       {/* ③ 친구 목록 — 정사각형 그리드 */}
-      <div className="flex-1 flex flex-col gap-1.5 overflow-hidden" style={{ minHeight: 0 }}>
+      <div className="flex flex-col gap-1.5 flex-shrink-0">
         <div className="flex items-center justify-between flex-shrink-0">
           <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>이웃 ♡</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#9060b0" }}>{NEIGHBORS.length}명</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#9060b0" }}>{neighbors.length}명</span>
         </div>
-        <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+        <div>
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-            {NEIGHBORS.map((nb, i) => (
+            {neighbors.map((nb, i) => (
               <motion.button
                 key={nb.id}
                 onClick={() => setSelectedFriend(nb)}
@@ -1633,20 +2126,7 @@ function HomeRightPage() {
                 whileHover={{ scale: 1.04, boxShadow: `0 3px 12px ${nb.color}44` }}
                 whileTap={{ scale: 0.95 }}
               >
-                {/* square avatar */}
-                <div className="rounded-xl flex items-center justify-center"
-                  style={{
-                    width: 40, height: 40,
-                    background: `linear-gradient(135deg, ${nb.color}55, ${nb.color}22)`,
-                    border: `2px solid ${nb.color}`,
-                    fontSize: 20,
-                    position: "relative",
-                  }}>
-                  {nb.emoji}
-                  {/* online dot */}
-                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
-                    style={{ background: "#4cda64" }} />
-                </div>
+                <NeighborAvatar avatar={nb.avatar} color={nb.color} />
                 <span style={{
                   fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.45rem",
                   color: "#4a2060", textAlign: "center", lineHeight: 1.2,
@@ -1656,10 +2136,34 @@ function HomeRightPage() {
             ))}
           </div>
         </div>
+        <motion.button
+          onClick={() => setShowAddFriend(true)}
+          className="w-full py-2 rounded-xl flex items-center justify-center gap-1.5 flex-shrink-0"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
+            background: "linear-gradient(90deg, #c44dff, #ff2d78)",
+            color: "white",
+            boxShadow: "0 2px 10px rgba(196,77,255,0.3)",
+          }}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.97 }}
+        >
+          <span style={{ fontSize: 12 }}>＋</span>
+          친구 추가
+        </motion.button>
       </div>
     </div>
   );
 }
+
+/* ═══════════════════════════════════════════
+   HOME LEFT — BULLETIN BOARD + PROFILE
+═══════════════════════════════════════════ */
+const BOARD_POSTS = [
+  { id: 1, user: "별빛소녀✨", content: "오늘 새로 산 픽셀 캐릭터 어때요?? 💖", likes: 24, time: "5분 전" },
+  { id: 2, user: "민트초코🍃", content: "Re:world 다이어리 테마 너무 예쁘다ㅠ 저도 써보고 싶어요!", likes: 18, time: "12분 전" },
+  { id: 3, user: "하늘이💙", content: "오늘 날씨 너무 좋아서 기분 최고 ☀️ 모두 좋은 하루 보내요~", likes: 31, time: "28분 전" },
+];
 
 function HomeBoardSection({ onExpand }: { onExpand: () => void }) {
   const [liked, setLiked] = useState<Set<number>>(new Set());
@@ -1783,7 +2287,7 @@ function HomeLeftPage() {
           </div>
         </div>
         <div>
-          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: "1.1rem", color: "#d4006a", lineHeight: 1 }}>Re:world</p>
+          <p style={{ fontFamily: 'Great Vibes, Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1' }}>Re:world</p>
           <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", color: "#9060b0" }}>일상 기록중 🌸</p>
         </div>
         <div className="ml-auto flex items-center gap-1">
@@ -1837,33 +2341,40 @@ function HomeLeftPage() {
   );
 }
 
-function RightPage({ activeTab }: { activeTab: string }) {
+function RightPage({
+  activeTab,
+  roomSelections,
+  setRoomSelections,
+  onNavigateTab,
+}: {
+  activeTab: string;
+  roomSelections: RoomSelections;
+  setRoomSelections: Dispatch<SetStateAction<RoomSelections>>;
+  onNavigateTab: (tab: string) => void;
+}) {
   if (activeTab === "profile") return <ProfileAvatarPage />;
   if (activeTab === "photo") return <PhotoPage />;
   if (activeTab === "guest") return <GuestbookPage />;
   if (activeTab === "emoticon") return <EmoticonRoomPage />;
   if (activeTab === "diary") return <DiaryPage />;
-  if (activeTab === "home") return <HomeRightPage />;
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
-    }}>
-      {/* mini room — fallback */}
-      <div className="flex-1 rounded-xl overflow-hidden" style={{ border: "1.5px solid rgba(255,110,180,0.25)", background: "#f0e8ff", minHeight: 0 }}>
-        <MiniRoom />
-      </div>
-    </div>
-  );
+  if (activeTab === "home") return <HomeRightPage roomSelections={roomSelections} onDecorate={() => onNavigateTab("miniroom")} />;
+  if (activeTab === "miniroom") return <MiniRoomPage selections={roomSelections} setSelections={setRoomSelections} />;
+  return null;
 }
 
 /* ═══════════════════════════════════════════
    SPREAD PAGE
 ═══════════════════════════════════════════ */
-function SpreadPage({ onClose }: { onClose: () => void }) {
+function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onClose: () => void; onLogout?: () => void; onUserUpdate: (user: User) => void }) {
   const [activeTab, setActiveTab] = useState("home");
+  const [roomSelections, setRoomSelections] = useState<RoomSelections>(() => loadRoomSelections());
+
+  useEffect(() => {
+    saveRoomSelections(roomSelections);
+  }, [roomSelections]);
 
   return (
-    <div className="size-full flex items-center justify-center overflow-hidden" style={{
+    <div className="size-full flex items-center justify-center overflow-auto" style={{
       background: "linear-gradient(135deg, #fce4f8 0%, #f0d0ff 40%, #ffd4f0 100%)",
     }}>
       {/* ambient */}
@@ -1874,11 +2385,12 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
         filter: "blur(40px)",
       }} />
 
-      {/* book spread */}
+      {/* book spread — fixed size */}
       <motion.div
-        className="relative flex"
+        className="relative flex flex-shrink-0"
         style={{
-          height: "min(580px, 88vh)",
+          width: DIARY_SPREAD_W,
+          height: DIARY.pageH,
           boxShadow: "0 20px 80px rgba(180,0,120,0.2), 0 4px 20px rgba(180,50,255,0.15)",
         }}
         initial={{ scaleX: 0.3, opacity: 0 }}
@@ -1887,22 +2399,24 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
       >
         {/* LEFT PAGE */}
         <div style={{
-          width: "min(400px, calc(50vw - 30px))",
+          width: DIARY.pageW,
+          height: DIARY.pageH,
           borderRadius: "8px 0 0 8px",
           overflow: "hidden",
           boxShadow: "inset -4px 0 12px rgba(0,0,0,0.06)",
+          flexShrink: 0,
         }}>
-          <LeftPage />
+          <LeftPage user={user} onUserUpdate={onUserUpdate} />
         </div>
 
         {/* SPINE */}
         <div style={{
-          width: 12,
+          width: DIARY.spineW,
+          height: DIARY.pageH,
           background: "linear-gradient(to right, #e8b0d8, #d090c0, #e8b0d8)",
           boxShadow: "2px 0 8px rgba(0,0,0,0.08), -2px 0 8px rgba(0,0,0,0.08)",
           flexShrink: 0,
         }}>
-          {/* spine dots */}
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="mx-auto mt-3 w-1.5 h-1.5 rounded-full" style={{
               background: i % 3 === 0 ? "#ff80c8" : "rgba(255,255,255,0.4)",
@@ -1912,11 +2426,18 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
 
         {/* RIGHT PAGE */}
         <div style={{
-          width: "min(400px, calc(50vw - 30px))",
+          width: DIARY.pageW,
+          height: DIARY.pageH,
           overflow: "hidden",
           boxShadow: "inset 4px 0 12px rgba(0,0,0,0.04)",
+          flexShrink: 0,
         }}>
-          <RightPage activeTab={activeTab} />
+          <RightPage
+            activeTab={activeTab}
+            roomSelections={roomSelections}
+            setRoomSelections={setRoomSelections}
+            onNavigateTab={setActiveTab}
+          />
         </div>
 
         {/* BOOKMARK TABS on far right */}
@@ -1927,8 +2448,8 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
               onClick={() => setActiveTab(tab.id)}
               className="relative flex items-center justify-center"
               style={{
-                width: 28,
-                height: "calc(min(580px, 88vh) / 7)",
+                width: DIARY.tabW,
+                height: DIARY.pageH / TABS.length,
                 borderRadius: i === 0 ? "0 8px 0 0" : i === TABS.length - 1 ? "0 0 8px 0" : "0",
                 background: activeTab === tab.id
                   ? `linear-gradient(90deg, ${tab.color}, ${tab.color}dd)`
@@ -1966,23 +2487,46 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
       </motion.div>
 
       {/* back button */}
-      <motion.button
-        className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-white text-xs font-semibold"
-        style={{
-          fontFamily: "'Quicksand', sans-serif",
-          background: "linear-gradient(135deg, #ff2d78, #c44dff)",
-          boxShadow: "0 2px 10px rgba(255,45,120,0.35)",
-          fontSize: "0.65rem",
-        }}
-        onClick={onClose}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-      >
-        ← 표지로
-      </motion.button>
+      <div className="absolute top-4 left-4 flex items-center gap-2">
+        <motion.button
+          className="px-3 py-1.5 rounded-full text-white text-xs font-semibold"
+          style={{
+            fontFamily: "'Quicksand', sans-serif",
+            background: "linear-gradient(135deg, #ff2d78, #c44dff)",
+            boxShadow: "0 2px 10px rgba(255,45,120,0.35)",
+            fontSize: "0.65rem",
+          }}
+          onClick={onClose}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+        >
+          ← 표지로
+        </motion.button>
+        {onLogout && (
+          <motion.button
+            className="px-3 py-1.5 rounded-full"
+            style={{
+              fontFamily: "'Quicksand', sans-serif",
+              fontSize: "0.58rem",
+              fontWeight: 600,
+              color: "#9060b0",
+              background: "rgba(255,255,255,0.85)",
+              border: "1px solid rgba(196,77,255,0.2)",
+            }}
+            onClick={onLogout}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.55 }}
+          >
+            로그아웃
+          </motion.button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1990,19 +2534,44 @@ function SpreadPage({ onClose }: { onClose: () => void }) {
 /* ═══════════════════════════════════════════
    ROOT
 ═══════════════════════════════════════════ */
+type AppPage = "auth" | "cover" | "spread";
+
 export default function App() {
-  const [page, setPage] = useState<"cover" | "spread">("cover");
+  const [user, setUser] = useState<User | null>(() => getSession());
+  const [page, setPage] = useState<AppPage>(() => (getSession() ? "cover" : "auth"));
+
+  const handleAuthSuccess = (loggedIn: User) => {
+    setUser(loggedIn);
+    setPage("cover");
+  };
+
+  const handleLogout = () => {
+    signOut();
+    setUser(null);
+    setPage("auth");
+  };
 
   return (
     <div className="size-full">
       <AnimatePresence mode="wait">
-        {page === "cover" ? (
-          <motion.div key="cover" className="size-full" exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.4 }}>
-            <CoverPage onOpen={() => setPage("spread")} />
+        {page === "auth" && (
+          <motion.div key="auth" className="size-full" exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+            <AuthPage onSuccess={handleAuthSuccess} />
           </motion.div>
-        ) : (
+        )}
+        {page === "cover" && (
+          <motion.div key="cover" className="size-full" exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.4 }}>
+            <CoverPage onOpen={() => setPage("spread")} nickname={user?.nickname} />
+          </motion.div>
+        )}
+        {page === "spread" && user && (
           <motion.div key="spread" className="size-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-            <SpreadPage onClose={() => setPage("cover")} />
+            <SpreadPage
+              user={user}
+              onClose={() => setPage("cover")}
+              onLogout={handleLogout}
+              onUserUpdate={setUser}
+            />
           </motion.div>
         )}
       </AnimatePresence>
