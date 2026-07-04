@@ -37,6 +37,45 @@ import {
 import { useSharedPhotos } from "./hooks/useSharedPhotos";
 import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils/date";
 
+const DIARY = {
+  pageW: 420,
+  pageH: 640,
+  spineW: 12,
+  tabW: 28,
+} as const;
+const DIARY_SPREAD_W = DIARY.pageW * 2 + DIARY.spineW + DIARY.tabW;
+const DIARY_PAPER_BG = "linear-gradient(160deg, #FFFDF8 0%, #FFF8F0 100%)";
+const ACCENT_BTN_BG = "linear-gradient(90deg, #ff4757, #ff6b81)";
+const ACCENT_BTN_BG_135 = "linear-gradient(135deg, #ff4757, #ff6b81)";
+const ACCENT_BTN_SHADOW = "0 1px 6px rgba(255,71,87,0.35)";
+const ROOM_ASPECT = `${ROOM_VIEW_WIDTH} / ${ROOM_VIEW_HEIGHT}`;
+
+/** Mini room frame — preserves full viewBox, never crops */
+function RoomCanvas({
+  selections,
+  style,
+  className = "",
+  fillHeight = false,
+}: {
+  selections?: RoomSelections;
+  style?: CSSProperties;
+  className?: string;
+  fillHeight?: boolean;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden ${className}`}
+      style={
+        fillHeight
+          ? { width: "100%", height: "100%", ...style }
+          : { width: "100%", aspectRatio: ROOM_ASPECT, ...style }
+      }
+    >
+      <MiniRoom selections={selections} />
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════
    SHARED ATOMS
 ═══════════════════════════════════════════ */
@@ -765,7 +804,7 @@ function LeftPage({
   const cancelEdit = () => { setDraft([...fields]); setEditing(false); };
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: DIARY_PAPER_BG }}>
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(140,155,210,0.35)" }}>
         <div className="flex items-center gap-1.5">
           <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#7a8fd4" }}>◆</span>
@@ -837,7 +876,7 @@ function LeftPage({
         </div>
         <div className="flex items-center gap-1">
           {["0", "1", "2", "8"].map((d, i) => (
-            <motion.div key={i} className="w-5 h-6 rounded flex items-center justify-center" style={{ background: "linear-gradient(135deg, #7a8fd4, #5a6db0)", boxShadow: "0 1px 4px rgba(122,143,212,0.3)" }} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 + i * 0.08 }}>
+            <motion.div key={i} className="w-5 h-6 rounded flex items-center justify-center" style={{ background: ACCENT_BTN_BG_135, boxShadow: ACCENT_BTN_SHADOW }} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 + i * 0.08 }}>
               <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "white" }}>{d}</span>
             </motion.div>
           ))}
@@ -847,6 +886,1641 @@ function LeftPage({
     </div>
   );
 }
+
+/* ═══════════════════════════════════════════
+   RIGHT PAGE — PHOTO ALBUM
+═══════════════════════════════════════════ */
+type PhotoSticker = {
+  id: number;
+  sticker?: string;
+  icon?: string;
+  color?: string;
+  x: number;
+  y: number;
+};
+
+type PhotoStickerChoice = {
+  id: string;
+  label: string;
+  sticker?: string;
+  icon?: string;
+  color?: string;
+};
+
+const serializePhotoSticker = (item: Pick<PhotoSticker, "sticker" | "icon" | "color"> & { id?: number }) =>
+  JSON.stringify({ sticker: item.sticker, icon: item.icon, color: item.color, id: item.id });
+
+function PhotoStickerGraphic({
+  sticker,
+  icon,
+  color,
+  size,
+}: Pick<PhotoSticker, "sticker" | "icon" | "color"> & { size: number }) {
+  if (icon) return <PixelEmoticonIcon icon={icon} color={color ?? "#d8c49b"} size={size} />;
+  return <>{sticker}</>;
+}
+
+function PhotoStickerChoiceTile({
+  choice,
+  size,
+  tileSize,
+  draggable = false,
+}: {
+  choice: PhotoStickerChoice;
+  size: number;
+  tileSize: number;
+  draggable?: boolean;
+}) {
+  return (
+    <div
+      draggable={draggable}
+      onDragStart={event => {
+        if (draggable) {
+          event.dataTransfer.setData("application/x-photo-sticker", serializePhotoSticker({
+            sticker: choice.sticker,
+            icon: choice.icon,
+            color: choice.color,
+          }));
+        }
+      }}
+      className="rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
+      style={{
+        width: tileSize,
+        height: tileSize,
+        background: draggable ? "rgba(255,248,232,0.9)" : "rgba(255,180,0,0.1)",
+        border: draggable ? "1px solid rgba(216,196,155,0.45)" : "1px solid rgba(255,160,0,0.2)",
+        fontSize: size,
+        cursor: draggable ? "grab" : "pointer",
+      }}
+    >
+      <PhotoStickerGraphic sticker={choice.sticker} icon={choice.icon} color={choice.color} size={choice.icon ? size + 6 : size} />
+    </div>
+  );
+}
+
+function AlbumPhoto({ src }: { src: string }) {
+  if (src.startsWith("linear-gradient(")) {
+    return <div className="w-full h-full" style={{ background: src }} />;
+  }
+
+  return <img src={src} alt="" className="w-full h-full object-cover" />;
+}
+
+function PhotoStickerLayer({ stickers, compact = false }: { stickers: PhotoSticker[]; compact?: boolean }) {
+  return (
+    <>
+      {stickers.map(item => (
+        <span
+          key={item.id}
+          className="absolute select-none flex items-center justify-center"
+          style={{
+            left: item.x + "%",
+            top: item.y + "%",
+            transform: "translate(-50%, -50%)",
+            fontSize: compact ? 13 : 24,
+            lineHeight: 1,
+            filter: "drop-shadow(0 1px 2px rgba(70,45,10,0.35))",
+            pointerEvents: compact ? "none" : "auto",
+          }}
+        >
+          <PhotoStickerGraphic sticker={item.sticker} icon={item.icon} color={item.color} size={compact ? 18 : 34} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function PhotoPage() {
+  const { urls: sharedUrls } = useSharedPhotos();
+  const [localPhotos, setLocalPhotos] = useState<string[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [showEmoticonPicker, setShowEmoticonPicker] = useState(false);
+  const [photoStickers, setPhotoStickers] = useState<Record<string, PhotoSticker[]>>({});
+  const [draftStickers, setDraftStickers] = useState<PhotoSticker[]>([]);
+  const [customStickerChoices, setCustomStickerChoices] = useState<PhotoStickerChoice[]>([]);
+  const photos = [...localPhotos, ...sharedUrls];
+  const selectedSrc = selectedIndex === null ? null : photos[selectedIndex];
+  const selectedKey = selectedIndex === null ? "" : selectedIndex + "-" + selectedSrc;
+  const stickerChoices: PhotoStickerChoice[] = [
+    ...STICKER_OPTIONS.slice(0, 10).map(sticker => ({ id: "emoji-" + sticker, label: sticker, sticker })),
+    ...customStickerChoices,
+  ];
+
+  const getPhotoKey = (src: string, index: number) => index + "-" + src;
+  const openPhoto = (index: number) => {
+    const key = getPhotoKey(photos[index], index);
+    setSelectedIndex(index);
+    setDraftStickers([...(photoStickers[key] ?? [])]);
+    setEditing(false);
+  };
+  const closePhoto = () => {
+    setSelectedIndex(null);
+    setDraftStickers([]);
+    setEditing(false);
+  };
+  const saveStickers = () => {
+    if (!selectedKey) return;
+    setPhotoStickers(prev => ({ ...prev, [selectedKey]: draftStickers }));
+    setEditing(false);
+  };
+  const handleStickerDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!editing) return;
+    const payload = event.dataTransfer.getData("application/x-photo-sticker");
+    if (!payload) return;
+
+    const data = JSON.parse(payload) as { sticker?: string; icon?: string; color?: string; id?: number };
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(94, Math.max(6, ((event.clientX - rect.left) / rect.width) * 100));
+    const y = Math.min(94, Math.max(6, ((event.clientY - rect.top) / rect.height) * 100));
+
+    setDraftStickers(prev => {
+      if (data.id) return prev.map(item => item.id === data.id ? { ...item, x, y } : item);
+      return [...prev, { id: Date.now(), sticker: data.sticker, icon: data.icon, color: data.color, x, y }];
+    });
+  };
+
+  const handleAdd = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files ?? []);
+      files.forEach(file => {
+        const url = URL.createObjectURL(file);
+        setLocalPhotos(prev => [...prev, url]);
+      });
+    };
+    input.click();
+  };
+
+  const addEmoticonSticker = (emoticon: typeof SAMPLE_EMOTICONS[number]) => {
+    const id = "emoticon-" + emoticon.id;
+    setCustomStickerChoices(prev => prev.some(item => item.id === id) ? prev : [
+      ...prev,
+      { id, label: emoticon.label, icon: emoticon.icon, color: emoticon.color },
+    ]);
+    setShowEmoticonPicker(false);
+  };
+
+  return (
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
+      background: DIARY_PAPER_BG,
+    }}>
+      {/* header */}
+      <div className="flex items-center justify-between pb-1 border-b" style={{ borderColor: "rgba(255,160,0,0.2)" }}>
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#e08000" }}>★</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#e08000", letterSpacing: "0.12em" }}>PHOTO ALBUM</span>
+        </div>
+        <button
+          onClick={handleAdd}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
+            background: "linear-gradient(90deg, #c9a878, #c49a64)",
+            boxShadow: "0 2px 8px rgba(255,140,0,0.35)",
+          }}
+        >
+          <span style={{ fontSize: 10 }}>＋</span> 사진 추가하기
+        </button>
+      </div>
+
+      {/* grid */}
+      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+        {photos.length === 0 ? (
+          /* empty state */
+          <div className="h-full flex flex-col items-center justify-center gap-2 opacity-60">
+            <span style={{ fontSize: 32 }}>📷</span>
+            <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#c09040", textAlign: "center" }}>
+              사진을 추가해서<br />앨범을 꾸며봐요 🌸
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {photos.map((src, i) => (
+              <motion.button
+                key={i}
+                type="button"
+                onClick={() => openPhoto(i)}
+                className="relative rounded-lg overflow-hidden aspect-square"
+                style={{ border: "1.5px solid rgba(255,160,0,0.25)", padding: 0 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.05 }}
+              >
+                <AlbumPhoto src={src} />
+                <PhotoStickerLayer stickers={photoStickers[getPhotoKey(src, i)] ?? []} compact />
+              </motion.button>
+            ))}
+            {/* add more cell */}
+            <button
+              onClick={handleAdd}
+              className="aspect-square rounded-lg flex flex-col items-center justify-center gap-1"
+              style={{
+                border: "1.5px dashed rgba(255,160,0,0.4)",
+                background: "rgba(255,180,0,0.05)",
+              }}
+            >
+              <span style={{ fontSize: 18, color: "#c9a878" }}>＋</span>
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.4rem", color: "#e09020" }}>추가</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* placeholder sticker row */}
+      <div className="rounded-xl p-2 flex items-center gap-1" style={{
+        background: "rgba(255,255,255,0.7)",
+        border: "1px solid rgba(255,160,0,0.15)",
+      }}>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#e08000", marginRight: 4 }}>STICKER</span>
+        <div className="flex-1 flex items-center gap-1 overflow-x-auto" style={{ minWidth: 0 }}>
+          {stickerChoices.map(choice => (
+            <PhotoStickerChoiceTile key={choice.id} choice={choice} size={14} tileSize={28} />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowEmoticonPicker(true)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{
+            background: "linear-gradient(135deg,#c9a878,#b08a4a)",
+            border: "1px solid rgba(176,138,74,0.35)",
+            color: "white",
+            fontSize: 16,
+            fontWeight: 800,
+          }}
+        >
+          +
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showEmoticonPicker && (
+          <motion.div
+            className="absolute inset-x-3 bottom-14 z-40 rounded-xl p-2"
+            style={{
+              background: "rgba(255,251,232,0.98)",
+              border: "1px solid rgba(201,168,120,0.35)",
+              boxShadow: "0 10px 28px rgba(90,60,20,0.2)",
+            }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.32rem", color: "#b08a4a" }}>EMOTICON</span>
+              <button
+                type="button"
+                onClick={() => setShowEmoticonPicker(false)}
+                className="px-2 py-0.5 rounded-full"
+                style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 800, background: "rgba(176,138,74,0.12)", color: "#8a6334" }}
+              >
+                닫기
+              </button>
+            </div>
+            <div className="grid gap-1.5 overflow-y-auto" style={{ gridTemplateColumns: "repeat(4, 1fr)", maxHeight: 140 }}>
+              {SAMPLE_EMOTICONS.map(emoticon => (
+                <button
+                  key={emoticon.id}
+                  type="button"
+                  onClick={() => addEmoticonSticker(emoticon)}
+                  className="rounded-lg flex flex-col items-center justify-center gap-0.5 py-1.5"
+                  style={{
+                    background: customStickerChoices.some(item => item.id === "emoticon-" + emoticon.id) ? "rgba(139,154,114,0.16)" : "rgba(255,255,255,0.72)",
+                    border: "1px solid rgba(201,168,120,0.22)",
+                  }}
+                >
+                  <PixelEmoticonIcon icon={emoticon.icon} color={emoticon.color} size={26} />
+                  <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.38rem", fontWeight: 700, color: "#8a6334" }}>{emoticon.label}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {selectedSrc && selectedIndex !== null && (
+          <motion.div
+            className="absolute inset-0 z-50 flex flex-col p-3"
+            style={{ background: "rgba(42,33,20,0.92)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="flex items-center justify-between mb-2 flex-shrink-0">
+              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.36rem", color: "#f7efd9" }}>PHOTO</span>
+              <div className="flex items-center gap-1.5">
+                {editing ? (
+                  <button onClick={saveStickers} className="px-2.5 py-1 rounded-full text-white"
+                    style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 800, background: "linear-gradient(90deg,#b08a4a,#8b9a72)" }}>
+                    저장하기
+                  </button>
+                ) : (
+                  <button onClick={() => setEditing(true)} className="px-2.5 py-1 rounded-full"
+                    style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 800, background: "rgba(255,255,255,0.16)", color: "#f7efd9" }}>
+                    수정하기
+                  </button>
+                )}
+                <button onClick={closePhoto} className="px-2.5 py-1 rounded-full"
+                  style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>
+                  닫기
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="relative flex-1 rounded-xl overflow-hidden"
+              onDragOver={event => editing && event.preventDefault()}
+              onDrop={handleStickerDrop}
+              style={{
+                minHeight: 0,
+                border: editing ? "2px dashed rgba(216,196,155,0.55)" : "1.5px solid rgba(255,255,255,0.22)",
+                background: "#fff8e8",
+              }}
+            >
+              <AlbumPhoto src={selectedSrc} />
+              {(editing ? draftStickers : photoStickers[selectedKey] ?? []).map(item => (
+                <span
+                  key={item.id}
+                  draggable={editing}
+                  onDragStart={event => {
+                    event.dataTransfer.setData("application/x-photo-sticker", serializePhotoSticker(item));
+                  }}
+                  className="absolute select-none flex items-center justify-center"
+                  style={{
+                    left: item.x + "%",
+                    top: item.y + "%",
+                    transform: "translate(-50%, -50%)",
+                    fontSize: 26,
+                    lineHeight: 1,
+                    cursor: editing ? "grab" : "default",
+                    filter: "drop-shadow(0 2px 3px rgba(70,45,10,0.4))",
+                  }}
+                >
+                  <PhotoStickerGraphic sticker={item.sticker} icon={item.icon} color={item.color} size={34} />
+                </span>
+              ))}
+            </div>
+
+            {editing && (
+              <div className="mt-2 rounded-xl p-2 flex items-center gap-1.5 overflow-x-auto flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(216,196,155,0.22)" }}>
+                {stickerChoices.map(choice => (
+                  <PhotoStickerChoiceTile key={"edit-" + choice.id} choice={choice} size={18} tileSize={36} draggable />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AvatarPixelCanvas({
+  config,
+  selectedColor,
+  onPaint,
+}: {
+  config: AvatarConfig;
+  selectedColor: string;
+  onPaint: (x: number, y: number, color: string) => void;
+}) {
+  const cells = Array.from({ length: PIXEL_ROWS }, () =>
+    Array.from({ length: PIXEL_COLS }, () => ({ fill: "transparent", part: "fixed" as AvatarRect["part"] }))
+  );
+
+  getAvatarRects(config).forEach(rect => {
+    for (let y = rect.y; y < rect.y + rect.height; y++) {
+      for (let x = rect.x; x < rect.x + rect.width; x++) {
+        if (cells[y]?.[x]) cells[y][x] = { fill: rect.fill, part: rect.part };
+      }
+    }
+  });
+
+  Object.entries(config.pixels ?? {}).forEach(([key, fill]) => {
+    const [x, y] = key.split("-").map(Number);
+    if (Number.isInteger(x) && Number.isInteger(y) && cells[y]?.[x]?.part === "body") {
+      cells[y][x] = { fill, part: "body" };
+    }
+  });
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(" + PIXEL_COLS + ", 1fr)",
+        width: "min(260px, 100%)",
+        aspectRatio: PIXEL_COLS + " / " + PIXEL_ROWS,
+        border: "1px solid rgba(216,196,155,0.45)",
+        background: "#f7efd9",
+        boxShadow: "0 3px 14px rgba(0,0,0,0.18)",
+      }}
+    >
+      {cells.map((row, r) => row.map((cell, c) => {
+        const paintable = cell.part === "body";
+        return (
+          <button
+            key={r + "-" + c}
+            type="button"
+            onClick={() => {
+              if (paintable) onPaint(c, r, selectedColor);
+            }}
+            style={{
+              aspectRatio: "1",
+              background: cell.fill === "transparent" ? ((r + c) % 2 === 0 ? "#fff4dc" : "#f2e5c8") : cell.fill,
+              border: paintable ? "0.5px solid rgba(110,90,50,0.12)" : "0.5px solid rgba(110,90,50,0.05)",
+              cursor: paintable ? "crosshair" : "default",
+              padding: 0,
+            }}
+            aria-label={paintable ? "아바타 픽셀 칠하기" : "고정 픽셀"}
+          />
+        );
+      }))}
+    </div>
+  );
+}
+
+function PixelItemIcon({ id, color }: { id: string; color: string }) {
+  return (
+    <svg width="30" height="30" viewBox="0 0 20 20" style={{ imageRendering: "pixelated" }}>
+      {id === "face-glasses" && (
+        <>
+          <rect x="3" y="8" width="5" height="1" fill={color} />
+          <rect x="3" y="9" width="1" height="3" fill={color} />
+          <rect x="7" y="9" width="1" height="3" fill={color} />
+          <rect x="12" y="8" width="5" height="1" fill={color} />
+          <rect x="12" y="9" width="1" height="3" fill={color} />
+          <rect x="16" y="9" width="1" height="3" fill={color} />
+          <rect x="8" y="10" width="4" height="1" fill={color} />
+        </>
+      )}
+      {id === "face-blush" && (
+        <>
+          <rect x="4" y="9" width="4" height="2" fill={color} opacity="0.85" />
+          <rect x="12" y="9" width="4" height="2" fill={color} opacity="0.85" />
+        </>
+      )}
+      {id === "face-freckle" && (
+        <>
+          <rect x="5" y="8" width="1" height="1" fill={color} />
+          <rect x="7" y="10" width="1" height="1" fill={color} />
+          <rect x="13" y="8" width="1" height="1" fill={color} />
+          <rect x="15" y="10" width="1" height="1" fill={color} />
+        </>
+      )}
+      {id === "face-mask" && (
+        <>
+          <rect x="5" y="8" width="10" height="5" fill={color} />
+          <rect x="4" y="9" width="1" height="2" fill="#d8c49b" />
+          <rect x="15" y="9" width="1" height="2" fill="#d8c49b" />
+          <rect x="7" y="10" width="6" height="1" fill="#e4d4a8" />
+        </>
+      )}
+      {id === "outfit-cardigan" && (
+        <>
+          <rect x="5" y="5" width="4" height="10" fill={color} />
+          <rect x="11" y="5" width="4" height="10" fill={color} />
+          <rect x="9" y="6" width="2" height="9" fill="#9a7b44" />
+        </>
+      )}
+      {id === "outfit-sage" && (
+        <>
+          <rect x="5" y="6" width="10" height="8" fill={color} />
+          <rect x="4" y="7" width="2" height="4" fill={color} />
+          <rect x="14" y="7" width="2" height="4" fill={color} />
+          <rect x="7" y="6" width="6" height="1" fill="#d8e0c8" />
+        </>
+      )}
+      {id === "outfit-ribbon" && (
+        <>
+          <rect x="9" y="8" width="2" height="2" fill={color} />
+          <rect x="5" y="7" width="4" height="4" fill={color} />
+          <rect x="11" y="7" width="4" height="4" fill={color} />
+        </>
+      )}
+      {id === "outfit-pinktee" && (
+        <>
+          <rect x="5" y="6" width="10" height="8" fill={color} />
+          <rect x="3" y="7" width="3" height="4" fill={color} />
+          <rect x="14" y="7" width="3" height="4" fill={color} />
+          <rect x="7" y="6" width="6" height="1" fill="#ffd6e3" />
+        </>
+      )}
+      {id === "outfit-denim" && (
+        <>
+          <rect x="6" y="8" width="8" height="8" fill={color} />
+          <rect x="7" y="5" width="2" height="5" fill={color} />
+          <rect x="11" y="5" width="2" height="5" fill={color} />
+          <rect x="9" y="12" width="2" height="4" fill="#4d6f9c" />
+        </>
+      )}
+      {id === "emote-heart" && (
+        <>
+          <rect x="5" y="6" width="3" height="3" fill={color} />
+          <rect x="12" y="6" width="3" height="3" fill={color} />
+          <rect x="4" y="9" width="12" height="3" fill={color} />
+          <rect x="6" y="12" width="8" height="2" fill={color} />
+          <rect x="8" y="14" width="4" height="2" fill={color} />
+        </>
+      )}
+      {id === "emote-sparkle" && <path d="M10 3 L12 8 L17 10 L12 12 L10 17 L8 12 L3 10 L8 8Z" fill={color} />}
+      {id === "emote-note" && (
+        <>
+          <rect x="10" y="4" width="2" height="9" fill={color} />
+          <rect x="12" y="4" width="5" height="2" fill={color} />
+          <rect x="6" y="12" width="4" height="4" fill={color} />
+        </>
+      )}
+      {id === "other-sneakers" && (
+        <>
+          <rect x="4" y="9" width="5" height="4" fill={color} />
+          <rect x="2" y="11" width="2" height="2" fill={color} />
+          <rect x="5" y="13" width="4" height="1" fill="#9aa3ad" />
+          <rect x="11" y="9" width="5" height="4" fill={color} />
+          <rect x="16" y="11" width="2" height="2" fill={color} />
+          <rect x="11" y="13" width="4" height="1" fill="#9aa3ad" />
+        </>
+      )}
+      {id === "other-crown" && (
+        <>
+          <rect x="4" y="11" width="12" height="3" fill={color} />
+          <rect x="5" y="7" width="2" height="4" fill={color} />
+          <rect x="9" y="5" width="2" height="6" fill={color} />
+          <rect x="14" y="7" width="2" height="4" fill={color} />
+        </>
+      )}
+      {id === "other-flower" && (
+        <>
+          <rect x="9" y="5" width="2" height="2" fill={color} />
+          <rect x="6" y="8" width="2" height="2" fill={color} />
+          <rect x="12" y="8" width="2" height="2" fill={color} />
+          <rect x="9" y="11" width="2" height="2" fill={color} />
+          <rect x="9" y="8" width="2" height="2" fill="#b08a4a" />
+        </>
+      )}
+      {id === "other-bag" && (
+        <>
+          <rect x="6" y="8" width="8" height="8" fill={color} />
+          <rect x="8" y="6" width="4" height="2" fill="#8a6334" />
+          <rect x="7" y="11" width="6" height="1" fill="#ead3a1" />
+        </>
+      )}
+      {id === "other-headband" && (
+        <>
+          <rect x="4" y="8" width="12" height="2" fill={color} />
+          <rect x="3" y="10" width="2" height="2" fill={color} />
+          <rect x="15" y="10" width="2" height="2" fill={color} />
+        </>
+      )}
+      {id === "other-scarf" && (
+        <>
+          <rect x="5" y="7" width="10" height="3" fill={color} />
+          <rect x="12" y="10" width="3" height="6" fill={color} />
+          <rect x="13" y="15" width="2" height="2" fill="#6d7653" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function PixelEmoticonIcon({
+  icon,
+  color,
+  size = 30,
+  glow = false,
+}: {
+  icon: string;
+  color: string;
+  size?: number;
+  glow?: boolean;
+}) {
+  const dark = "#5b4b2d";
+  const cream = "#fff8e8";
+  const face = "#f7d8a8";
+  const faceShade = "#e9b98e";
+  const pink = "#e58aa8";
+  const blue = "#80c8ff";
+
+  const drawFace = (fill = face) => (
+    <>
+      <rect x="7" y="3" width="10" height="1" fill={dark} />
+      <rect x="5" y="4" width="14" height="2" fill={dark} />
+      <rect x="4" y="6" width="16" height="12" fill={dark} />
+      <rect x="5" y="18" width="14" height="2" fill={dark} />
+      <rect x="7" y="20" width="10" height="1" fill={dark} />
+      <rect x="7" y="4" width="10" height="1" fill={fill} />
+      <rect x="6" y="6" width="12" height="2" fill={fill} />
+      <rect x="5" y="8" width="14" height="9" fill={fill} />
+      <rect x="6" y="17" width="12" height="1" fill={fill} />
+      <rect x="8" y="18" width="8" height="1" fill={fill} />
+      <rect x="7" y="7" width="2" height="1" fill={cream} opacity="0.8" />
+      <rect x="17" y="13" width="1" height="3" fill={faceShade} opacity="0.65" />
+    </>
+  );
+
+  let pixels: ReactNode;
+
+  switch (icon) {
+    case "cool-face":
+      pixels = (
+        <>
+          {drawFace()}
+          <rect x="6" y="9" width="5" height="2" fill={dark} />
+          <rect x="13" y="9" width="5" height="2" fill={dark} />
+          <rect x="11" y="10" width="2" height="1" fill={dark} />
+          <rect x="7" y="9" width="1" height="1" fill={cream} opacity="0.75" />
+          <rect x="14" y="9" width="1" height="1" fill={cream} opacity="0.75" />
+          <rect x="9" y="15" width="6" height="1" fill={dark} />
+          <rect x="15" y="14" width="1" height="1" fill={dark} />
+        </>
+      );
+      break;
+    case "teary-face":
+      pixels = (
+        <>
+          {drawFace()}
+          <rect x="7" y="8" width="3" height="3" fill={dark} />
+          <rect x="14" y="8" width="3" height="3" fill={dark} />
+          <rect x="8" y="8" width="1" height="1" fill={cream} />
+          <rect x="15" y="8" width="1" height="1" fill={cream} />
+          <rect x="6" y="12" width="2" height="3" fill={blue} />
+          <rect x="17" y="12" width="2" height="3" fill={blue} />
+          <rect x="10" y="15" width="4" height="1" fill={dark} />
+          <rect x="9" y="16" width="1" height="1" fill={dark} />
+          <rect x="14" y="16" width="1" height="1" fill={dark} />
+        </>
+      );
+      break;
+    case "sparkle-face":
+      pixels = (
+        <>
+          {drawFace()}
+          <rect x="7" y="7" width="1" height="1" fill={color} />
+          <rect x="6" y="8" width="3" height="1" fill={color} />
+          <rect x="7" y="9" width="1" height="1" fill={color} />
+          <rect x="15" y="7" width="1" height="1" fill={color} />
+          <rect x="14" y="8" width="3" height="1" fill={color} />
+          <rect x="15" y="9" width="1" height="1" fill={color} />
+          <rect x="9" y="14" width="6" height="1" fill={dark} />
+          <rect x="10" y="15" width="4" height="1" fill={pink} />
+          <rect x="18" y="5" width="1" height="1" fill={color} />
+          <rect x="17" y="6" width="3" height="1" fill={color} />
+          <rect x="18" y="7" width="1" height="1" fill={color} />
+        </>
+      );
+      break;
+    case "angry-face":
+      pixels = (
+        <>
+          {drawFace("#f0b39a")}
+          <rect x="6" y="7" width="4" height="1" fill={dark} />
+          <rect x="7" y="8" width="2" height="1" fill={dark} />
+          <rect x="14" y="7" width="4" height="1" fill={dark} />
+          <rect x="15" y="8" width="2" height="1" fill={dark} />
+          <rect x="8" y="10" width="2" height="2" fill={dark} />
+          <rect x="14" y="10" width="2" height="2" fill={dark} />
+          <rect x="9" y="15" width="6" height="1" fill="#7f1d1d" />
+          <rect x="5" y="13" width="2" height="1" fill="#d86f86" opacity="0.8" />
+          <rect x="17" y="13" width="2" height="1" fill="#d86f86" opacity="0.8" />
+        </>
+      );
+      break;
+    case "ribbon-hat":
+      pixels = (
+        <>
+          <rect x="6" y="8" width="12" height="7" fill={dark} />
+          <rect x="7" y="5" width="10" height="4" fill={dark} />
+          <rect x="8" y="6" width="8" height="3" fill={color} />
+          <rect x="7" y="9" width="10" height="4" fill={color} />
+          <rect x="4" y="14" width="16" height="2" fill={dark} />
+          <rect x="5" y="13" width="14" height="1" fill={color} />
+          <rect x="11" y="10" width="2" height="2" fill="#b08a4a" />
+          <rect x="8" y="10" width="3" height="3" fill="#d86f86" />
+          <rect x="13" y="10" width="3" height="3" fill="#d86f86" />
+          <rect x="9" y="6" width="2" height="1" fill={cream} opacity="0.65" />
+        </>
+      );
+      break;
+    case "crown-hat":
+      pixels = (
+        <>
+          <rect x="5" y="14" width="14" height="4" fill={dark} />
+          <rect x="6" y="11" width="2" height="3" fill={dark} />
+          <rect x="11" y="8" width="2" height="6" fill={dark} />
+          <rect x="16" y="11" width="2" height="3" fill={dark} />
+          <rect x="6" y="14" width="12" height="3" fill={color} />
+          <rect x="7" y="11" width="1" height="3" fill={color} />
+          <rect x="12" y="9" width="1" height="5" fill={color} />
+          <rect x="17" y="11" width="1" height="3" fill={color} />
+          <rect x="8" y="15" width="2" height="1" fill="#fff8e8" />
+          <rect x="11" y="15" width="2" height="1" fill="#d86f86" />
+          <rect x="14" y="15" width="2" height="1" fill="#80c8ff" />
+        </>
+      );
+      break;
+    case "cardigan":
+      pixels = (
+        <>
+          <rect x="6" y="5" width="12" height="15" fill={dark} />
+          <rect x="7" y="6" width="10" height="13" fill={color} />
+          <rect x="10" y="6" width="4" height="13" fill={cream} />
+          <rect x="11" y="6" width="2" height="3" fill="#f7d8a8" />
+          <rect x="7" y="9" width="3" height="10" fill="#ead8b5" />
+          <rect x="14" y="9" width="3" height="10" fill="#ead8b5" />
+          <rect x="12" y="10" width="1" height="8" fill="#b08a4a" opacity="0.7" />
+          <rect x="8" y="13" width="1" height="1" fill="#b08a4a" />
+          <rect x="15" y="13" width="1" height="1" fill="#b08a4a" />
+        </>
+      );
+      break;
+    case "sailor-outfit":
+      pixels = (
+        <>
+          <rect x="5" y="6" width="14" height="14" fill={dark} />
+          <rect x="6" y="7" width="12" height="12" fill={cream} />
+          <rect x="6" y="7" width="12" height="4" fill={color} />
+          <rect x="8" y="11" width="3" height="5" fill={color} />
+          <rect x="13" y="11" width="3" height="5" fill={color} />
+          <rect x="11" y="11" width="2" height="7" fill="#d86f86" />
+          <rect x="8" y="8" width="8" height="1" fill={cream} />
+          <rect x="9" y="19" width="6" height="1" fill={color} />
+        </>
+      );
+      break;
+    case "pixel-glasses":
+      pixels = (
+        <>
+          <rect x="4" y="9" width="7" height="1" fill={dark} />
+          <rect x="4" y="10" width="1" height="4" fill={dark} />
+          <rect x="10" y="10" width="1" height="4" fill={dark} />
+          <rect x="5" y="13" width="5" height="1" fill={dark} />
+          <rect x="13" y="9" width="7" height="1" fill={dark} />
+          <rect x="13" y="10" width="1" height="4" fill={dark} />
+          <rect x="19" y="10" width="1" height="4" fill={dark} />
+          <rect x="14" y="13" width="5" height="1" fill={dark} />
+          <rect x="11" y="11" width="2" height="1" fill={dark} />
+          <rect x="6" y="10" width="2" height="1" fill={cream} opacity="0.8" />
+          <rect x="15" y="10" width="2" height="1" fill={cream} opacity="0.8" />
+        </>
+      );
+      break;
+    case "mini-bag":
+      pixels = (
+        <>
+          <rect x="6" y="9" width="12" height="11" fill={dark} />
+          <rect x="7" y="10" width="10" height="9" fill={color} />
+          <rect x="9" y="6" width="6" height="2" fill={dark} />
+          <rect x="8" y="7" width="2" height="3" fill={dark} />
+          <rect x="14" y="7" width="2" height="3" fill={dark} />
+          <rect x="10" y="7" width="4" height="1" fill={cream} opacity="0.5" />
+          <rect x="8" y="13" width="8" height="1" fill="#8a6334" opacity="0.45" />
+          <rect x="11" y="15" width="2" height="2" fill="#b08a4a" />
+        </>
+      );
+      break;
+    case "love-heart":
+      pixels = (
+        <>
+          <rect x="7" y="5" width="4" height="2" fill={color} />
+          <rect x="13" y="5" width="4" height="2" fill={color} />
+          <rect x="5" y="7" width="14" height="5" fill={color} />
+          <rect x="6" y="12" width="12" height="2" fill={color} />
+          <rect x="8" y="14" width="8" height="2" fill={color} />
+          <rect x="10" y="16" width="4" height="2" fill={color} />
+          <rect x="11" y="18" width="2" height="1" fill={color} />
+          <rect x="7" y="7" width="2" height="1" fill={cream} opacity="0.75" />
+          <rect x="17" y="4" width="1" height="1" fill="#d4b45f" />
+          <rect x="16" y="5" width="3" height="1" fill="#d4b45f" />
+          <rect x="17" y="6" width="1" height="1" fill="#d4b45f" />
+        </>
+      );
+      break;
+    case "double-heart":
+      pixels = (
+        <>
+          <rect x="6" y="8" width="3" height="2" fill={color} />
+          <rect x="11" y="8" width="3" height="2" fill={color} />
+          <rect x="5" y="10" width="10" height="4" fill={color} />
+          <rect x="6" y="14" width="8" height="2" fill={color} />
+          <rect x="8" y="16" width="4" height="2" fill={color} />
+          <rect x="9" y="18" width="2" height="1" fill={color} />
+          <rect x="15" y="4" width="2" height="1" fill="#d86f86" />
+          <rect x="19" y="4" width="2" height="1" fill="#d86f86" />
+          <rect x="14" y="5" width="8" height="3" fill="#d86f86" />
+          <rect x="15" y="8" width="6" height="1" fill="#d86f86" />
+          <rect x="17" y="9" width="2" height="1" fill="#d86f86" />
+          <rect x="7" y="10" width="1" height="1" fill={cream} opacity="0.8" />
+          <rect x="16" y="5" width="1" height="1" fill={cream} opacity="0.8" />
+        </>
+      );
+      break;
+    default:
+      pixels = (
+        <>
+          {drawFace()}
+          <rect x="8" y="9" width="2" height="2" fill={dark} />
+          <rect x="14" y="9" width="2" height="2" fill={dark} />
+          <rect x="9" y="15" width="6" height="1" fill={dark} />
+        </>
+      );
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={{
+        imageRendering: "pixelated",
+        filter: glow ? "drop-shadow(0 2px 8px rgba(216,196,155,0.65))" : undefined,
+        flexShrink: 0,
+      }}
+      aria-hidden="true"
+    >
+      {pixels}
+    </svg>
+  );
+}
+
+function PixelEditor({
+  initialConfig,
+  onSave,
+  onClose,
+}: {
+  initialConfig: AvatarConfig;
+  onSave: (config: AvatarConfig) => void;
+  onClose: () => void;
+}) {
+  const [config, setConfig] = useState<AvatarConfig>({
+    ...initialConfig,
+    body: initialConfig.body ?? "#ffffff",
+    pixels: { ...(initialConfig.pixels ?? {}) },
+  });
+  const [selectedColor, setSelectedColor] = useState(PALETTE[0]);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+  const [showPalette, setShowPalette] = useState(false);
+
+  const selectColor = (color: string) => {
+    setSelectedColor(color);
+    setRecentColors(prev => [color, ...prev.filter(c => c !== color)].slice(0, 9));
+  };
+
+  const paintPixel = (x: number, y: number, color: string) => {
+    setConfig(prev => ({
+      ...prev,
+      pixels: {
+        ...(prev.pixels ?? {}),
+        [getPixelKey(x, y)]: color,
+      },
+    }));
+  };
+
+  return (
+    <motion.div className="absolute inset-0 z-50 flex flex-col p-2"
+      style={{ background: "linear-gradient(160deg, #2a2114 0%, #171309 100%)" }}
+      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+      <div className="flex items-center justify-between mb-2 flex-shrink-0">
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.36rem", color: "#d8c49b" }}>AVATAR MAKER</span>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setShowPalette(v => !v)} className="px-2 py-0.5 rounded-full"
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700, background: selectedColor, color: selectedColor === "#ffffff" ? "#5b4b2d" : "white", border: "1px solid rgba(255,255,255,0.45)" }}>
+            색상
+          </button>
+          <button onClick={onClose} className="px-2 py-0.5 rounded-full"
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600, background: "rgba(255,255,255,0.1)", color: "rgba(248,234,198,0.8)" }}>
+            닫기
+          </button>
+          <button onClick={() => { onSave(config); onClose(); }} className="px-2 py-0.5 rounded-full"
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700, background: "linear-gradient(90deg, #b08a4a, #8b9a72)", color: "white" }}>
+            저장
+          </button>
+        </div>
+      </div>
+
+      <div className="relative flex gap-2 flex-1" style={{ minHeight: 0 }}>
+        <div className="flex-1 flex items-center justify-center" style={{ minWidth: 0 }}>
+          <AvatarPixelCanvas config={config} selectedColor={selectedColor} onPaint={paintPixel} />
+        </div>
+        <div className="flex flex-col items-center gap-1.5 flex-shrink-0 pt-1" style={{ width: 44 }}>
+          <button
+            type="button"
+            onClick={() => setShowPalette(true)}
+            aria-label="선택된 색상"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              background: selectedColor,
+              border: "2px solid rgba(255,255,255,0.75)",
+              boxShadow: "0 0 8px rgba(255,255,255,0.22)",
+            }}
+          />
+          {!showPalette && recentColors.map(color => (
+            <button
+              key={"side-" + color}
+              type="button"
+              onClick={() => selectColor(color)}
+              aria-label="최근 색상 선택"
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 5,
+                background: color,
+                border: selectedColor === color ? "2px solid white" : "1px solid rgba(255,255,255,0.28)",
+              }}
+            />
+          ))}
+        </div>
+
+        <AnimatePresence>
+          {showPalette && (
+            <motion.div
+              className="absolute right-0 top-0 z-10 rounded-xl p-2"
+              style={{
+                width: 172,
+                background: "rgba(30,24,15,0.96)",
+                border: "1px solid rgba(216,196,155,0.24)",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.34)",
+              }}
+              initial={{ opacity: 0, scale: 0.94, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: -4 }}
+            >
+              <div className="flex items-center justify-end mb-1.5">
+                <button onClick={() => setShowPalette(false)} className="px-2 py-0.5 rounded-full"
+                  style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>
+                  닫기
+                </button>
+              </div>
+              <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+                {PALETTE.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => selectColor(color)}
+                    aria-label="색상 선택"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 4,
+                      background: color,
+                      border: selectedColor === color ? "2px solid white" : "1px solid rgba(255,255,255,0.22)",
+                      boxShadow: selectedColor === color ? "0 0 7px rgba(255,255,255,0.48)" : "none",
+                    }}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
+
+function ProfileAvatarPage({
+  avatar,
+  onSaveAvatar,
+}: {
+  avatar: AvatarProfile;
+  onSaveAvatar: (avatar: AvatarProfile) => void;
+}) {
+  const [draft, setDraft] = useState<AvatarProfile>(avatar);
+  const [showPixelEditor, setShowPixelEditor] = useState(false);
+  const [showItemCreator, setShowItemCreator] = useState(false);
+  const [recording, setRecording] = useState(true);
+  const [itemMode, setItemMode] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<AvatarItemCategory>("전체");
+  const [saved, setSaved] = useState(false);
+  const [generatedItems, setGeneratedItems] = useState<AvatarItem[]>([]);
+  const [creatorDraft, setCreatorDraft] = useState({
+    label: "새 아이템",
+    cat: "악세사리" as AvatarItemCategory,
+    color: "#b08a4a",
+    templateId: "mini-bag",
+  });
+
+  const equipped = new Set(draft.equipped);
+  const allItems = [...AVATAR_ITEMS, ...generatedItems];
+  const visibleItems = activeCategory === "전체" ? allItems : allItems.filter(item => item.cat === activeCategory);
+
+  const toggle = (id: string) => {
+    setDraft(prev => {
+      const next = new Set(prev.equipped);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return { ...prev, equipped: [...next] };
+    });
+    setSaved(false);
+  };
+
+  const equipVisible = () => {
+    setDraft(prev => ({
+      ...prev,
+      equipped: Array.from(new Set([...prev.equipped, ...visibleItems.map(item => item.id)])),
+    }));
+    setSaved(false);
+  };
+
+  const clearVisible = () => {
+    const clearIds = new Set(visibleItems.map(item => item.id));
+    setDraft(prev => ({ ...prev, equipped: prev.equipped.filter(id => !clearIds.has(id)) }));
+    setSaved(false);
+  };
+
+  const saveAvatar = () => {
+    if (!itemMode) {
+      setItemMode(true);
+      return;
+    }
+    onSaveAvatar(draft);
+    setItemMode(false);
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1200);
+  };
+
+  const createItem = () => {
+    const id = `custom-${Date.now()}`;
+    setGeneratedItems(prev => [{
+      id,
+      cat: creatorDraft.cat,
+      emoji: "",
+      label: creatorDraft.label,
+      color: creatorDraft.color,
+    }, ...prev]);
+    setActiveCategory(creatorDraft.cat);
+    setShowItemCreator(false);
+    setSaved(false);
+  };
+
+  return (
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden relative" style={{ background: DIARY_PAPER_BG }}>
+      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(139,154,114,0.2)" }}>
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#8b9a72" }}>★</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#8b9a72", letterSpacing: "0.12em" }}>AVATAR STUDIO</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setShowItemCreator(true)} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700, background: ACCENT_BTN_BG, boxShadow: ACCENT_BTN_SHADOW }}>아이템 생성하기</button>
+          <button onClick={() => setShowPixelEditor(true)} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700, background: ACCENT_BTN_BG, boxShadow: ACCENT_BTN_SHADOW }}>아바타 만들기</button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col gap-2 overflow-hidden" style={{ minHeight: 0 }}>
+        <div className="flex justify-center flex-shrink-0">
+          <div className="relative rounded-xl p-2" style={{ background: "rgba(0,0,0,0.42)", border: "1px solid rgba(255,255,255,0.12)" }}>
+            <PixelAvatar avatar={draft} width={84} height={104} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-1 flex-shrink-0" style={{ minHeight: 26 }}>
+          <div className="flex items-center gap-1 overflow-x-auto" style={{ minWidth: 0, height: 26 }}>
+            {AVATAR_ITEM_CATEGORIES.map(category => {
+              const active = activeCategory === category;
+              return (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => setActiveCategory(category)}
+                  className="rounded-full flex-shrink-0"
+                  style={{
+                    height: 24,
+                    padding: "0 7px",
+                    fontFamily: "'Quicksand', sans-serif",
+                    fontSize: "0.44rem",
+                    fontWeight: 800,
+                    background: active ? "linear-gradient(90deg,#b08a4a,#8b9a72)" : "rgba(255,255,255,0.72)",
+                    color: active ? "white" : "#7a6846",
+                    border: active ? "1px solid rgba(176,138,74,0.35)" : "1px solid rgba(139,154,114,0.14)",
+                  }}
+                >
+                  {category}
+                </button>
+              );
+            })}
+          </div>
+          {itemMode && (
+            <div className="flex items-center gap-1 flex-shrink-0" style={{ height: 26 }}>
+              <button type="button" onClick={equipVisible} className="rounded-full" style={{ height: 24, padding: "0 7px", fontFamily: "'Quicksand', sans-serif", fontSize: "0.4rem", fontWeight: 800, background: "rgba(176,138,74,0.12)", color: "#8a6334", border: "1px solid rgba(176,138,74,0.22)" }}>모두 착용하기</button>
+              <button type="button" onClick={clearVisible} className="rounded-full" style={{ height: 24, padding: "0 7px", fontFamily: "'Quicksand', sans-serif", fontSize: "0.4rem", fontWeight: 800, background: "rgba(139,154,114,0.1)", color: "#6d7653", border: "1px solid rgba(139,154,114,0.2)" }}>모두 해제하기</button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {visibleItems.map((item, i) => {
+              const on = equipped.has(item.id);
+              const enabled = itemMode;
+              return (
+                <motion.button
+                  key={item.id}
+                  onClick={() => enabled && toggle(item.id)}
+                  disabled={!enabled}
+                  className="flex flex-col items-center gap-0.5 rounded-xl py-2"
+                  style={{ background: on ? "linear-gradient(135deg, " + item.color + "44, " + item.color + "22)" : "rgba(255,255,255,0.65)", border: on ? "1.5px solid " + item.color : "1px solid rgba(139,154,114,0.12)", boxShadow: on ? "0 2px 8px " + item.color + "44" : "none", transition: "all 0.15s", opacity: enabled ? 1 : 0.7 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  whileTap={{ scale: enabled ? 0.93 : 1 }}
+                >
+                  <PixelItemIcon id={item.id} color={item.color} />
+                  <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: on ? "#6040a0" : "#9060b0", fontWeight: 600 }}>{item.label}</span>
+                  {on && <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#b08a4a" }}>ON</span>}
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <button onClick={saveAvatar} className="flex-shrink-0 py-2 rounded-xl text-white" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 800, background: saved ? "linear-gradient(90deg,#8b9a72,#aeb79b)" : "linear-gradient(90deg,#b08a4a,#8b9a72)", boxShadow: "0 2px 8px rgba(176,138,74,0.25)" }}>
+        {!itemMode ? "아이템 착용하기" : saved ? "프로필에 적용됨" : "아바타 저장"}
+      </button>
+
+      <AnimatePresence>
+        {showItemCreator && (
+          <motion.div className="absolute inset-0 z-50 p-3 flex items-center justify-center" style={{ background: "rgba(20,16,10,0.72)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="w-full max-w-[760px] rounded-2xl p-3" style={{ background: "linear-gradient(180deg, #2a2114, #171309)", border: "1px solid rgba(216,196,155,0.22)", boxShadow: "0 16px 40px rgba(0,0,0,0.35)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.36rem", color: "#d8c49b" }}>HAND TRACKING ITEM MAKER</span>
+                <button onClick={() => setShowItemCreator(false)} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>닫기</button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1.35fr_0.95fr]">
+                <div className="rounded-xl p-2" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="relative rounded-lg overflow-hidden" style={{ minHeight: 340 }}>
+                    <FakeCameraView>
+                      <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-2 py-1" style={{ background: "rgba(0,0,0,0.42)" }}>
+                        <motion.span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ff3b3b", boxShadow: "0 0 10px #ff3b3b" }} animate={{ opacity: [1, 0.35, 1] }} transition={{ duration: 1, repeat: Infinity }} />
+                        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.32rem", color: "#f7efd9" }}>REC</span>
+                      </div>
+                      <div className="absolute inset-0 pointer-events-none">
+                        {[[28, 24], [44, 18], [61, 29], [70, 43], [54, 58], [36, 54], [24, 70], [68, 72]].map(([x, y], i) => (
+                          <motion.div key={i} className="absolute w-2 h-2 rounded-full" style={{ left: `${x}%`, top: `${y}%`, background: "#d8c49b", boxShadow: "0 0 6px #d8c49b" }} animate={{ scale: [1, 1.45, 1], opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.3, delay: i * 0.12, repeat: Infinity }} />
+                        ))}
+                      </div>
+                      <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
+                        <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: "#f7efd9", fontWeight: 700 }}>아이템을 그려서 픽셀화하세요</span>
+                      </div>
+                    </FakeCameraView>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" className="flex-1 py-2 rounded-xl text-white" style={{ background: "linear-gradient(90deg,#b08a4a,#8b9a72)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 800 }}>픽셀화하기</button>
+                    <button type="button" className="flex-1 py-2 rounded-xl text-white" onClick={createItem} style={{ background: "linear-gradient(90deg,#8b9a72,#b08a4a)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 800 }}>저장하기</button>
+                  </div>
+                </div>
+                <div className="rounded-xl p-2" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="grid gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#d8c49b" }}>이름</span>
+                      <input value={creatorDraft.label} onChange={e => setCreatorDraft(prev => ({ ...prev, label: e.target.value }))} className="px-2 py-1 rounded-lg outline-none" style={{ background: "rgba(255,255,255,0.9)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem" }} />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#d8c49b" }}>카테고리</span>
+                      <select value={creatorDraft.cat} onChange={e => setCreatorDraft(prev => ({ ...prev, cat: e.target.value as AvatarItemCategory }))} className="px-2 py-1 rounded-lg outline-none" style={{ background: "rgba(255,255,255,0.9)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem" }}>
+                        {AVATAR_ITEM_CATEGORIES.filter(v => v !== "전체").map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </label>
+                    <div>
+                      <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#8b9a72", marginBottom: 8 }}>COLOR</p>
+                      <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+                        {PALETTE.slice(0, 24).map(color => (
+                          <button key={color} type="button" onClick={() => setCreatorDraft(prev => ({ ...prev, color }))} style={{ width: 20, height: 20, borderRadius: 4, background: color, border: creatorDraft.color === color ? "2px solid white" : "1px solid rgba(255,255,255,0.2)" }} />
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={createItem} className="px-3 py-1.5 rounded-full text-white" style={{ background: "linear-gradient(90deg,#b08a4a,#8b9a72)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>저장하기</button>
+                    <button type="button" onClick={() => setShowItemCreator(false)} className="px-3 py-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.1)", color: "#f7efd9", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>취소</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPixelEditor && (
+          <PixelEditor
+            initialConfig={draft.config}
+            onSave={config => {
+              setDraft(prev => ({ ...prev, config }));
+              setSaved(false);
+            }}
+            onClose={() => setShowPixelEditor(false)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Face camera placeholder ── */
+function FakeCameraView({ children }: { children?: ReactNode }) {
+  return (
+    <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
+      style={{ background: "linear-gradient(160deg, #1a0a2e 0%, #0d0820 100%)" }}>
+      {/* scan lines */}
+      <div className="absolute inset-0 pointer-events-none opacity-10"
+        style={{
+          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.08) 3px, rgba(255,255,255,0.08) 4px)",
+        }} />
+      {/* face silhouette */}
+      <div className="relative flex flex-col items-center justify-center">
+        <div className="rounded-full" style={{
+          width: 90, height: 110,
+          background: "radial-gradient(ellipse at 40% 30%, #ffe0c0 0%, #f0b890 60%, #d08060 100%)",
+          boxShadow: "0 4px 24px rgba(255,180,120,0.3)",
+        }}>
+          {/* eyes */}
+          <div className="flex justify-center gap-5 pt-8">
+            <div className="w-4 h-4 rounded-full" style={{ background: "#2d1a00" }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-white mt-0.5 ml-0.5" />
+            </div>
+            <div className="w-4 h-4 rounded-full" style={{ background: "#2d1a00" }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-white mt-0.5 ml-0.5" />
+            </div>
+          </div>
+          {/* mouth */}
+          <div className="mx-auto mt-4 w-8 h-3 rounded-full" style={{ background: "#c06050", border: "1px solid #a04040" }} />
+        </div>
+        {/* neck + shoulder */}
+        <div style={{ width: 40, height: 20, background: "#f0b890", marginTop: -2 }} />
+        <div style={{ width: 120, height: 30, background: "#8b9a72", borderRadius: "50% 50% 0 0" }} />
+      </div>
+      {/* corner guide brackets */}
+      {[["top-2 left-2","border-t-2 border-l-2"],["top-2 right-2","border-t-2 border-r-2"],
+        ["bottom-2 left-2","border-b-2 border-l-2"],["bottom-2 right-2","border-b-2 border-r-2"]
+      ].map(([pos, border], i) => (
+        <div key={i} className={`absolute w-5 h-5 ${pos} ${border}`} style={{ borderColor: "rgba(216,196,155,0.7)" }} />
+      ))}
+      {/* dot grid overlay */}
+      <div className="absolute inset-0 pointer-events-none opacity-5"
+        style={{
+          backgroundImage: "radial-gradient(circle, rgba(255,120,200,0.8) 1px, transparent 1px)",
+          backgroundSize: "18px 18px",
+        }} />
+      {children}
+    </div>
+  );
+}
+
+/* ── Emoticon sidebar list ── */
+function EmoticonSidebar({ selected, onSelect }: { selected: number | null; onSelect: (id: number) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ width: 56 }}>
+      <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#8b9a72", textAlign: "center", marginBottom: 2 }}>MY</p>
+      {SAMPLE_EMOTICONS.map(e => (
+        <motion.button
+          key={e.id}
+          onClick={() => onSelect(e.id)}
+          className="flex flex-col items-center gap-0.5 rounded-lg p-1"
+          style={{
+            background: selected === e.id
+              ? "linear-gradient(135deg, rgba(176,138,74,0.25), rgba(139,154,114,0.2))"
+              : "rgba(255,255,255,0.08)",
+            border: selected === e.id ? "1.5px solid rgba(176,138,74,0.5)" : "1px solid rgba(255,255,255,0.1)",
+          }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          <PixelEmoticonIcon icon={e.icon} color={e.color} size={28} />
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.3rem", color: "rgba(255,220,240,0.7)", lineHeight: 1.2, textAlign: "center" }}>{e.label}</span>
+        </motion.button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Emoticon Maker page ── */
+function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const [isRec, setIsRec] = useState(true);
+
+  return (
+    <div className="h-full flex flex-col" style={{
+      background: "linear-gradient(160deg, #140820 0%, #0e0618 100%)",
+    }}>
+      {/* top bar */}
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
+        <button onClick={onBack}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-full"
+          style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,220,240,0.8)", fontSize: "0.5rem", fontFamily: "'Quicksand', sans-serif", fontWeight: 600 }}>
+          ← 뒤로
+        </button>
+        {/* REC indicator */}
+        <motion.div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+          style={{ background: "rgba(255,40,40,0.18)", border: "1px solid rgba(255,80,80,0.4)" }}>
+          <motion.div className="w-2 h-2 rounded-full" style={{ background: "#ff3030" }}
+            animate={{ opacity: isRec ? [1, 0.2, 1] : 0.3 }}
+            transition={{ duration: 1, repeat: Infinity }} />
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#ff6060" }}>REC</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "rgba(255,180,180,0.7)" }}>00:12</span>
+          <button onClick={() => setIsRec(v => !v)}
+            className="px-1.5 py-0.5 rounded-full ml-1"
+            style={{ background: isRec ? "rgba(255,80,80,0.3)" : "rgba(100,255,100,0.2)", fontSize: "0.4rem", color: isRec ? "#ff8080" : "#80ff80", fontFamily: "'Quicksand', sans-serif" }}>
+            {isRec ? "■ 정지" : "● 시작"}
+          </button>
+        </motion.div>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "rgba(255,120,200,0.6)" }}>HAND TRACK</span>
+      </div>
+
+      {/* main area */}
+      <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
+        {/* camera */}
+        <div className="flex-1 relative" style={{ minWidth: 0 }}>
+          <FakeCameraView>
+            {/* hand tracking dots */}
+            {[[42,62],[50,55],[58,62],[54,72],[46,72],[40,80],[60,80]].map(([x,y],i) => (
+              <motion.div key={i} className="absolute w-2 h-2 rounded-full"
+                style={{ left: `${x}%`, top: `${y}%`, background: "#b08a4a", boxShadow: "0 0 6px #b08a4a" }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity }} />
+            ))}
+            {/* connecting lines hint */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.4 }}>
+              <polyline points="42%,62% 50%,55% 58%,62% 54%,72% 46%,72% 40%,80% 60%,80%"
+                fill="none" stroke="#d8c49b" strokeWidth="1" />
+            </svg>
+            {/* live label */}
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded"
+              style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,80,120,0.4)" }}>
+              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#d8c49b" }}>LIVE</span>
+            </div>
+          </FakeCameraView>
+        </div>
+
+        {/* sidebar */}
+        <div className="flex flex-col gap-2" style={{ width: 56 }}>
+          <EmoticonSidebar selected={selected} onSelect={setSelected} />
+          {selected !== null && (
+            <motion.button
+              className="w-full py-1 rounded-lg text-white"
+              style={{
+                fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700,
+                background: "linear-gradient(135deg, #b08a4a, #8b9a72)",
+                boxShadow: "0 2px 8px rgba(176,138,74,0.4)",
+              }}
+              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+            >
+              ✏️<br />수정
+            </motion.button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PixelCharSvg = () => (
+  <svg width="50" height="64" viewBox="0 0 18 22" style={{ imageRendering: "pixelated", filter: "drop-shadow(0 2px 6px rgba(139,154,114,0.6))" }}>
+    <rect x="5" y="1" width="8" height="1" fill="#3d1a00" /><rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
+    <rect x="4" y="3" width="10" height="4" fill="#5c2800" /><rect x="3" y="4" width="1" height="3" fill="#5c2800" />
+    <rect x="14" y="4" width="1" height="3" fill="#5c2800" /><rect x="4" y="5" width="10" height="7" fill="#ffc8a0" />
+    <rect x="6" y="7" width="2" height="2" fill="#2d1a00" /><rect x="10" y="7" width="2" height="2" fill="#2d1a00" />
+    <rect x="7" y="7" width="1" height="1" fill="#ffffff" /><rect x="11" y="7" width="1" height="1" fill="#ffffff" />
+    <rect x="5" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" /><rect x="11" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" />
+    <rect x="8" y="10" width="2" height="1" fill="#ff8080" /><rect x="7" y="12" width="4" height="2" fill="#ffc8a0" />
+    <rect x="3" y="14" width="12" height="6" fill="#8b9a72" /><rect x="2" y="14" width="3" height="5" fill="#a030d0" />
+    <rect x="13" y="14" width="3" height="5" fill="#a030d0" /><rect x="7" y="14" width="4" height="1" fill="#a030d0" />
+    <rect x="7" y="15" width="4" height="3" fill="#f5e7c7" /><rect x="5" y="20" width="3" height="2" fill="#d8c49b" />
+    <rect x="10" y="20" width="3" height="2" fill="#d8c49b" />
+  </svg>
+);
+
+function PhotoBoothPage({ onBack }: { onBack: () => void }) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const [showChar, setShowChar] = useState(false);
+  const [shots, setShots] = useState<string[]>([]);
+  const [shotIdx, setShotIdx] = useState(0);
+  const [flash, setFlash] = useState(false);
+  const [previewShot, setPreviewShot] = useState<string | null>(null);
+  const { add: addToAlbum } = useSharedPhotos();
+
+  const selectedEmoticon = SAMPLE_EMOTICONS.find(e => e.id === selected);
+
+  const takePhoto = () => {
+    setFlash(true);
+    setTimeout(() => setFlash(false), 300);
+    const gradient = PHOTO_BOOTH_GRADIENTS[shots.length % PHOTO_BOOTH_GRADIENTS.length];
+    setShots(prev => {
+      const next = [gradient, ...prev];
+      setShotIdx(0);
+      addToAlbum(gradient);
+      return next;
+    });
+  };
+
+  return (
+    <div className="h-full flex flex-col" style={{ background: "linear-gradient(160deg, #140820 0%, #0e0618 100%)" }}>
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
+        <button onClick={onBack} className="flex items-center gap-1 px-2 py-0.5 rounded-full"
+          style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,220,240,0.8)", fontSize: "0.5rem", fontFamily: "'Quicksand', sans-serif", fontWeight: 600 }}>
+          ← 뒤로
+        </button>
+        <button onClick={() => setShowChar(v => !v)} className="flex items-center gap-1 px-2.5 py-1 rounded-full"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
+            background: showChar ? "linear-gradient(90deg,#8b9a72,#b08a4a)" : "rgba(255,255,255,0.12)",
+            color: "white", border: "1px solid rgba(255,120,200,0.3)",
+            boxShadow: showChar ? "0 2px 8px rgba(139,154,114,0.4)" : "none", transition: "all 0.2s",
+          }}>
+          {showChar ? "✓ 캐릭터 ON" : "🧸 캐릭터 불러오기"}
+        </button>
+      </div>
+
+      <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
+        <div className="flex-1 relative" style={{ minWidth: 0 }}>
+          <FakeCameraView>
+            <AnimatePresence>
+              {flash && (
+                <motion.div className="absolute inset-0 bg-white pointer-events-none"
+                  initial={{ opacity: 0.9 }} animate={{ opacity: 0 }} transition={{ duration: 0.3 }} />
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {showChar && (
+                <motion.div className="absolute bottom-16 left-4"
+                  initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+                  <PixelCharSvg />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {selectedEmoticon && (
+                <motion.div className="absolute top-4 right-4"
+                  initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 18 }}>
+                  <PixelEmoticonIcon icon={selectedEmoticon.icon} color={selectedEmoticon.color} size={48} glow />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {/* shutter */}
+            <motion.button onClick={takePhoto}
+              className="absolute left-1/2 -translate-x-1/2 bottom-3 flex items-center justify-center"
+              style={{
+                width: 56, height: 56, borderRadius: "50%",
+                background: "rgba(255,255,255,0.15)",
+                border: "4px solid rgba(255,255,255,0.9)",
+                backdropFilter: "blur(4px)",
+                boxShadow: "0 0 20px rgba(216,196,155,0.4), 0 4px 16px rgba(0,0,0,0.3)",
+              }}
+              whileTap={{ scale: 0.82 }} whileHover={{ scale: 1.06 }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,0.85)", boxShadow: "inset 0 2px 4px rgba(0,0,0,0.15)" }} />
+            </motion.button>
+            {/* thumbnail preview bottom-right */}
+            <AnimatePresence>
+              {shots.length > 0 && (
+                <motion.div className="absolute bottom-3 right-3 flex flex-col items-end gap-1"
+                  initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+                  <button type="button" onClick={() => setPreviewShot(shots[shotIdx])} className="relative rounded-lg overflow-hidden"
+                    style={{ width: 52, height: 52, border: "2px solid rgba(255,255,255,0.8)", boxShadow: "0 2px 10px rgba(0,0,0,0.4)" }}>
+                    <div className="w-full h-full" style={{ background: shots[shotIdx] }} />
+                    <div className="absolute top-0.5 right-0.5 rounded-sm px-0.5"
+                      style={{ background: "rgba(80,200,80,0.85)", fontSize: "0.28rem", fontFamily: "'Quicksand',sans-serif", color: "white", fontWeight: 700 }}>✓</div>
+                  </button>
+                  {shots.length > 1 && (
+                    <div className="flex gap-1 items-center">
+                      <button onClick={() => setShotIdx(i => Math.min(i + 1, shots.length - 1))}
+                        className="w-5 h-5 rounded-full flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.2)", color: "white", fontSize: 10, opacity: shotIdx < shots.length - 1 ? 1 : 0.3 }}>‹</button>
+                      <span style={{ fontFamily: "'Press Start 2P',monospace", fontSize: "0.28rem", color: "rgba(248,234,198,0.8)" }}>
+                        {shots.length - shotIdx}/{shots.length}
+                      </span>
+                      <button onClick={() => setShotIdx(i => Math.max(i - 1, 0))}
+                        className="w-5 h-5 rounded-full flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.2)", color: "white", fontSize: 10, opacity: shotIdx > 0 ? 1 : 0.3 }}>›</button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </FakeCameraView>
+        </div>
+        <div className="flex flex-col gap-1.5" style={{ width: 56 }}>
+          <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "rgba(255,120,200,0.7)", textAlign: "center" }}>STAMP</p>
+          <EmoticonSidebar selected={selected} onSelect={id => setSelected(prev => prev === id ? null : id)} />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {previewShot && (
+          <motion.div
+            className="absolute inset-0 z-50 flex items-center justify-center p-3"
+            style={{ background: "rgba(10, 8, 14, 0.78)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="w-full max-w-[560px] rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.18)", boxShadow: "0 16px 48px rgba(0,0,0,0.45)" }}>
+              <div className="flex items-center justify-between px-3 py-2" style={{ background: "rgba(0,0,0,0.55)" }}>
+                <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#d8c49b" }}>PHOTO PREVIEW</span>
+                <button onClick={() => setPreviewShot(null)} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#fff" }}>
+                  닫기
+                </button>
+              </div>
+              <div className="aspect-square" style={{ background: previewShot }} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Emoticon Room landing ── */
+function EmoticonRoomPage() {
+  const [view, setView] = useState<"home" | "maker" | "photo">("home");
+  const [category, setCategory] = useState("전체");
+
+  if (view === "maker") return <EmoticonMakerPage onBack={() => setView("home")} />;
+  if (view === "photo") return <PhotoBoothPage onBack={() => setView("home")} />;
+
+  const categorized = category === "전체" ? SAMPLE_EMOTICONS : SAMPLE_EMOTICONS.filter(e => e.category === category);
+  const categories = ["전체", ...Array.from(new Set(SAMPLE_EMOTICONS.map(e => e.category)))];
+
+  return (
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
+      background: DIARY_PAPER_BG,
+    }}>
+      <div className="flex items-center pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(176,138,74,0.2)" }}>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#b08a4a" }}>★</span>
+        <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#b08a4a", letterSpacing: "0.12em", marginLeft: 6 }}>EMOTICON ROOM</span>
+      </div>
+      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+        <div className="flex items-center gap-1 overflow-x-auto pb-2" style={{ minHeight: 28 }}>
+          {categories.map(cat => {
+            const on = category === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                className="rounded-full flex-shrink-0 px-2 py-0.5"
+                style={{
+                  fontFamily: "'Quicksand', sans-serif",
+                  fontSize: "0.44rem",
+                  fontWeight: 800,
+                  background: on ? "linear-gradient(90deg,#b08a4a,#8b9a72)" : "rgba(255,255,255,0.72)",
+                  color: on ? "white" : "#7a6846",
+                  border: "1px solid rgba(139,154,114,0.15)",
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          {categorized.map((e, i) => (
+            <motion.div key={e.id} className="flex flex-col items-center gap-1 rounded-xl py-2.5"
+              style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(139,154,114,0.15)" }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
+              whileHover={{ scale: 1.04 }}>
+              <PixelEmoticonIcon icon={e.icon} color={e.color} size={40} />
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: "#9060b0", fontWeight: 700 }}>{e.label}</span>
+              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.24rem", color: "rgba(139,154,114,0.75)", lineHeight: 1 }}>{e.category}</span>
+            </motion.div>
+          ))}
+          <button onClick={() => setView("maker")}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl py-2.5"
+            style={{ border: "1.5px dashed rgba(139,154,114,0.3)", background: "rgba(139,154,114,0.04)" }}>
+            <span style={{ fontSize: 22, color: "#8b9a72" }}>＋</span>
+            <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#8b9a72" }}>추가</span>
+          </button>
+        </div>
+      </div>
+      {/* bottom action buttons — same size, side by side */}
+      <div className="flex gap-2 flex-shrink-0">
+        <motion.button onClick={() => setView("photo")}
+          className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-white"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700,
+            background: "linear-gradient(135deg, #b88a54, #b08a4a)",
+            boxShadow: "0 3px 12px rgba(255,60,80,0.4)",
+          }}
+          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
+          <span style={{ fontSize: 15 }}>📸</span> 사진찍기
+        </motion.button>
+        <motion.button onClick={() => setView("maker")}
+          className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-white"
+          style={{
+            fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700,
+            background: "linear-gradient(135deg, #7c3aed, #8b9a72)",
+            boxShadow: "0 3px 12px rgba(130,60,255,0.4)",
+          }}
+          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
+          <span style={{ fontSize: 15 }}>✨</span> 이모티콘 생성
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+
 
 /* ═══════════════════════════════════════════
    RIGHT PAGE — GUESTBOOK
@@ -894,7 +2568,7 @@ function GuestbookPage() {
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #fff4f8 0%, #f8f0ff 100%)",
+      background: DIARY_PAPER_BG,
     }}>
       {/* header */}
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(255,120,80,0.2)" }}>
@@ -1051,7 +2725,7 @@ function MiniRoomPage({
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
+      background: DIARY_PAPER_BG,
     }}>
       {/* header */}
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(128,224,176,0.3)" }}>
@@ -1207,7 +2881,7 @@ function DiaryPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: "linear-gradient(160deg, #FFFDF8 0%, #FFF8F0 100%)" }}>
+    <div className="h-full flex flex-col" style={{ background: DIARY_PAPER_BG }}>
       {/* top bar */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b flex-shrink-0" style={{ borderColor: "rgba(255,160,80,0.2)" }}>
         <div className="flex items-center gap-1.5">
@@ -1411,7 +3085,7 @@ function FriendVisitPage({ nb, onBack }: { nb: FriendNeighbor; onBack: () => voi
   ];
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3" style={{ background: "linear-gradient(160deg, #f0f4ff 0%, #f8f0ff 100%)" }}>
+    <div className="h-full flex flex-col gap-2 p-3" style={{ background: DIARY_PAPER_BG }}>
       {/* header */}
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: `${nb.color}44` }}>
         <div className="flex items-center gap-2">
@@ -1516,7 +3190,7 @@ function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name:
       <motion.div
         className="w-full max-w-[220px] rounded-2xl p-4 flex flex-col gap-3"
         style={{
-          background: "linear-gradient(160deg, #fff8ff 0%, #f8f0ff 100%)",
+          background: DIARY_PAPER_BG,
           border: "2px solid rgba(122,143,212,0.25)",
           boxShadow: "0 8px 32px rgba(122,143,212,0.2)",
         }}
@@ -1597,7 +3271,7 @@ function HomeRightPage({
 
   return (
     <div className="h-full overflow-y-auto flex flex-col gap-2 p-3 relative" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
+      background: DIARY_PAPER_BG,
       scrollbarWidth: "thin",
     }}>
       {showAddFriend && (
@@ -1732,7 +3406,7 @@ function BoardExpandPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
+    <div className="h-full flex flex-col gap-2 p-3" style={{ background: DIARY_PAPER_BG }}>
       <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(122,143,212,0.2)" }}>
         <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.42rem", color: "#7a8fd4" }}>게시판 💬</span>
         <button onClick={onBack} className="px-2 py-0.5 rounded-full" style={{
@@ -1777,7 +3451,7 @@ function HomeLeftPage() {
   if (showBoard) return <BoardExpandPage onBack={() => setShowBoard(false)} />;
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: DIARY_PAPER_BG }}>
       {/* bulletin board */}
       <HomeBoardSection onExpand={() => setShowBoard(true)} />
 
@@ -1998,7 +3672,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
                 fontFamily: "'Quicksand', sans-serif",
                 fontSize: "0.48rem",
                 fontWeight: activeTab === tab.id ? 700 : 500,
-                color: activeTab === tab.id ? "#fff" : "rgba(61,74,122,0.78)",
+                color: activeTab === tab.id ? "#fff" : "rgba(80,30,60,0.75)",
                 letterSpacing: "0.05em",
                 userSelect: "none",
               }}>
