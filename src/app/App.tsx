@@ -125,14 +125,6 @@ const Corner = ({ flip }: { flip?: boolean }) => (
   </svg>
 );
 
-const ChromeBadge = ({ children }: { children: React.ReactNode }) => (
-  <div className="px-4 py-1 rounded-full text-xs font-semibold tracking-widest uppercase" style={{
-    fontFamily: "'Quicksand', sans-serif",
-    background: "linear-gradient(135deg, #fff 0%, #eef1fb 30%, #C2CBED 60%, #fff 100%)",
-    boxShadow: "0 2px 8px rgba(90,109,176,0.28), inset 0 1px 0 rgba(255,255,255,0.9)",
-    color: "#3d4a7a", border: "1px solid rgba(255,255,255,0.8)",
-  }}>{children}</div>
-);
 
 function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string }) {
   const stars = [
@@ -193,23 +185,33 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
         <div className="absolute bottom-3 right-3" style={{ transform: "scale(-1) scaleX(-1)" }}><Corner flip /></div>
         {stars.map((s, i) => <PixelStar key={i} {...s} />)}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-10 z-10">
-          <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55, duration: 0.7 }}>
-            <ChromeBadge>✦ My Personal Diary ✦</ChromeBadge>
-          </motion.div>
-          <motion.div className="flex gap-2 items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
-            {[0, 0.15, 0.3].map((d, i) => (
-              <motion.div key={i} animate={{ y: [0, -4, 0] }} transition={{ duration: 1.4, delay: d, repeat: Infinity, ease: "easeInOut" }}>
-                <PixelHeart size={i === 1 ? 20 : 14} color={i === 1 ? "#5a6db0" : "#7a8fd4"} />
-              </motion.div>
-            ))}
-          </motion.div>
+          <motion.p
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55, duration: 0.7 }}
+            style={{
+              fontFamily: "'Press Start 2P', monospace",
+              fontSize: "0.38rem",
+              color: "#5a6db0",
+              letterSpacing: "0.06em",
+              textAlign: "center",
+              lineHeight: 2,
+              textShadow: "1px 1px 0 rgba(194,203,237,0.9)",
+            }}
+          >
+            My Personal Diary
+          </motion.p>
           <motion.div className="text-center" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.75, duration: 1, ease: [0.22, 1, 0.36, 1] }}>
-            <h1 
-              style={{ fontFamily: '"Great Vibes", "Comic Sans MS", "Malgun Gothic", sans-serif', fontSize: '1.3rem', color: '#3d4a7a', lineHeight: '1.1',
-              background: "linear-gradient(135deg, #3d4a7a 0%, #5a6db0 30%, #7a8fd4 60%, #5a6db0 80%, #3d4a7a 100%)",
-              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-              filter: "drop-shadow(0 2px 8px rgba(90,109,176,0.35))",
-            }}>Re:world</h1>
+            <h1
+              style={{
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: "1.15rem",
+                color: "#3d4a7a",
+                lineHeight: 1.8,
+                letterSpacing: "0.04em",
+                textShadow: "2px 2px 0 rgba(194,203,237,0.9), 4px 4px 0 rgba(90,109,176,0.35)",
+              }}
+            >Re:world</h1>
             <motion.div className="mx-auto mt-1 h-0.5 rounded-full" style={{
               background: "linear-gradient(90deg, transparent, #C2CBED, #fff, #7a8fd4, #C2CBED, transparent)",
               boxShadow: "0 0 6px rgba(122,143,212,0.5)",
@@ -225,21 +227,6 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
             <span style={{ color: "#C2CBED", fontSize: 14 }}>✦</span>
             <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(90,109,176,0.45))" }} />
           </div>
-          <motion.div className="relative px-6 py-1.5 rounded-full overflow-hidden" style={{
-            background: "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(232,236,250,0.92) 50%, rgba(255,255,255,0.85) 100%)",
-            boxShadow: "0 3px 12px rgba(90,109,176,0.22), inset 0 1px 0 rgba(255,255,255,1)",
-            border: "1.5px solid rgba(122,143,212,0.25)",
-          }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.0 }}>
-            <div className="absolute inset-x-0 top-0 h-1/2 rounded-full" style={{ background: "rgba(255,255,255,0.6)" }} />
-            <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 600, fontSize: "0.78rem", letterSpacing: "0.25em", color: "#3d4a7a", position: "relative" }}>2 0 2 6</span>
-          </motion.div>
-          <motion.div className="flex gap-3 items-center mt-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.3 }}>
-            {[0.1, 0, 0.2, 0, 0.1].map((d, i) => (
-              <motion.div key={i} animate={{ y: [0, -5, 0] }} transition={{ duration: 1.2, delay: d + i * 0.07, repeat: Infinity }}>
-                <PixelHeart size={i === 2 ? 18 : 12} color={["#7a8fd4", "#C2CBED", "#5a6db0", "#a8b8e8", "#7a8fd4"][i]} />
-              </motion.div>
-            ))}
-          </motion.div>
           {/* open hint */}
           <motion.p
             className="mt-2 text-center"
@@ -1992,9 +1979,10 @@ function ProfileAvatarPage({
                     fontFamily: "'Quicksand', sans-serif",
                     fontSize: "0.44rem",
                     fontWeight: 800,
-                    background: active ? "linear-gradient(90deg,#b08a4a,#8b9a72)" : "rgba(255,255,255,0.72)",
+                    background: active ? ACCENT_BTN_BG : "rgba(255,255,255,0.72)",
                     color: active ? "white" : "#7a6846",
-                    border: active ? "1px solid rgba(176,138,74,0.35)" : "1px solid rgba(139,154,114,0.14)",
+                    border: active ? "1px solid rgba(255,71,87,0.35)" : "1px solid rgba(139,154,114,0.14)",
+                    boxShadow: active ? ACCENT_BTN_SHADOW : "none",
                   }}
                 >
                   {category}
@@ -2037,7 +2025,7 @@ function ProfileAvatarPage({
         </div>
       </div>
 
-      <button onClick={saveAvatar} className="flex-shrink-0 py-2 rounded-xl text-white" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 800, background: saved ? "linear-gradient(90deg,#8b9a72,#aeb79b)" : "linear-gradient(90deg,#b08a4a,#8b9a72)", boxShadow: "0 2px 8px rgba(176,138,74,0.25)" }}>
+      <button onClick={saveAvatar} className="flex-shrink-0 py-2 rounded-xl text-white" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 800, background: saved ? "linear-gradient(90deg,#ff6b81,#ff8fa3)" : ACCENT_BTN_BG, boxShadow: ACCENT_BTN_SHADOW }}>
         {!itemMode ? "아이템 착용하기" : saved ? "프로필에 적용됨" : "아바타 저장"}
       </button>
 
@@ -2465,9 +2453,10 @@ function EmoticonRoomPage() {
                   fontFamily: "'Quicksand', sans-serif",
                   fontSize: "0.44rem",
                   fontWeight: 800,
-                  background: on ? "linear-gradient(90deg,#b08a4a,#8b9a72)" : "rgba(255,255,255,0.72)",
+                  background: on ? ACCENT_BTN_BG : "rgba(255,255,255,0.72)",
                   color: on ? "white" : "#7a6846",
-                  border: "1px solid rgba(139,154,114,0.15)",
+                  border: on ? "1px solid rgba(255,71,87,0.35)" : "1px solid rgba(139,154,114,0.15)",
+                  boxShadow: on ? ACCENT_BTN_SHADOW : "none",
                 }}
               >
                 {cat}
@@ -2500,8 +2489,8 @@ function EmoticonRoomPage() {
           className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-white"
           style={{
             fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700,
-            background: "linear-gradient(135deg, #b88a54, #b08a4a)",
-            boxShadow: "0 3px 12px rgba(255,60,80,0.4)",
+            background: ACCENT_BTN_BG_135,
+            boxShadow: ACCENT_BTN_SHADOW,
           }}
           whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
           <span style={{ fontSize: 15 }}>📸</span> 사진찍기
