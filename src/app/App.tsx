@@ -1,8 +1,8 @@
-import { useState, useEffect, type Dispatch, type SetStateAction, type CSSProperties } from "react";
+import { useState, useEffect, type Dispatch, type SetStateAction, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import AuthPage from "./AuthPage";
 import { getSession, signOut, updateUserNickname, type User } from "../lib/auth";
-import { getUserProfile, saveUserProfile, type ProfileField } from "../lib/profile";
+import { getUserProfile, saveUserProfile } from "../lib/profile";
 import {
   ROOM_CATEGORIES,
   EMPTY_ROOM_SELECTIONS,
@@ -15,46 +15,32 @@ import {
   getItemById,
   loadRoomSelections,
   saveRoomSelections,
+  AVATAR_ITEMS,
+  BOARD_POSTS,
+  GUESTBOOK_COLORS,
+  INIT_ENTRIES,
+  INIT_FIELDS,
+  INITIAL_ENTRIES,
+  NEIGHBORS,
+  PALETTE,
+  PHOTO_BOOTH_GRADIENTS,
+  PIXEL_COLS,
+  PIXEL_ROWS,
+  SAMPLE_EMOTICONS,
+  STICKER_OPTIONS,
+  TABS,
+  WEATHER_OPTIONS,
+  type Neighbor,
+  type ProfileField,
+  type Privacy,
+  type VisitMode,
+  type TabConfig,
   type RoomCategoryId,
   type RoomSelections,
   type PixelRect,
 } from "./data";
-
-/* ── Fixed diary layout (non-responsive) ── */
-const DIARY = {
-  pageW: 420,
-  pageH: 640,
-  spineW: 12,
-  tabW: 28,
-} as const;
-const DIARY_SPREAD_W = DIARY.pageW * 2 + DIARY.spineW + DIARY.tabW;
-const ROOM_ASPECT = `${ROOM_VIEW_WIDTH} / ${ROOM_VIEW_HEIGHT}`;
-
-/** Mini room frame — preserves full viewBox, never crops */
-function RoomCanvas({
-  selections,
-  style,
-  className = "",
-  fillHeight = false,
-}: {
-  selections?: RoomSelections;
-  style?: CSSProperties;
-  className?: string;
-  fillHeight?: boolean;
-}) {
-  return (
-    <div
-      className={`relative overflow-hidden ${className}`}
-      style={
-        fillHeight
-          ? { width: "100%", height: "100%", ...style }
-          : { width: "100%", aspectRatio: ROOM_ASPECT, ...style }
-      }
-    >
-      <MiniRoom selections={selections} />
-    </div>
-  );
-}
+import { useSharedPhotos } from "./hooks/useSharedPhotos";
+import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils/date";
 
 /* ═══════════════════════════════════════════
    SHARED ATOMS
@@ -131,11 +117,11 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
 
   return (
     <div className="size-full flex items-center justify-center" style={{
-      background: "linear-gradient(135deg, #fce4f8 0%, #f0c8f8 40%, #fcd0ec 70%, #f8e0ff 100%)",
+      background: "linear-gradient(135deg, #C2CBED 0%, #b8c4e8 40%, #d0d8f4 70%, #e4e9f7 100%)",
     }}>
       <div className="absolute rounded-full pointer-events-none" style={{
         width: 500, height: 500,
-        background: "radial-gradient(circle, rgba(255,80,180,0.18) 0%, transparent 70%)",
+        background: "radial-gradient(circle, rgba(122,143,212,0.18) 0%, transparent 70%)",
         filter: "blur(40px)",
       }} />
       <motion.div
@@ -143,8 +129,8 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
         style={{
           width: DIARY.pageW, height: DIARY.pageH,
           borderRadius: "4px 16px 16px 4px",
-          boxShadow: "6px 10px 50px rgba(200,0,120,0.28), 2px 4px 16px rgba(180,50,255,0.2), 0 0 0 1px rgba(255,255,255,0.6)",
-          background: "linear-gradient(148deg, #ffd6f4 0%, #ffb3e8 20%, #f9a0e8 40%, #e8b0ff 65%, #ffc0ea 85%, #ffd6f4 100%)",
+          boxShadow: "6px 10px 50px rgba(90,109,176,0.28), 2px 4px 16px rgba(122,143,212,0.2), 0 0 0 1px rgba(255,255,255,0.6)",
+          background: "linear-gradient(148deg, #d8dff5 0%, #C2CBED 25%, #b8c4e8 50%, #c8d0ef 75%, #d8dff5 100%)",
         }}
         onClick={onOpen}
         whileHover={{ scale: 1.01 }}
@@ -244,17 +230,17 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
         width: 12, height: DIARY.pageH,
         left: `calc(50% - ${DIARY.pageW / 2}px - 8px)`,
         borderRadius: "4px 0 0 4px",
-        background: "linear-gradient(to right, #e060b0, #f090c8)",
-        boxShadow: "-3px 0 10px rgba(180,0,100,0.2)",
+        background: "linear-gradient(to right, #9aa8d8, #C2CBED)",
+        boxShadow: "-3px 0 10px rgba(90,109,176,0.2)",
       }} />
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════
-   PIXEL AVATAR SVG
+   PIXEL AVATAR SVG (legacy — guestbook neighbors)
 ═══════════════════════════════════════════ */
-type AvatarConfig = {
+type LegacyAvatarConfig = {
   hairDark: string;
   hairLight: string;
   skin: string;
@@ -264,7 +250,7 @@ type AvatarConfig = {
   pants: string;
 };
 
-const DEFAULT_AVATAR: AvatarConfig = {
+const DEFAULT_LEGACY_AVATAR: LegacyAvatarConfig = {
   hairDark: "#3d1a00",
   hairLight: "#5c2800",
   skin: "#ffc8a0",
@@ -274,12 +260,12 @@ const DEFAULT_AVATAR: AvatarConfig = {
   pants: "#c8a0ff",
 };
 
-function PixelAvatar({
-  config = DEFAULT_AVATAR,
+function LegacyPixelAvatar({
+  config = DEFAULT_LEGACY_AVATAR,
   width = 72,
   height = 90,
 }: {
-  config?: AvatarConfig;
+  config?: LegacyAvatarConfig;
   width?: number;
   height?: number;
 }) {
@@ -319,7 +305,7 @@ function PixelAvatar({
   );
 }
 
-function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avatar: AvatarConfig; color: string; size?: number; showOnline?: boolean }) {
+function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avatar: LegacyAvatarConfig; color: string; size?: number; showOnline?: boolean }) {
   return (
     <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
       <div
@@ -329,7 +315,7 @@ function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avata
           border: `2px solid ${color}`,
         }}
       >
-        <PixelAvatar config={avatar} width={size * 0.72} height={size * 0.9} />
+        <LegacyPixelAvatar config={avatar} width={size * 0.72} height={size * 0.9} />
       </div>
       {showOnline && (
         <div
@@ -340,7 +326,333 @@ function NeighborAvatar({ avatar, color, size = 40, showOnline = true }: { avata
     </div>
   );
 }
+/* ═══════════════════════════════════════════
+   PIXEL AVATAR SVG
+═══════════════════════════════════════════ */
+type AvatarPixelMap = Record<string, string>;
 
+type AvatarConfig = {
+  body: string;
+  pixels: AvatarPixelMap;
+};
+
+type AvatarProfile = {
+  config: AvatarConfig;
+  equipped: string[];
+};
+
+type AvatarRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  part: keyof AvatarConfig | "fixed";
+  opacity?: number;
+};
+
+const DEFAULT_AVATAR_CONFIG: AvatarConfig = {
+  body: "#ffd0ad",
+  pixels: {},
+};
+
+const DEFAULT_AVATAR_PROFILE: AvatarProfile = {
+  config: DEFAULT_AVATAR_CONFIG,
+  equipped: [],
+};
+
+type DiaryProfile = {
+  title: string;
+  status: string;
+  tags: string[];
+  fields: ProfileField[];
+  bgmTitle: string;
+};
+
+const DEFAULT_DIARY_PROFILE: DiaryProfile = {
+  title: "Re:world",
+  status: "일상 기록중 🌸",
+  tags: ["#daily", "#y2k", "#diary"],
+  fields: INIT_FIELDS,
+  bgmTitle: "Lovefool - The Cardigans",
+};
+
+const AVATAR_ITEM_CATEGORIES = ["전체", "얼굴", "의상", "악세사리", "기타"] as const;
+type AvatarItemCategory = typeof AVATAR_ITEM_CATEGORIES[number];
+
+const getPixelKey = (x: number, y: number) => x + "-" + y;
+
+function getAvatarRects(config: AvatarConfig): AvatarRect[] {
+  const skin = config.body ?? "#ffd0ad";
+  const eye = "#5b3322";
+  const blush = "#e58aa8";
+  const mouth = skin;
+  const lip = "#f08aa8";
+  const shirt = skin;
+  const shirtShade = skin;
+  const shirtMark = skin;
+  const shorts = skin;
+  const shoe = skin;
+  const shoeLight = skin;
+
+  return [
+    { x: 12, y: 3, width: 8, height: 1, fill: skin, part: "body" },
+    { x: 10, y: 4, width: 12, height: 2, fill: skin, part: "body" },
+    { x: 9, y: 6, width: 14, height: 9, fill: skin, part: "body" },
+    { x: 10, y: 15, width: 12, height: 2, fill: skin, part: "body" },
+    { x: 12, y: 17, width: 8, height: 1, fill: skin, part: "body" },
+    { x: 8, y: 10, width: 2, height: 5, fill: skin, part: "body" },
+    { x: 22, y: 10, width: 2, height: 5, fill: skin, part: "body" },
+    { x: 14, y: 18, width: 4, height: 2, fill: skin, part: "body" },
+    { x: 10, y: 20, width: 12, height: 1, fill: skin, part: "body" },
+    { x: 9, y: 21, width: 1, height: 2, fill: skin, part: "body" },
+    { x: 8, y: 22, width: 2, height: 1, fill: skin, part: "body" },
+    { x: 22, y: 21, width: 1, height: 2, fill: skin, part: "body" },
+    { x: 22, y: 22, width: 2, height: 1, fill: skin, part: "body" },
+    { x: 10, y: 21, width: 12, height: 2, fill: shirt, part: "body" },
+    { x: 10, y: 21, width: 12, height: 8, fill: shirt, part: "body" },
+    { x: 10, y: 30, width: 12, height: 1, fill: shirtShade, part: "body" },
+    { x: 14, y: 22, width: 4, height: 3, fill: shirtMark, part: "body" },
+    { x: 13, y: 25, width: 2, height: 2, fill: shirtMark, part: "body" },
+    { x: 17, y: 25, width: 2, height: 2, fill: shirtMark, part: "body" },
+    { x: 15, y: 27, width: 2, height: 2, fill: shirtMark, part: "body" },
+    { x: 15, y: 22, width: 2, height: 8, fill: skin, part: "body" },
+    { x: 10, y: 29, width: 5, height: 1, fill: skin, part: "body" },
+    { x: 15, y: 29, width: 2, height: 1, fill: skin, part: "body" },
+    { x: 17, y: 29, width: 5, height: 1, fill: skin, part: "body" },
+    { x: 7, y: 23, width: 3, height: 10, fill: skin, part: "body" },
+    { x: 22, y: 23, width: 3, height: 10, fill: skin, part: "body" },
+    { x: 6, y: 33, width: 4, height: 2, fill: skin, part: "body" },
+    { x: 22, y: 33, width: 4, height: 2, fill: skin, part: "body" },
+    { x: 10, y: 31, width: 6, height: 8, fill: skin, part: "body" },
+    { x: 16, y: 31, width: 1, height: 5, fill: skin, part: "body" },
+    { x: 17, y: 31, width: 6, height: 8, fill: skin, part: "body" },
+    { x: 10, y: 39, width: 6, height: 6, fill: skin, part: "body" },
+    { x: 17, y: 39, width: 6, height: 6, fill: skin, part: "body" },
+    { x: 10, y: 45, width: 6, height: 3, fill: shoe, part: "body" },
+    { x: 8, y: 46, width: 2, height: 2, fill: shoe, part: "body" },
+    { x: 11, y: 47, width: 3, height: 1, fill: shoeLight, part: "body" },
+    { x: 17, y: 45, width: 6, height: 3, fill: shoe, part: "body" },
+    { x: 23, y: 46, width: 2, height: 2, fill: shoe, part: "body" },
+    { x: 19, y: 47, width: 3, height: 1, fill: shoeLight, part: "body" },
+    { x: 12, y: 9, width: 2, height: 3, fill: eye, part: "body" },
+    { x: 18, y: 9, width: 2, height: 3, fill: eye, part: "body" },
+    { x: 13, y: 9, width: 1, height: 1, fill: "#fff7e8", part: "body" },
+    { x: 19, y: 9, width: 1, height: 1, fill: "#fff7e8", part: "body" },
+    { x: 10, y: 13, width: 3, height: 2, fill: blush, part: "body", opacity: 0.82 },
+    { x: 20, y: 13, width: 3, height: 2, fill: blush, part: "body", opacity: 0.82 },
+    { x: 14, y: 14, width: 4, height: 4, fill: mouth, part: "body" },
+    { x: 15, y: 15, width: 2, height: 1, fill: lip, part: "body" },
+  ];
+}
+
+function PixelAvatar({
+  avatar = DEFAULT_AVATAR_PROFILE,
+  width = 84,
+  height = 102,
+}: {
+  avatar?: AvatarProfile;
+  width?: number;
+  height?: number;
+}) {
+  const { config, equipped } = avatar;
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${PIXEL_COLS} ${PIXEL_ROWS}`} style={{ imageRendering: "pixelated" }}>
+      {getAvatarRects(config).map(({ part, ...rect }, i) => (
+        <rect key={String(part) + "-" + i} {...rect} />
+      ))}
+      {Object.entries(config.pixels ?? {}).map(([key, fill]) => {
+        const [x, y] = key.split("-").map(Number);
+        if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
+        return <rect key={"paint-" + key} x={x} y={y} width="1" height="1" fill={fill} />;
+      })}
+      {equipped.includes("face-blush") && (
+        <>
+          <rect x="8" y="11" width="4" height="2" fill="#d99a86" opacity="0.75" />
+          <rect x="20" y="11" width="4" height="2" fill="#d99a86" opacity="0.75" />
+        </>
+      )}
+      {equipped.includes("face-glasses") && (
+        <>
+          <rect x="11" y="7" width="5" height="1" fill="#5b4b2d" />
+          <rect x="11" y="8" width="1" height="4" fill="#5b4b2d" />
+          <rect x="15" y="8" width="1" height="4" fill="#5b4b2d" />
+          <rect x="17" y="7" width="5" height="1" fill="#5b4b2d" />
+          <rect x="17" y="8" width="1" height="4" fill="#5b4b2d" />
+          <rect x="21" y="8" width="1" height="4" fill="#5b4b2d" />
+          <rect x="16" y="9" width="1" height="1" fill="#5b4b2d" />
+        </>
+      )}
+      {equipped.includes("face-freckle") && (
+        <>
+          <rect x="10" y="12" width="1" height="1" fill="#9b6a3c" />
+          <rect x="12" y="13" width="1" height="1" fill="#9b6a3c" />
+          <rect x="20" y="12" width="1" height="1" fill="#9b6a3c" />
+          <rect x="22" y="13" width="1" height="1" fill="#9b6a3c" />
+        </>
+      )}
+      {equipped.includes("face-mask") && (
+        <>
+          <rect x="12" y="13" width="9" height="3" fill="#f7efd9" />
+          <rect x="11" y="14" width="1" height="1" fill="#e4d4a8" />
+          <rect x="21" y="14" width="1" height="1" fill="#e4d4a8" />
+        </>
+      )}
+      {equipped.includes("outfit-cardigan") && (
+        <>
+          <rect x="9" y="22" width="4" height="11" fill="#efe2c5" opacity="0.9" />
+          <rect x="19" y="22" width="4" height="11" fill="#efe2c5" opacity="0.9" />
+          <rect x="15" y="23" width="2" height="10" fill="#9a7b44" opacity="0.65" />
+        </>
+      )}
+      {equipped.includes("outfit-sage") && <rect x="11" y="24" width="10" height="8" fill="#9aa884" opacity="0.82" />}
+      {equipped.includes("outfit-pinktee") && (
+        <>
+          <rect x="10" y="21" width="12" height="9" fill="#e58aa8" />
+          <rect x="8" y="23" width="3" height="4" fill="#e58aa8" />
+          <rect x="21" y="23" width="3" height="4" fill="#e58aa8" />
+          <rect x="13" y="22" width="6" height="1" fill="#ffd6e3" />
+        </>
+      )}
+      {equipped.includes("outfit-denim") && (
+        <>
+          <rect x="11" y="25" width="10" height="10" fill="#6f8fb8" />
+          <rect x="12" y="22" width="2" height="5" fill="#6f8fb8" />
+          <rect x="18" y="22" width="2" height="5" fill="#6f8fb8" />
+          <rect x="15" y="30" width="2" height="5" fill="#4d6f9c" />
+        </>
+      )}
+      {equipped.includes("outfit-ribbon") && (
+        <>
+          <rect x="15" y="20" width="2" height="2" fill="#b08a4a" />
+          <rect x="12" y="21" width="3" height="3" fill="#b08a4a" />
+          <rect x="17" y="21" width="3" height="3" fill="#b08a4a" />
+        </>
+      )}
+      {equipped.includes("other-headband") && (
+        <>
+          <rect x="10" y="4" width="12" height="1" fill="#d8a878" />
+          <rect x="9" y="5" width="2" height="1" fill="#d8a878" />
+          <rect x="21" y="5" width="2" height="1" fill="#d8a878" />
+        </>
+      )}
+      {equipped.includes("other-scarf") && (
+        <>
+          <rect x="12" y="19" width="8" height="2" fill="#8b9a72" />
+          <rect x="18" y="21" width="2" height="5" fill="#8b9a72" />
+          <rect x="19" y="25" width="1" height="2" fill="#6d7653" />
+        </>
+      )}
+      {equipped.includes("other-crown") && (
+        <>
+          <rect x="10" y="0" width="12" height="2" fill="#d4b45f" />
+          <rect x="11" y="-1" width="2" height="2" fill="#d4b45f" />
+          <rect x="15" y="-2" width="2" height="3" fill="#d4b45f" />
+          <rect x="20" y="-1" width="2" height="2" fill="#d4b45f" />
+        </>
+      )}
+      {equipped.includes("other-flower") && (
+        <>
+          <rect x="22" y="5" width="1" height="1" fill="#d8c49b" />
+          <rect x="23" y="4" width="1" height="1" fill="#d8c49b" />
+          <rect x="24" y="5" width="1" height="1" fill="#d8c49b" />
+          <rect x="23" y="6" width="1" height="1" fill="#d8c49b" />
+          <rect x="23" y="5" width="1" height="1" fill="#b08a4a" />
+        </>
+      )}
+      {equipped.includes("other-bag") && (
+        <>
+          <rect x="24" y="33" width="5" height="6" fill="#c9a878" />
+          <rect x="25" y="32" width="3" height="1" fill="#8a6334" />
+        </>
+      )}
+      {equipped.includes("other-sneakers") && (
+        <>
+          <rect x="9" y="45" width="7" height="3" fill="#f7efd9" />
+          <rect x="8" y="46" width="2" height="2" fill="#f7efd9" />
+          <rect x="10" y="47" width="5" height="1" fill="#9aa3ad" />
+          <rect x="17" y="45" width="7" height="3" fill="#f7efd9" />
+          <rect x="23" y="46" width="2" height="2" fill="#f7efd9" />
+          <rect x="18" y="47" width="5" height="1" fill="#9aa3ad" />
+        </>
+      )}
+      {equipped.includes("emote-heart") && <PixelHeart size={4} color="#d8a878" />}
+      {equipped.includes("emote-sparkle") && <path d="M27 5 L28 7 L30 8 L28 9 L27 11 L26 9 L24 8 L26 7Z" fill="#e4d4a8" />}
+      {equipped.includes("emote-note") && (
+        <>
+          <rect x="27" y="12" width="1" height="5" fill="#8b9a72" />
+          <rect x="28" y="12" width="3" height="1" fill="#8b9a72" />
+          <rect x="26" y="17" width="2" height="2" fill="#8b9a72" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+const BGM_DURATION_SECONDS = 198;
+
+function formatTrackTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const rest = String(seconds % 60).padStart(2, "0");
+  return `${minutes}:${rest}`;
+}
+
+function BgmProgressBar({ isPlaying, compact = false }: { isPlaying: boolean; compact?: boolean }) {
+  const [elapsed, setElapsed] = useState(0);
+  const progress = Math.min(100, (elapsed / BGM_DURATION_SECONDS) * 100);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    const timer = window.setInterval(() => {
+      setElapsed(prev => (prev >= BGM_DURATION_SECONDS ? 0 : prev + 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isPlaying]);
+
+  return (
+    <div className={compact ? "mt-0.5" : "mt-1.5"}>
+      <div className="flex items-center justify-between mb-0.5">
+        <span style={{
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: compact ? "0.28rem" : "0.32rem",
+          color: "#8b9a72",
+        }}>{formatTrackTime(elapsed)}</span>
+        <span style={{
+          fontFamily: "'Press Start 2P', monospace",
+          fontSize: compact ? "0.28rem" : "0.32rem",
+          color: "rgba(138,99,52,0.72)",
+        }}>{formatTrackTime(BGM_DURATION_SECONDS)}</span>
+      </div>
+      <div
+        className="rounded-full overflow-hidden"
+        role="progressbar"
+        aria-label="BGM 재생 진행률"
+        aria-valuemin={0}
+        aria-valuemax={BGM_DURATION_SECONDS}
+        aria-valuenow={elapsed}
+        style={{
+          height: compact ? 4 : 6,
+          background: "rgba(139,154,114,0.16)",
+          boxShadow: "inset 0 1px 2px rgba(90,70,35,0.14)",
+        }}
+      >
+        <motion.div
+          className="h-full rounded-full"
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.22, ease: "linear" }}
+          style={{
+            width: `${progress}%`,
+            background: "linear-gradient(90deg,#b08a4a,#8b9a72)",
+            boxShadow: "0 0 6px rgba(176,138,74,0.45)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 /* ═══════════════════════════════════════════
    MINI ROOM SVG — Slot-based interior
 ═══════════════════════════════════════════ */
@@ -415,30 +727,25 @@ function MiniRoom({ selections = EMPTY_ROOM_SELECTIONS }: { selections?: RoomSel
     </svg>
   );
 }
-
 /* ═══════════════════════════════════════════
-   BOOKMARK TABS
+   LEFT PAGE — PROFILE (merged)
 ═══════════════════════════════════════════ */
-const TABS = [
-  { id: "home",    label: "홈",       color: "#ff80c8", active: true  },
-  { id: "profile", label: "프로필",   color: "#c8a0ff", active: false },
-  { id: "diary",   label: "다이어리", color: "#80c8ff", active: false },
-  { id: "miniroom",label: "미니룸",   color: "#80e0b0", active: false },
-  { id: "photo",   label: "사진첩",   color: "#ffe080", active: false },
-  { id: "guest",   label: "방명록",   color: "#ffa880", active: false },
-  { id: "emoticon",label: "이모티콘룸",color: "#ff80a0", active: false },
-];
-
-/* ═══════════════════════════════════════════
-   LEFT PAGE — PROFILE
-═══════════════════════════════════════════ */
-function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: User) => void }) {
+function LeftPage({
+  user,
+  avatar,
+  onUserUpdate,
+}: {
+  user: User;
+  avatar: AvatarProfile;
+  onUserUpdate: (user: User) => void;
+}) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [status, setStatus] = useState("일상 기록중 🌸");
+  const [status, setStatus] = useState(() => getUserProfile(user.id, user.nickname).status);
   const [tags, setTags] = useState<string[]>(() => getUserProfile(user.id, user.nickname).tags);
   const [fields, setFields] = useState<ProfileField[]>(() => getUserProfile(user.id, user.nickname).fields);
   const [draft, setDraft] = useState<ProfileField[]>(fields);
+  const [bgmTitle, setBgmTitle] = useState("♬ Lovefool - The Cardigans");
 
   useEffect(() => {
     const profile = getUserProfile(user.id, user.nickname);
@@ -449,13 +756,11 @@ function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: Use
   }, [user.id, user.nickname]);
 
   const displayName = fields.find((f) => f.label === "이름")?.value || user.nickname;
-
   const startEdit = () => { setDraft([...fields]); setEditing(true); };
   const saveEdit = () => {
     setFields(draft);
     saveUserProfile(user.id, { fields: draft, status, tags });
     setEditing(false);
-
     const nameValue = draft.find((f) => f.label === "이름")?.value.trim();
     if (nameValue && nameValue !== user.nickname) {
       const updated = updateUserNickname(user.id, nameValue);
@@ -465,859 +770,84 @@ function LeftPage({ user, onUserUpdate }: { user: User; onUserUpdate: (user: Use
   const cancelEdit = () => { setDraft([...fields]); setEditing(false); };
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #fff5fd 0%, #f0e8ff 100%)",
-    }}>
-      {/* page title */}
-      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(196,77,255,0.2)" }}>
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
+      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(140,155,210,0.35)" }}>
         <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#c44dff" }}>★</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#c44dff", letterSpacing: "0.12em" }}>MY PROFILE</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#7a8fd4" }}>◆</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#5a6db0", letterSpacing: "0.12em" }}>MY PROFILE</span>
         </div>
         {!editing ? (
-          <button onClick={startEdit} className="px-2 py-0.5 rounded-full" style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #c44dff, #ff2d78)", color: "white",
-            boxShadow: "0 1px 6px rgba(196,77,255,0.3)",
-          }}>✏️ 수정하기</button>
+          <button onClick={startEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white", boxShadow: "0 1px 6px rgba(255,71,87,0.35)" }}>✎ 수정하기</button>
         ) : (
           <div className="flex gap-1">
-            <button onClick={saveEdit} className="px-2 py-0.5 rounded-full" style={{
-              fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
-              background: "linear-gradient(90deg, #ff2d78, #c44dff)", color: "white",
-            }}>저장</button>
-            <button onClick={cancelEdit} className="px-2 py-0.5 rounded-full" style={{
-              fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600,
-              background: "rgba(150,80,150,0.15)", color: "#9060b0",
-            }}>취소</button>
+            <button onClick={saveEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white" }}>저장</button>
+            <button onClick={cancelEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600, background: "rgba(140,155,210,0.2)", color: "#5a6db0" }}>취소</button>
           </div>
         )}
       </div>
-
-      {/* avatar + name card */}
-      <div className="rounded-xl p-2.5 flex gap-3 items-start flex-shrink-0" style={{
-        background: "linear-gradient(135deg, rgba(255,180,220,0.35) 0%, rgba(196,77,255,0.12) 100%)",
-        border: "1px solid rgba(255,110,180,0.25)",
-      }}>
+      <div className="rounded-xl p-2.5 flex gap-3 items-start flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(194,203,237,0.45) 0%, rgba(140,155,210,0.15) 100%)", border: "1px solid rgba(140,155,210,0.3)" }}>
         <div className="relative flex-shrink-0">
-          <div className="rounded-lg overflow-hidden flex items-center justify-center" style={{
-            width: 72, height: 80,
-            background: "linear-gradient(135deg, #ffe0f4 0%, #e8d0ff 100%)",
-            border: "2px solid rgba(255,45,120,0.3)",
-            boxShadow: "0 2px 8px rgba(255,45,120,0.15)",
-          }}>
-            <PixelAvatar />
+          <div className="rounded-lg overflow-hidden flex items-center justify-center" style={{ width: 72, height: 80, background: "linear-gradient(135deg, #eef1fb 0%, #C2CBED 100%)", border: "2px solid rgba(122,143,212,0.35)", boxShadow: "0 2px 8px rgba(122,143,212,0.2)" }}>
+            <PixelAvatar avatar={avatar} width={72} height={90} />
           </div>
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
         </div>
         <div className="flex flex-col gap-1 min-w-0">
-          <p style={{ fontFamily: 'Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: '#d4006a', lineHeight: '1.1', fontWeight: 'bold' }}>{displayName}</p>
-          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#9060b0", fontWeight: 500 }}>{status}</p>
+          <p style={{ fontFamily: "Comic Sans MS, Malgun Gothic, sans-serif", fontSize: "1.3rem", color: "#5a6db0", lineHeight: "1.1", fontWeight: "bold" }}>{displayName}</p>
+          {editing ? (
+            <input value={status} onChange={(e) => setStatus(e.target.value)} className="px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.56rem", color: "#5a6db0", background: "rgba(255,255,255,0.78)", border: "1px solid rgba(140,155,210,0.3)" }} />
+          ) : (
+            <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#7a8fd4", fontWeight: 500 }}>{status}</p>
+          )}
           <div className="flex gap-1 mt-0.5 flex-wrap">
-            {tags.map(tag => (
-              <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{
-                fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600,
-                background: "rgba(255,45,120,0.1)", color: "#ff2d78",
-                border: "1px solid rgba(255,45,120,0.2)",
-              }}>{tag}</span>
+            {tags.map((tag) => (
+              <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 600, background: "rgba(122,143,212,0.12)", color: "#5a6db0", border: "1px solid rgba(122,143,212,0.25)" }}>{tag}</span>
             ))}
           </div>
         </div>
       </div>
-
-      {/* profile info fields */}
-      <div className="rounded-xl p-2.5 flex flex-col gap-1.5 flex-shrink-0" style={{
-        background: "rgba(255,255,255,0.7)",
-        border: editing ? "1px solid rgba(255,45,120,0.4)" : "1px solid rgba(196,77,255,0.15)",
-        transition: "border-color 0.2s",
-      }}>
-        <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#c44dff", marginBottom: 4 }}>PROFILE</p>
+      <div className="rounded-xl p-2.5 flex flex-col gap-1.5 flex-shrink-0" style={{ background: "rgba(255,255,255,0.7)", border: editing ? "1px solid rgba(255,71,87,0.4)" : "1px solid rgba(140,155,210,0.2)" }}>
+        <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#7a8fd4", marginBottom: 4 }}>PROFILE</p>
         {(editing ? draft : fields).map(({ label, value }, idx) => (
           <div key={label} className="flex gap-2 items-center">
-            <span className="flex-shrink-0" style={{
-              fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem",
-              fontWeight: 700, color: "#c44dff", width: 32,
-            }}>{label}</span>
+            <span className="flex-shrink-0" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem", fontWeight: 700, color: "#7a8fd4", width: 32 }}>{label}</span>
             {editing ? (
-              <input
-                value={draft[idx].value}
-                onChange={e => setDraft(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
-                className="flex-1 px-1.5 py-0.5 rounded-lg outline-none"
-                style={{
-                  fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem", color: "#6040a0",
-                  background: "rgba(255,230,250,0.8)", border: "1px solid rgba(255,45,120,0.3)",
-                }}
-              />
+              <input value={draft[idx].value} onChange={(e) => setDraft((prev) => prev.map((f, i) => (i === idx ? { ...f, value: e.target.value } : f)))} className="flex-1 px-1.5 py-0.5 rounded-lg outline-none" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem", color: "#5a6db0", background: "rgba(238,241,251,0.9)", border: "1px solid rgba(140,155,210,0.3)" }} />
             ) : (
-              <span style={{
-                fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem",
-                color: "#6040a0", borderBottom: "1px dotted rgba(196,77,255,0.25)",
-                flex: 1, paddingBottom: 1,
-              }}>{value}</span>
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", color: "#5a6db0", borderBottom: "1px dotted rgba(140,155,210,0.3)", flex: 1, paddingBottom: 1 }}>{value}</span>
             )}
           </div>
         ))}
       </div>
-
-      {/* music player */}
-      <div className="rounded-xl p-2.5 flex-shrink-0" style={{
-        background: "linear-gradient(135deg, rgba(255,45,120,0.08) 0%, rgba(196,77,255,0.08) 100%)",
-        border: "1px solid rgba(255,80,180,0.2)",
-      }}>
-        <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#ff2d78", marginBottom: 6 }}>♪ BGM</p>
+      <div className="rounded-xl p-2.5 flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(194,203,237,0.15) 0%, rgba(140,155,210,0.1) 100%)", border: "1px solid rgba(140,155,210,0.25)" }}>
+        <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#7a8fd4", marginBottom: 6 }}>♬ BGM</p>
         <div className="flex items-center gap-2">
-          <button onClick={() => setIsPlaying(!isPlaying)}
-            className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #ff2d78, #c44dff)", boxShadow: "0 2px 8px rgba(255,45,120,0.4)" }}>
+          <button onClick={() => setIsPlaying(!isPlaying)} className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", boxShadow: "0 2px 8px rgba(255,71,87,0.35)" }}>
             <span style={{ color: "white", fontSize: 10, paddingLeft: isPlaying ? 0 : 2 }}>{isPlaying ? "⏸" : "▶"}</span>
           </button>
           <div className="flex-1 min-w-0">
-            <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700, color: "#d4006a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              ✨ Lovefool - The Cardigans
-            </p>
-            <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(196,77,255,0.15)" }}>
-              <motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg, #ff2d78, #c44dff)" }}
-                animate={isPlaying ? { width: ["30%", "80%"] } : { width: "30%" }}
-                transition={isPlaying ? { duration: 20, ease: "linear" } : {}} />
-            </div>
+            {editing ? (
+              <input value={bgmTitle} onChange={(e) => setBgmTitle(e.target.value)} className="w-full px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.56rem", fontWeight: 700, color: "#5a6db0", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(140,155,210,0.25)" }} />
+            ) : (
+              <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700, color: "#5a6db0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bgmTitle}</p>
+            )}
           </div>
         </div>
+        <BgmProgressBar isPlaying={isPlaying} />
       </div>
-
-      {/* visitor count */}
-      <div className="rounded-xl p-2.5 flex items-center justify-between flex-shrink-0" style={{
-        background: "linear-gradient(90deg, rgba(255,180,220,0.25) 0%, rgba(196,77,255,0.1) 100%)",
-        border: "1px solid rgba(255,110,180,0.2)",
-      }}>
+      <div className="rounded-xl p-2.5 flex items-center justify-between flex-shrink-0" style={{ background: "linear-gradient(90deg, rgba(194,203,237,0.25) 0%, rgba(140,155,210,0.1) 100%)", border: "1px solid rgba(140,155,210,0.25)" }}>
         <div className="flex items-center gap-2">
           <span style={{ fontSize: 14 }}>👣</span>
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#9060b0" }}>TODAY</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#7a8fd4" }}>TODAY</span>
         </div>
         <div className="flex items-center gap-1">
-          {["0","1","2","8"].map((d, i) => (
-            <motion.div key={i} className="w-5 h-6 rounded flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #ff2d78, #c44dff)", boxShadow: "0 1px 4px rgba(255,45,120,0.3)" }}
-              initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 + i * 0.08 }}>
+          {["0", "1", "2", "8"].map((d, i) => (
+            <motion.div key={i} className="w-5 h-6 rounded flex items-center justify-center" style={{ background: "linear-gradient(135deg, #7a8fd4, #5a6db0)", boxShadow: "0 1px 4px rgba(122,143,212,0.3)" }} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 + i * 0.08 }}>
               <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "white" }}>{d}</span>
             </motion.div>
           ))}
         </div>
-        <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: "#b080d0" }}>전체 <b style={{ color: "#ff2d78" }}>1,247</b></span>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   RIGHT PAGE — PHOTO ALBUM
-═══════════════════════════════════════════ */
-function PhotoPage() {
-  const { urls: sharedUrls, add: addPhoto } = useSharedPhotos();
-  const [localPhotos, setLocalPhotos] = useState<string[]>([]);
-  const photos = [...localPhotos, ...sharedUrls];
-
-  const handleAdd = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.multiple = true;
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files ?? []);
-      files.forEach(file => {
-        const url = URL.createObjectURL(file);
-        setLocalPhotos(prev => [...prev, url]);
-      });
-    };
-    input.click();
-  };
-
-  const placeholders = ["🌸", "🌙", "✨", "🎀", "🌷", "💫"];
-
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #fffbe8 0%, #fff8f0 100%)",
-    }}>
-      {/* header */}
-      <div className="flex items-center justify-between pb-1 border-b" style={{ borderColor: "rgba(255,160,0,0.2)" }}>
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#e08000" }}>★</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#e08000", letterSpacing: "0.12em" }}>PHOTO ALBUM</span>
-        </div>
-        <button
-          onClick={handleAdd}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #ffb020, #ff8040)",
-            boxShadow: "0 2px 8px rgba(255,140,0,0.35)",
-          }}
-        >
-          <span style={{ fontSize: 10 }}>＋</span> 사진 추가하기
-        </button>
-      </div>
-
-      {/* grid */}
-      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        {photos.length === 0 ? (
-          /* empty state */
-          <div className="h-full flex flex-col items-center justify-center gap-2 opacity-60">
-            <span style={{ fontSize: 32 }}>📷</span>
-            <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", color: "#c09040", textAlign: "center" }}>
-              사진을 추가해서<br />앨범을 꾸며봐요 🌸
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-            {photos.map((src, i) => (
-              <motion.div
-                key={i}
-                className="relative rounded-lg overflow-hidden aspect-square"
-                style={{ border: "1.5px solid rgba(255,160,0,0.25)" }}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.05 }}
-              >
-                <img src={src} alt="" className="w-full h-full object-cover" />
-              </motion.div>
-            ))}
-            {/* add more cell */}
-            <button
-              onClick={handleAdd}
-              className="aspect-square rounded-lg flex flex-col items-center justify-center gap-1"
-              style={{
-                border: "1.5px dashed rgba(255,160,0,0.4)",
-                background: "rgba(255,180,0,0.05)",
-              }}
-            >
-              <span style={{ fontSize: 18, color: "#ffb020" }}>＋</span>
-              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.4rem", color: "#e09020" }}>추가</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* placeholder sticker row */}
-      <div className="rounded-xl p-2 flex items-center gap-1" style={{
-        background: "rgba(255,255,255,0.7)",
-        border: "1px solid rgba(255,160,0,0.15)",
-      }}>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#e08000", marginRight: 4 }}>STICKER</span>
-        {placeholders.map(s => (
-          <div key={s} className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform" style={{
-            background: "rgba(255,180,0,0.1)",
-            border: "1px solid rgba(255,160,0,0.2)",
-            fontSize: 14,
-          }}>{s}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   PROFILE AVATAR CUSTOMIZER
-═══════════════════════════════════════════ */
-
-const AVATAR_ITEMS = [
-  { id: "hat1",   cat: "모자",    emoji: "🎀", label: "리본 모자",   color: "#ff80c8" },
-  { id: "hat2",   cat: "모자",    emoji: "👑", label: "크라운",      color: "#ffe060" },
-  { id: "top1",   cat: "상의",    emoji: "👚", label: "핑크 후디",   color: "#ffb0d0" },
-  { id: "top2",   cat: "상의",    emoji: "🎽", label: "보라 조끼",   color: "#c8a0ff" },
-  { id: "acc1",   cat: "악세서리", emoji: "💎", label: "목걸이",      color: "#80e8ff" },
-  { id: "acc2",   cat: "악세서리", emoji: "⭐", label: "별 귀걸이",   color: "#ffe060" },
-  { id: "acc3",   cat: "악세서리", emoji: "🌸", label: "꽃 핀",      color: "#ff80c8" },
-  { id: "shoes1", cat: "신발",    emoji: "👟", label: "스니커즈",    color: "#c8a0ff" },
-];
-
-const PIXEL_COLS = 16;
-const PIXEL_ROWS = 16;
-const PALETTE = ["#ff2d78","#c44dff","#ff80c8","#ffe060","#80c8ff","#80e0b0","#ffffff","#3d1a00","#000000","#f9a0e8","#b0f0ff","#ffb0d0"];
-
-function PixelEditor({ onClose }: { onClose: () => void }) {
-  const [grid, setGrid] = useState<string[][]>(() =>
-    Array.from({ length: PIXEL_ROWS }, () => Array(PIXEL_COLS).fill("transparent"))
-  );
-  const [color, setColor] = useState("#ff2d78");
-  const [painting, setPainting] = useState(false);
-
-  const paint = (r: number, c: number) => {
-    setGrid(prev => prev.map((row, ri) => row.map((cell, ci) => ri === r && ci === c ? color : cell)));
-  };
-
-  return (
-    <motion.div className="absolute inset-0 z-50 flex flex-col p-3"
-      style={{ background: "linear-gradient(160deg, #1a0828 0%, #0e0618 100%)" }}
-      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-      {/* header */}
-      <div className="flex items-center justify-between mb-2 flex-shrink-0">
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#ff80c8" }}>PIXEL EDITOR ✦</span>
-        <div className="flex gap-1.5">
-          <button onClick={() => setGrid(Array.from({ length: PIXEL_ROWS }, () => Array(PIXEL_COLS).fill("transparent")))}
-            className="px-2 py-0.5 rounded-full"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600, background: "rgba(255,255,255,0.1)", color: "rgba(255,200,240,0.8)" }}>
-            지우기
-          </button>
-          <button onClick={onClose}
-            className="px-2 py-0.5 rounded-full"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700, background: "linear-gradient(90deg, #ff2d78, #c44dff)", color: "white" }}>
-            저장 ✓
-          </button>
-        </div>
-      </div>
-      {/* canvas + palette */}
-      <div className="flex gap-2 flex-1" style={{ minHeight: 0 }}>
-        {/* pixel grid */}
-        <div className="flex-1 flex items-center justify-center" style={{ minWidth: 0 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${PIXEL_COLS}, 1fr)`,
-              border: "1px solid rgba(255,80,180,0.3)",
-              cursor: "crosshair",
-              width: "min(220px, 100%)",
-              aspectRatio: "1",
-            }}
-            onMouseLeave={() => setPainting(false)}
-          >
-            {grid.map((row, r) => row.map((cell, c) => (
-              <div key={`${r}-${c}`}
-                style={{
-                  background: cell === "transparent" ? ((r + c) % 2 === 0 ? "#2a1040" : "#220c38") : cell,
-                  aspectRatio: "1",
-                  boxSizing: "border-box",
-                  border: "0.5px solid rgba(255,80,180,0.08)",
-                }}
-                onMouseDown={() => { setPainting(true); paint(r, c); }}
-                onMouseEnter={() => { if (painting) paint(r, c); }}
-                onMouseUp={() => setPainting(false)}
-              />
-            )))}
-          </div>
-        </div>
-        {/* palette */}
-        <div className="flex flex-col gap-1.5 flex-shrink-0" style={{ width: 40 }}>
-          <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.26rem", color: "rgba(255,120,200,0.6)", marginBottom: 2 }}>COLOR</p>
-          {PALETTE.map(c => (
-            <button key={c} onClick={() => setColor(c)}
-              style={{
-                width: 24, height: 24, borderRadius: 4, background: c === "transparent" ? "repeating-linear-gradient(45deg,#888 0,#888 4px,#fff 4px,#fff 8px)" : c,
-                border: color === c ? "2px solid white" : "1px solid rgba(255,255,255,0.2)",
-                boxShadow: color === c ? "0 0 6px rgba(255,255,255,0.5)" : "none",
-              }} />
-          ))}
-          {/* eraser */}
-          <button onClick={() => setColor("transparent")}
-            className="flex items-center justify-center rounded"
-            style={{
-              width: 24, height: 24, fontSize: 12,
-              background: color === "transparent" ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.08)",
-              border: color === "transparent" ? "2px solid white" : "1px solid rgba(255,255,255,0.2)",
-            }}>🧹</button>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function ProfileAvatarPage() {
-  const [equipped, setEquipped] = useState<Set<string>>(new Set(["top1"]));
-  const [activecat, setActiveCat] = useState("전체");
-  const [showPixelEditor, setShowPixelEditor] = useState(false);
-
-  const cats = ["전체", "모자", "상의", "악세서리", "신발"];
-  const filtered = activecat === "전체" ? AVATAR_ITEMS : AVATAR_ITEMS.filter(i => i.cat === activecat);
-  const toggle = (id: string) => setEquipped(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden relative" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
-    }}>
-      {/* header */}
-      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(196,77,255,0.2)" }}>
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#c44dff" }}>★</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#c44dff", letterSpacing: "0.12em" }}>AVATAR</span>
-        </div>
-        <button onClick={() => setShowPixelEditor(true)}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #c44dff, #ff2d78)",
-            boxShadow: "0 2px 8px rgba(196,77,255,0.35)",
-          }}>
-          🎨 직접만들기
-        </button>
-      </div>
-
-      {/* avatar preview */}
-      <div className="flex-shrink-0 flex flex-col items-center py-2">
-        <div className="relative flex items-end justify-center" style={{
-          width: 110, height: 130,
-          background: "linear-gradient(160deg, #f0e0ff 0%, #ffe0f4 100%)",
-          borderRadius: 16,
-          border: "2px solid rgba(196,77,255,0.25)",
-          boxShadow: "0 4px 16px rgba(196,77,255,0.12)",
-        }}>
-          {/* hat overlay */}
-          {equipped.has("hat1") && <div className="absolute top-1 left-1/2 -translate-x-1/2" style={{ fontSize: 22 }}>🎀</div>}
-          {equipped.has("hat2") && <div className="absolute top-0 left-1/2 -translate-x-1/2" style={{ fontSize: 22 }}>👑</div>}
-          {/* necklace */}
-          {equipped.has("acc1") && <div className="absolute" style={{ top: "44%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 12 }}>💎</div>}
-          {/* ear accessories */}
-          {equipped.has("acc2") && <>
-            <div className="absolute" style={{ top: "28%", left: "14%", fontSize: 10 }}>⭐</div>
-            <div className="absolute" style={{ top: "28%", right: "14%", fontSize: 10 }}>⭐</div>
-          </>}
-          {equipped.has("acc3") && <div className="absolute" style={{ top: "18%", right: "12%", fontSize: 12 }}>🌸</div>}
-          {/* base avatar */}
-          <PixelAvatar />
-          {/* shoes overlay */}
-          {equipped.has("shoes1") && <div className="absolute bottom-0 left-1/2 -translate-x-1/2" style={{ fontSize: 16 }}>👟</div>}
-        </div>
-        <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", color: "#9060b0", marginTop: 6, fontWeight: 600 }}>
-          {equipped.size}개 착용중 ✦
-        </p>
-      </div>
-
-      {/* category filter */}
-      <div className="flex gap-1 flex-shrink-0 overflow-x-auto pb-0.5">
-        {cats.map(cat => (
-          <button key={cat} onClick={() => setActiveCat(cat)}
-            className="flex-shrink-0 px-2 py-0.5 rounded-full"
-            style={{
-              fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600,
-              background: activecat === cat ? "linear-gradient(90deg, #c44dff, #ff2d78)" : "rgba(196,77,255,0.1)",
-              color: activecat === cat ? "white" : "#9060b0",
-              border: activecat === cat ? "none" : "1px solid rgba(196,77,255,0.2)",
-              transition: "all 0.15s",
-            }}>
-            {cat}
-          </button>
-        ))}
-      </div>
-
-      {/* items grid */}
-      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          {filtered.map((item, i) => {
-            const on = equipped.has(item.id);
-            return (
-              <motion.button key={item.id} onClick={() => toggle(item.id)}
-                className="flex flex-col items-center gap-0.5 rounded-xl py-2"
-                style={{
-                  background: on
-                    ? `linear-gradient(135deg, ${item.color}44, ${item.color}22)`
-                    : "rgba(255,255,255,0.65)",
-                  border: on ? `1.5px solid ${item.color}` : "1px solid rgba(196,77,255,0.12)",
-                  boxShadow: on ? `0 2px 8px ${item.color}44` : "none",
-                  transition: "all 0.15s",
-                }}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-                whileTap={{ scale: 0.93 }}
-              >
-                <span style={{ fontSize: 22 }}>{item.emoji}</span>
-                <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: on ? "#6040a0" : "#9060b0", fontWeight: 600 }}>{item.label}</span>
-                {on && <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#ff2d78" }}>ON</span>}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* pixel editor overlay */}
-      <AnimatePresence>
-        {showPixelEditor && <PixelEditor onClose={() => setShowPixelEditor(false)} />}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   EMOTICON ROOM
-═══════════════════════════════════════════ */
-
-const SAMPLE_EMOTICONS = [
-  { id: 1, emoji: "😎", label: "쿨가이" },
-  { id: 2, emoji: "🥺", label: "눈물눈물" },
-  { id: 3, emoji: "💅", label: "우아해" },
-  { id: 4, emoji: "🤩", label: "반짝반짝" },
-  { id: 5, emoji: "😤", label: "으쌰으쌰" },
-];
-
-/* ── Face camera placeholder ── */
-function FakeCameraView({ children }: { children?: React.ReactNode }) {
-  return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
-      style={{ background: "linear-gradient(160deg, #1a0a2e 0%, #0d0820 100%)" }}>
-      {/* scan lines */}
-      <div className="absolute inset-0 pointer-events-none opacity-10"
-        style={{
-          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.08) 3px, rgba(255,255,255,0.08) 4px)",
-        }} />
-      {/* face silhouette */}
-      <div className="relative flex flex-col items-center justify-center">
-        <div className="rounded-full" style={{
-          width: 90, height: 110,
-          background: "radial-gradient(ellipse at 40% 30%, #ffe0c0 0%, #f0b890 60%, #d08060 100%)",
-          boxShadow: "0 4px 24px rgba(255,180,120,0.3)",
-        }}>
-          {/* eyes */}
-          <div className="flex justify-center gap-5 pt-8">
-            <div className="w-4 h-4 rounded-full" style={{ background: "#2d1a00" }}>
-              <div className="w-1.5 h-1.5 rounded-full bg-white mt-0.5 ml-0.5" />
-            </div>
-            <div className="w-4 h-4 rounded-full" style={{ background: "#2d1a00" }}>
-              <div className="w-1.5 h-1.5 rounded-full bg-white mt-0.5 ml-0.5" />
-            </div>
-          </div>
-          {/* mouth */}
-          <div className="mx-auto mt-4 w-8 h-3 rounded-full" style={{ background: "#c06050", border: "1px solid #a04040" }} />
-        </div>
-        {/* neck + shoulder */}
-        <div style={{ width: 40, height: 20, background: "#f0b890", marginTop: -2 }} />
-        <div style={{ width: 120, height: 30, background: "#c44dff", borderRadius: "50% 50% 0 0" }} />
-      </div>
-      {/* corner guide brackets */}
-      {[["top-2 left-2","border-t-2 border-l-2"],["top-2 right-2","border-t-2 border-r-2"],
-        ["bottom-2 left-2","border-b-2 border-l-2"],["bottom-2 right-2","border-b-2 border-r-2"]
-      ].map(([pos, border], i) => (
-        <div key={i} className={`absolute w-5 h-5 ${pos} ${border}`} style={{ borderColor: "rgba(255,80,180,0.7)" }} />
-      ))}
-      {/* dot grid overlay */}
-      <div className="absolute inset-0 pointer-events-none opacity-5"
-        style={{
-          backgroundImage: "radial-gradient(circle, rgba(255,120,200,0.8) 1px, transparent 1px)",
-          backgroundSize: "18px 18px",
-        }} />
-      {children}
-    </div>
-  );
-}
-
-/* ── Emoticon sidebar list ── */
-function EmoticonSidebar({ selected, onSelect }: { selected: number | null; onSelect: (id: number) => void }) {
-  return (
-    <div className="flex flex-col gap-1.5 overflow-y-auto" style={{ width: 56 }}>
-      <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#c44dff", textAlign: "center", marginBottom: 2 }}>MY</p>
-      {SAMPLE_EMOTICONS.map(e => (
-        <motion.button
-          key={e.id}
-          onClick={() => onSelect(e.id)}
-          className="flex flex-col items-center gap-0.5 rounded-lg p-1"
-          style={{
-            background: selected === e.id
-              ? "linear-gradient(135deg, rgba(255,45,120,0.25), rgba(196,77,255,0.2))"
-              : "rgba(255,255,255,0.08)",
-            border: selected === e.id ? "1.5px solid rgba(255,45,120,0.5)" : "1px solid rgba(255,255,255,0.1)",
-          }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <span style={{ fontSize: 20 }}>{e.emoji}</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.3rem", color: "rgba(255,220,240,0.7)", lineHeight: 1.2, textAlign: "center" }}>{e.label}</span>
-        </motion.button>
-      ))}
-    </div>
-  );
-}
-
-/* ── Emoticon Maker page ── */
-function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  const [isRec, setIsRec] = useState(true);
-
-  return (
-    <div className="h-full flex flex-col" style={{
-      background: "linear-gradient(160deg, #140820 0%, #0e0618 100%)",
-    }}>
-      {/* top bar */}
-      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
-        <button onClick={onBack}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-full"
-          style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,220,240,0.8)", fontSize: "0.5rem", fontFamily: "'Quicksand', sans-serif", fontWeight: 600 }}>
-          ← 뒤로
-        </button>
-        {/* REC indicator */}
-        <motion.div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-          style={{ background: "rgba(255,40,40,0.18)", border: "1px solid rgba(255,80,80,0.4)" }}>
-          <motion.div className="w-2 h-2 rounded-full" style={{ background: "#ff3030" }}
-            animate={{ opacity: isRec ? [1, 0.2, 1] : 0.3 }}
-            transition={{ duration: 1, repeat: Infinity }} />
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#ff6060" }}>REC</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "rgba(255,180,180,0.7)" }}>00:12</span>
-          <button onClick={() => setIsRec(v => !v)}
-            className="px-1.5 py-0.5 rounded-full ml-1"
-            style={{ background: isRec ? "rgba(255,80,80,0.3)" : "rgba(100,255,100,0.2)", fontSize: "0.4rem", color: isRec ? "#ff8080" : "#80ff80", fontFamily: "'Quicksand', sans-serif" }}>
-            {isRec ? "■ 정지" : "● 시작"}
-          </button>
-        </motion.div>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "rgba(255,120,200,0.6)" }}>HAND TRACK</span>
-      </div>
-
-      {/* main area */}
-      <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
-        {/* camera */}
-        <div className="flex-1 relative" style={{ minWidth: 0 }}>
-          <FakeCameraView>
-            {/* hand tracking dots */}
-            {[[42,62],[50,55],[58,62],[54,72],[46,72],[40,80],[60,80]].map(([x,y],i) => (
-              <motion.div key={i} className="absolute w-2 h-2 rounded-full"
-                style={{ left: `${x}%`, top: `${y}%`, background: "#ff2d78", boxShadow: "0 0 6px #ff2d78" }}
-                animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
-                transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity }} />
-            ))}
-            {/* connecting lines hint */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.4 }}>
-              <polyline points="42%,62% 50%,55% 58%,62% 54%,72% 46%,72% 40%,80% 60%,80%"
-                fill="none" stroke="#ff80c8" strokeWidth="1" />
-            </svg>
-            {/* live label */}
-            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded"
-              style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,80,120,0.4)" }}>
-              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#ff80c8" }}>LIVE</span>
-            </div>
-          </FakeCameraView>
-        </div>
-
-        {/* sidebar */}
-        <div className="flex flex-col gap-2" style={{ width: 56 }}>
-          <EmoticonSidebar selected={selected} onSelect={setSelected} />
-          {selected !== null && (
-            <motion.button
-              className="w-full py-1 rounded-lg text-white"
-              style={{
-                fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700,
-                background: "linear-gradient(135deg, #ff2d78, #c44dff)",
-                boxShadow: "0 2px 8px rgba(255,45,120,0.4)",
-              }}
-              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-            >
-              ✏️<br />수정
-            </motion.button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* shared photo store — simple module-level ref so PhotoPage and PhotoBooth share state */
-const sharedPhotoStore: { urls: string[]; listeners: Array<() => void> } = { urls: [], listeners: [] };
-function useSharedPhotos() {
-  const [urls, setUrls] = useState<string[]>(sharedPhotoStore.urls);
-  const add = (url: string) => {
-    sharedPhotoStore.urls = [url, ...sharedPhotoStore.urls];
-    sharedPhotoStore.listeners.forEach(l => l());
-  };
-  useState(() => {
-    const update = () => setUrls([...sharedPhotoStore.urls]);
-    sharedPhotoStore.listeners.push(update);
-    return () => { sharedPhotoStore.listeners = sharedPhotoStore.listeners.filter(l => l !== update); };
-  });
-  return { urls, add };
-}
-
-const PixelCharSvg = () => (
-  <svg width="50" height="64" viewBox="0 0 18 22" style={{ imageRendering: "pixelated", filter: "drop-shadow(0 2px 6px rgba(196,77,255,0.6))" }}>
-    <rect x="5" y="1" width="8" height="1" fill="#3d1a00" /><rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
-    <rect x="4" y="3" width="10" height="4" fill="#5c2800" /><rect x="3" y="4" width="1" height="3" fill="#5c2800" />
-    <rect x="14" y="4" width="1" height="3" fill="#5c2800" /><rect x="4" y="5" width="10" height="7" fill="#ffc8a0" />
-    <rect x="6" y="7" width="2" height="2" fill="#2d1a00" /><rect x="10" y="7" width="2" height="2" fill="#2d1a00" />
-    <rect x="7" y="7" width="1" height="1" fill="#ffffff" /><rect x="11" y="7" width="1" height="1" fill="#ffffff" />
-    <rect x="5" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" /><rect x="11" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" />
-    <rect x="8" y="10" width="2" height="1" fill="#ff8080" /><rect x="7" y="12" width="4" height="2" fill="#ffc8a0" />
-    <rect x="3" y="14" width="12" height="6" fill="#c44dff" /><rect x="2" y="14" width="3" height="5" fill="#a030d0" />
-    <rect x="13" y="14" width="3" height="5" fill="#a030d0" /><rect x="7" y="14" width="4" height="1" fill="#a030d0" />
-    <rect x="7" y="15" width="4" height="3" fill="#e8c0ff" /><rect x="5" y="20" width="3" height="2" fill="#ff80c8" />
-    <rect x="10" y="20" width="3" height="2" fill="#ff80c8" />
-  </svg>
-);
-
-function PhotoBoothPage({ onBack }: { onBack: () => void }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  const [showChar, setShowChar] = useState(false);
-  const [shots, setShots] = useState<string[]>([]);
-  const [shotIdx, setShotIdx] = useState(0);
-  const [flash, setFlash] = useState(false);
-  const { add: addToAlbum } = useSharedPhotos();
-
-  const GRADIENTS = [
-    "linear-gradient(135deg,#ffb3e8,#c8a0ff)",
-    "linear-gradient(135deg,#a0e8ff,#80c8ff)",
-    "linear-gradient(135deg,#ffe080,#ffb040)",
-    "linear-gradient(135deg,#80e0b0,#40c080)",
-    "linear-gradient(135deg,#ff80c8,#ff2d78)",
-  ];
-
-  const takePhoto = () => {
-    setFlash(true);
-    setTimeout(() => setFlash(false), 300);
-    const gradient = GRADIENTS[shots.length % GRADIENTS.length];
-    setShots(prev => {
-      const next = [gradient, ...prev];
-      setShotIdx(0);
-      addToAlbum(gradient);
-      return next;
-    });
-  };
-
-  return (
-    <div className="h-full flex flex-col" style={{ background: "linear-gradient(160deg, #140820 0%, #0e0618 100%)" }}>
-      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0">
-        <button onClick={onBack} className="flex items-center gap-1 px-2 py-0.5 rounded-full"
-          style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,220,240,0.8)", fontSize: "0.5rem", fontFamily: "'Quicksand', sans-serif", fontWeight: 600 }}>
-          ← 뒤로
-        </button>
-        <button onClick={() => setShowChar(v => !v)} className="flex items-center gap-1 px-2.5 py-1 rounded-full"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
-            background: showChar ? "linear-gradient(90deg,#c44dff,#ff2d78)" : "rgba(255,255,255,0.12)",
-            color: "white", border: "1px solid rgba(255,120,200,0.3)",
-            boxShadow: showChar ? "0 2px 8px rgba(196,77,255,0.4)" : "none", transition: "all 0.2s",
-          }}>
-          {showChar ? "✓ 캐릭터 ON" : "🧸 캐릭터 불러오기"}
-        </button>
-      </div>
-
-      <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
-        <div className="flex-1 relative" style={{ minWidth: 0 }}>
-          <FakeCameraView>
-            <AnimatePresence>
-              {flash && (
-                <motion.div className="absolute inset-0 bg-white pointer-events-none"
-                  initial={{ opacity: 0.9 }} animate={{ opacity: 0 }} transition={{ duration: 0.3 }} />
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {showChar && (
-                <motion.div className="absolute bottom-16 left-4"
-                  initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <PixelCharSvg />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {selected !== null && (
-                <motion.div className="absolute top-4 right-4"
-                  initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 18 }}>
-                  <span style={{ fontSize: 36, filter: "drop-shadow(0 2px 6px rgba(255,45,120,0.5))" }}>
-                    {SAMPLE_EMOTICONS.find(e => e.id === selected)?.emoji}
-                  </span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            {/* shutter */}
-            <motion.button onClick={takePhoto}
-              className="absolute left-1/2 -translate-x-1/2 bottom-3 flex items-center justify-center"
-              style={{
-                width: 56, height: 56, borderRadius: "50%",
-                background: "rgba(255,255,255,0.15)",
-                border: "4px solid rgba(255,255,255,0.9)",
-                backdropFilter: "blur(4px)",
-                boxShadow: "0 0 20px rgba(255,80,180,0.4), 0 4px 16px rgba(0,0,0,0.3)",
-              }}
-              whileTap={{ scale: 0.82 }} whileHover={{ scale: 1.06 }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,0.85)", boxShadow: "inset 0 2px 4px rgba(0,0,0,0.15)" }} />
-            </motion.button>
-            {/* thumbnail preview bottom-right */}
-            <AnimatePresence>
-              {shots.length > 0 && (
-                <motion.div className="absolute bottom-3 right-3 flex flex-col items-end gap-1"
-                  initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-                  <div className="relative rounded-lg overflow-hidden"
-                    style={{ width: 52, height: 52, border: "2px solid rgba(255,255,255,0.8)", boxShadow: "0 2px 10px rgba(0,0,0,0.4)" }}>
-                    <div className="w-full h-full" style={{ background: shots[shotIdx] }} />
-                    <div className="absolute top-0.5 right-0.5 rounded-sm px-0.5"
-                      style={{ background: "rgba(80,200,80,0.85)", fontSize: "0.28rem", fontFamily: "'Quicksand',sans-serif", color: "white", fontWeight: 700 }}>✓</div>
-                  </div>
-                  {shots.length > 1 && (
-                    <div className="flex gap-1 items-center">
-                      <button onClick={() => setShotIdx(i => Math.min(i + 1, shots.length - 1))}
-                        className="w-5 h-5 rounded-full flex items-center justify-center"
-                        style={{ background: "rgba(255,255,255,0.2)", color: "white", fontSize: 10, opacity: shotIdx < shots.length - 1 ? 1 : 0.3 }}>‹</button>
-                      <span style={{ fontFamily: "'Press Start 2P',monospace", fontSize: "0.28rem", color: "rgba(255,200,240,0.8)" }}>
-                        {shots.length - shotIdx}/{shots.length}
-                      </span>
-                      <button onClick={() => setShotIdx(i => Math.max(i - 1, 0))}
-                        className="w-5 h-5 rounded-full flex items-center justify-center"
-                        style={{ background: "rgba(255,255,255,0.2)", color: "white", fontSize: 10, opacity: shotIdx > 0 ? 1 : 0.3 }}>›</button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </FakeCameraView>
-        </div>
-        <div className="flex flex-col gap-1.5" style={{ width: 56 }}>
-          <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "rgba(255,120,200,0.7)", textAlign: "center" }}>STAMP</p>
-          <EmoticonSidebar selected={selected} onSelect={id => setSelected(prev => prev === id ? null : id)} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Emoticon Room landing ── */
-function EmoticonRoomPage() {
-  const [view, setView] = useState<"home" | "maker" | "photo">("home");
-
-  if (view === "maker") return <EmoticonMakerPage onBack={() => setView("home")} />;
-  if (view === "photo") return <PhotoBoothPage onBack={() => setView("home")} />;
-
-  return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
-      background: "linear-gradient(160deg, #f8f0ff 0%, #fff0f8 100%)",
-    }}>
-      <div className="flex items-center pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(255,45,120,0.2)" }}>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.45rem", color: "#ff2d78" }}>★</span>
-        <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.7rem", color: "#ff2d78", letterSpacing: "0.12em", marginLeft: 6 }}>EMOTICON ROOM</span>
-      </div>
-      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.33rem", color: "#c44dff", marginBottom: 8 }}>MY EMOTICONS ✦</p>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          {SAMPLE_EMOTICONS.map((e, i) => (
-            <motion.div key={e.id} className="flex flex-col items-center gap-1 rounded-xl py-2.5"
-              style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(196,77,255,0.15)" }}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-              whileHover={{ scale: 1.04 }}>
-              <span style={{ fontSize: 28 }}>{e.emoji}</span>
-              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: "#9060b0", fontWeight: 600 }}>{e.label}</span>
-            </motion.div>
-          ))}
-          <button onClick={() => setView("maker")}
-            className="flex flex-col items-center justify-center gap-1 rounded-xl py-2.5"
-            style={{ border: "1.5px dashed rgba(196,77,255,0.3)", background: "rgba(196,77,255,0.04)" }}>
-            <span style={{ fontSize: 22, color: "#c44dff" }}>＋</span>
-            <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#c44dff" }}>추가</span>
-          </button>
-        </div>
-      </div>
-      {/* bottom action buttons — same size, side by side */}
-      <div className="flex gap-2 flex-shrink-0">
-        <motion.button onClick={() => setView("photo")}
-          className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-white"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700,
-            background: "linear-gradient(135deg, #ff6040, #ff2d78)",
-            boxShadow: "0 3px 12px rgba(255,60,80,0.4)",
-          }}
-          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
-          <span style={{ fontSize: 15 }}>📸</span> 사진찍기
-        </motion.button>
-        <motion.button onClick={() => setView("maker")}
-          className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-white"
-          style={{
-            fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700,
-            background: "linear-gradient(135deg, #7c3aed, #c44dff)",
-            boxShadow: "0 3px 12px rgba(130,60,255,0.4)",
-          }}
-          whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
-          <span style={{ fontSize: 15 }}>✨</span> 이모티콘 생성
-        </motion.button>
+        <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: "#7a8fd4" }}>전체 <b style={{ color: "#ff4757" }}>1,247</b></span>
       </div>
     </div>
   );
@@ -1485,7 +1015,6 @@ function GuestbookPage() {
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════
    RIGHT PAGE — MINI ROOM (Slot-based)
 ═══════════════════════════════════════════ */
@@ -1638,18 +1167,10 @@ function MiniRoomPage({
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════
    DIARY PAGE
 ═══════════════════════════════════════════ */
-const WEATHER_OPTIONS = ["☀️","🌤️","⛅","🌧️","⛈️","❄️","🌈","🌙"];
-const STICKER_OPTIONS = ["🌸","⭐","💖","🎀","✨","🦋","🍀","🌙","💫","🎵","🌺","💝"];
 
-const INIT_ENTRIES = [
-  { id: 1, date: "2026-06-22", weather: "🌸", privacy: "public", content: "오늘은 날씨가 너무 좋았다. 카페에서 라떼 마시면서 음악 들었는데 너무 행복했어 ☕✨", stickers: ["💖","🎵"] },
-  { id: 2, date: "2026-06-19", weather: "🌧️", privacy: "private", content: "비 오는 날엔 괜히 감성적이 돼. 창밖 빗소리 들으면서 일기 썼다. 이런 날이 오히려 좋아.", stickers: ["🌙"] },
-  { id: 3, date: "2026-06-15", weather: "☀️", privacy: "public", content: "친구들이랑 한강 나갔다! 사진도 많이 찍고 웃음이 넘쳤던 하루였어 🌻💛", stickers: ["✨","🌸","💖"] },
-];
 
 function DiaryPage() {
   const [entries, setEntries] = useState(INIT_ENTRIES);
@@ -1682,7 +1203,7 @@ function DiaryPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: "linear-gradient(160deg, #fffdf0 0%, #fff8f4 100%)" }}>
+    <div className="h-full flex flex-col" style={{ background: "linear-gradient(160deg, #FFFDF8 0%, #FFF8F0 100%)" }}>
       {/* top bar */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b flex-shrink-0" style={{ borderColor: "rgba(255,160,80,0.2)" }}>
         <div className="flex items-center gap-1.5">
@@ -1693,7 +1214,7 @@ function DiaryPage() {
           className="flex items-center gap-1 px-2.5 py-1 rounded-full"
           style={{
             fontFamily: "'Quicksand', sans-serif", fontSize: "0.5rem", fontWeight: 700,
-            background: privacy === "private" ? "linear-gradient(90deg,#555,#333)" : "linear-gradient(90deg,#ff8040,#ff2d78)",
+            background: privacy === "private" ? "linear-gradient(90deg,#555,#333)" : "linear-gradient(90deg,#ff4757,#ff6b81)",
             color: "white", boxShadow: "0 1px 6px rgba(0,0,0,0.15)",
           }}>
           {privacy === "private" ? "🔒 비공개" : "🔓 공개"}
@@ -1749,7 +1270,7 @@ function DiaryPage() {
             className="w-full resize-none outline-none rounded-xl px-2.5 py-2"
             style={{
               fontFamily: "'Quicksand', sans-serif", fontSize: "0.62rem", color: "#5a3820", lineHeight: 1.8,
-              background: "rgba(255,250,240,0.8)",
+              background: "rgba(255,248,240,0.95)",
               border: "1px solid rgba(255,180,100,0.2)",
             }}
           />
@@ -1845,10 +1366,6 @@ function DiaryPage() {
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════
-   HOME RIGHT — MINI ROOM + NEIGHBORS
-═══════════════════════════════════════════ */
 type Neighbor = {
   id: number;
   name: string;
@@ -1867,6 +1384,9 @@ const AVATAR_PRESETS: AvatarConfig[] = [
   { hairDark: "#402060", hairLight: "#8040a0", skin: "#ffe8d0", outfit: "#ffb0d0", outfitDark: "#ff80a0", outfitInner: "#ffe0f0", pants: "#804080" },
 ];
 
+/* ═══════════════════════════════════════════
+   HOME RIGHT — MINI ROOM + NEIGHBORS
+═══════════════════════════════════════════ */
 const FRIEND_COLORS = ["#ffe060", "#80c8ff", "#80e0b0", "#ff80c8", "#c8a0ff", "#ffa880", "#80e8ff", "#ffb0d0"];
 
 const INITIAL_NEIGHBORS: Neighbor[] = [
@@ -2155,16 +1675,9 @@ function HomeRightPage({
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════
    HOME LEFT — BULLETIN BOARD + PROFILE
 ═══════════════════════════════════════════ */
-const BOARD_POSTS = [
-  { id: 1, user: "별빛소녀✨", content: "오늘 새로 산 픽셀 캐릭터 어때요?? 💖", likes: 24, time: "5분 전" },
-  { id: 2, user: "민트초코🍃", content: "Re:world 다이어리 테마 너무 예쁘다ㅠ 저도 써보고 싶어요!", likes: 18, time: "12분 전" },
-  { id: 3, user: "하늘이💙", content: "오늘 날씨 너무 좋아서 기분 최고 ☀️ 모두 좋은 하루 보내요~", likes: 31, time: "28분 전" },
-];
-
 function HomeBoardSection({ onExpand }: { onExpand: () => void }) {
   const [liked, setLiked] = useState<Set<number>>(new Set());
   return (
@@ -2250,7 +1763,6 @@ function BoardExpandPage({ onBack }: { onBack: () => void }) {
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════
    HOME LEFT PAGE (with board)
 ═══════════════════════════════════════════ */
@@ -2346,13 +1858,17 @@ function RightPage({
   roomSelections,
   setRoomSelections,
   onNavigateTab,
+  avatar,
+  onSaveAvatar,
 }: {
   activeTab: string;
   roomSelections: RoomSelections;
   setRoomSelections: Dispatch<SetStateAction<RoomSelections>>;
   onNavigateTab: (tab: string) => void;
+  avatar: AvatarProfile;
+  onSaveAvatar: (avatar: AvatarProfile) => void;
 }) {
-  if (activeTab === "profile") return <ProfileAvatarPage />;
+  if (activeTab === "profile") return <ProfileAvatarPage avatar={avatar} onSaveAvatar={onSaveAvatar} />;
   if (activeTab === "photo") return <PhotoPage />;
   if (activeTab === "guest") return <GuestbookPage />;
   if (activeTab === "emoticon") return <EmoticonRoomPage />;
@@ -2366,6 +1882,7 @@ function RightPage({
    SPREAD PAGE
 ═══════════════════════════════════════════ */
 function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onClose: () => void; onLogout?: () => void; onUserUpdate: (user: User) => void }) {
+  const [avatar, setAvatar] = useState<AvatarProfile>(DEFAULT_AVATAR_PROFILE);
   const [activeTab, setActiveTab] = useState("home");
   const [roomSelections, setRoomSelections] = useState<RoomSelections>(() => loadRoomSelections());
 
@@ -2375,7 +1892,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 
   return (
     <div className="size-full flex items-center justify-center overflow-auto" style={{
-      background: "linear-gradient(135deg, #fce4f8 0%, #f0d0ff 40%, #ffd4f0 100%)",
+      background: "linear-gradient(135deg, #C2CBED 0%, #b8c4e8 40%, #d0d8f4 100%)",
     }}>
       {/* ambient */}
       <div className="absolute pointer-events-none" style={{
@@ -2406,7 +1923,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           boxShadow: "inset -4px 0 12px rgba(0,0,0,0.06)",
           flexShrink: 0,
         }}>
-          <LeftPage user={user} onUserUpdate={onUserUpdate} />
+          <LeftPage user={user} avatar={avatar} onUserUpdate={onUserUpdate} />
         </div>
 
         {/* SPINE */}
@@ -2437,6 +1954,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             roomSelections={roomSelections}
             setRoomSelections={setRoomSelections}
             onNavigateTab={setActiveTab}
+            avatar={avatar}
+            onSaveAvatar={setAvatar}
           />
         </div>
 
@@ -2530,7 +2049,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     </div>
   );
 }
-
 /* ═══════════════════════════════════════════
    ROOT
 ═══════════════════════════════════════════ */

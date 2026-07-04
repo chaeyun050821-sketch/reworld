@@ -2,29 +2,29 @@
 
 :root {
   --font-size: 16px;
-  --background: #fce4f8;
-  --foreground: #6b006b;
-  --card: #fff0fb;
-  --card-foreground: #6b006b;
-  --popover: #fff0fb;
-  --popover-foreground: #6b006b;
-  --primary: #ff2d78;
+  --background: #C2CBED;
+  --foreground: #3d4a7a;
+  --card: #eef1fb;
+  --card-foreground: #3d4a7a;
+  --popover: #eef1fb;
+  --popover-foreground: #3d4a7a;
+  --primary: #5a6db0;
   --primary-foreground: #ffffff;
-  --secondary: #c44dff;
+  --secondary: #7a8fd4;
   --secondary-foreground: #ffffff;
-  --muted: #f9d0f0;
-  --muted-foreground: #b060b0;
-  --accent: #ff80c8;
-  --accent-foreground: #6b006b;
-  --destructive: #d4183d;
+  --muted: #d8dff5;
+  --muted-foreground: #5a6db0;
+  --accent: #C2CBED;
+  --accent-foreground: #3d4a7a;
+  --destructive: #ff4757;
   --destructive-foreground: #ffffff;
-  --border: rgba(255, 45, 120, 0.2);
+  --border: rgba(90, 109, 176, 0.28);
   --input: transparent;
-  --input-background: #f9d0f0;
-  --switch-background: #c44dff;
+  --input-background: #eef1fb;
+  --switch-background: #7a8fd4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #ff2d78;
+  --ring: #5a6db0;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -127,11 +127,6 @@
   body {
     @apply bg-background text-foreground;
   }
-
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
 
   html {
     font-size: var(--font-size);
