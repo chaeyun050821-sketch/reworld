@@ -17,11 +17,8 @@ import {
   saveRoomSelections,
   AVATAR_ITEMS,
   BOARD_POSTS,
-  GUESTBOOK_COLORS,
   INIT_ENTRIES,
   INIT_FIELDS,
-  INITIAL_ENTRIES,
-  NEIGHBORS,
   PALETTE,
   PHOTO_BOOTH_GRADIENTS,
   PIXEL_COLS,
@@ -30,10 +27,8 @@ import {
   STICKER_OPTIONS,
   TABS,
   WEATHER_OPTIONS,
-  type Neighbor,
   type ProfileField,
   type Privacy,
-  type VisitMode,
   type TabConfig,
   type RoomCategoryId,
   type RoomSelections,
@@ -856,14 +851,23 @@ function LeftPage({
 /* ═══════════════════════════════════════════
    RIGHT PAGE — GUESTBOOK
 ═══════════════════════════════════════════ */
-const INITIAL_ENTRIES = [
+type GuestbookEntryWithAvatar = {
+  id: number;
+  name: string;
+  msg: string;
+  date: string;
+  color: string;
+  avatarIndex: number;
+};
+
+const GUESTBOOK_INITIAL_ENTRIES: GuestbookEntryWithAvatar[] = [
   { id: 1, name: "별빛소녀", msg: "다이어리 너무 예뻐요! 자주 올게요 🌸", date: "2026.06.22", color: "#ff80c8", avatarIndex: 0 },
   { id: 2, name: "하늘이", msg: "오늘도 행복한 하루 보내요~ 또 놀러올게용", date: "2026.06.21", color: "#80c8ff", avatarIndex: 1 },
   { id: 3, name: "민트초코", msg: "Y2K 감성 너무 좋다!! bgm도 최고예요", date: "2026.06.20", color: "#80e0b0", avatarIndex: 2 },
 ];
 
 function GuestbookPage() {
-  const [entries, setEntries] = useState(INITIAL_ENTRIES);
+  const [entries, setEntries] = useState(GUESTBOOK_INITIAL_ENTRIES);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [msg, setMsg] = useState("");
@@ -1366,14 +1370,14 @@ function DiaryPage() {
     </div>
   );
 }
-type Neighbor = {
+type FriendNeighbor = {
   id: number;
   name: string;
   color: string;
-  avatar: AvatarConfig;
+  avatar: LegacyAvatarConfig;
 };
 
-const AVATAR_PRESETS: AvatarConfig[] = [
+const AVATAR_PRESETS: LegacyAvatarConfig[] = [
   { hairDark: "#2a1060", hairLight: "#7040c0", skin: "#ffe0c8", outfit: "#ffe060", outfitDark: "#e0c030", outfitInner: "#fff8b0", pants: "#9060d0" },
   { hairDark: "#103060", hairLight: "#4080c0", skin: "#ffc8a0", outfit: "#80c8ff", outfitDark: "#5090d0", outfitInner: "#c0e8ff", pants: "#4060a0" },
   { hairDark: "#1a4030", hairLight: "#40a080", skin: "#ffd8b8", outfit: "#80e0b0", outfitDark: "#50c090", outfitInner: "#c0ffe0", pants: "#308060" },
@@ -1389,7 +1393,7 @@ const AVATAR_PRESETS: AvatarConfig[] = [
 ═══════════════════════════════════════════ */
 const FRIEND_COLORS = ["#ffe060", "#80c8ff", "#80e0b0", "#ff80c8", "#c8a0ff", "#ffa880", "#80e8ff", "#ffb0d0"];
 
-const INITIAL_NEIGHBORS: Neighbor[] = [
+const INITIAL_NEIGHBORS: FriendNeighbor[] = [
   { id: 1, name: "별빛소녀", color: "#ffe060", avatar: AVATAR_PRESETS[0] },
   { id: 2, name: "하늘이",   color: "#80c8ff", avatar: AVATAR_PRESETS[1] },
   { id: 3, name: "민트초코", color: "#80e0b0", avatar: AVATAR_PRESETS[2] },
@@ -1398,7 +1402,7 @@ const INITIAL_NEIGHBORS: Neighbor[] = [
 
 type VisitMode = "miniroom" | "guest" | "diary";
 
-function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
+function FriendVisitPage({ nb, onBack }: { nb: FriendNeighbor; onBack: () => void }) {
   const [mode, setMode] = useState<VisitMode>("miniroom");
   const MODES: { id: VisitMode; label: string; emoji: string }[] = [
     { id: "miniroom", label: "미니룸",  emoji: "🏠" },
@@ -1571,8 +1575,8 @@ function HomeRightPage({
   roomSelections: RoomSelections;
   onDecorate: () => void;
 }) {
-  const [neighbors, setNeighbors] = useState<Neighbor[]>(INITIAL_NEIGHBORS);
-  const [selectedFriend, setSelectedFriend] = useState<Neighbor | null>(null);
+  const [neighbors, setNeighbors] = useState<FriendNeighbor[]>(INITIAL_NEIGHBORS);
+  const [selectedFriend, setSelectedFriend] = useState<FriendNeighbor | null>(null);
   const [showAddFriend, setShowAddFriend] = useState(false);
 
   const handleAddFriend = (name: string) => {
