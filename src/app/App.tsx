@@ -46,7 +46,7 @@ import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils
    SHARED ATOMS
 ═══════════════════════════════════════════ */
 
-const PixelHeart = ({ size = 14, color = "#ff2d78" }: { size?: number; color?: string }) => (
+const PixelHeart = ({ size = 14, color = "#7a8fd4" }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 10 9" style={{ imageRendering: "pixelated" }} fill={color}>
     <rect x="1" y="0" width="3" height="1" /><rect x="6" y="0" width="3" height="1" />
     <rect x="0" y="1" width="4" height="1" /><rect x="6" y="1" width="4" height="1" />
@@ -73,20 +73,20 @@ const PixelStar = ({ x, y, size, delay, color }: { x: string; y: string; size: n
 const HoloStripe = ({ top, rotate, opacity }: { top: string; rotate: number; opacity: number }) => (
   <div className="absolute w-full h-6 pointer-events-none" style={{
     top, transform: `rotate(${rotate}deg)`, opacity,
-    background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 20%, rgba(200,100,255,0.4) 35%, rgba(255,80,180,0.5) 50%, rgba(100,200,255,0.4) 65%, rgba(255,255,255,0.5) 80%, transparent 100%)",
+    background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.55) 20%, rgba(194,203,237,0.5) 35%, rgba(122,143,212,0.45) 50%, rgba(168,184,232,0.4) 65%, rgba(255,255,255,0.5) 80%, transparent 100%)",
     filter: "blur(2px)",
   }} />
 );
 
 const Corner = ({ flip }: { flip?: boolean }) => (
   <svg width="90" height="90" viewBox="0 0 90 90" fill="none" style={{ transform: flip ? "scale(-1,1)" : undefined }}>
-    <path d="M8 8 L8 40 Q8 50 18 50" stroke="#ff2d78" strokeWidth="2" fill="none" opacity="0.7" />
-    <path d="M8 8 L40 8 Q50 8 50 18" stroke="#c44dff" strokeWidth="2" fill="none" opacity="0.7" />
-    <circle cx="8" cy="8" r="4" fill="#ff80c8" />
-    <circle cx="50" cy="18" r="3" fill="#ff2d78" opacity="0.8" />
-    <circle cx="18" cy="50" r="3" fill="#c44dff" opacity="0.8" />
-    <path d="M20 20 Q30 14 40 20 Q30 26 20 20Z" fill="#ff80c8" opacity="0.5" />
-    <path d="M20 20 Q14 30 20 40 Q26 30 20 20Z" fill="#c44dff" opacity="0.4" />
+    <path d="M8 8 L8 40 Q8 50 18 50" stroke="#7a8fd4" strokeWidth="2" fill="none" opacity="0.7" />
+    <path d="M8 8 L40 8 Q50 8 50 18" stroke="#5a6db0" strokeWidth="2" fill="none" opacity="0.7" />
+    <circle cx="8" cy="8" r="4" fill="#C2CBED" />
+    <circle cx="50" cy="18" r="3" fill="#7a8fd4" opacity="0.8" />
+    <circle cx="18" cy="50" r="3" fill="#5a6db0" opacity="0.8" />
+    <path d="M20 20 Q30 14 40 20 Q30 26 20 20Z" fill="#C2CBED" opacity="0.5" />
+    <path d="M20 20 Q14 30 20 40 Q26 30 20 20Z" fill="#a8b8e8" opacity="0.4" />
     <circle cx="29" cy="29" r="4" fill="white" opacity="0.4" />
   </svg>
 );
@@ -94,25 +94,25 @@ const Corner = ({ flip }: { flip?: boolean }) => (
 const ChromeBadge = ({ children }: { children: React.ReactNode }) => (
   <div className="px-4 py-1 rounded-full text-xs font-semibold tracking-widest uppercase" style={{
     fontFamily: "'Quicksand', sans-serif",
-    background: "linear-gradient(135deg, #fff 0%, #f0c0e8 30%, #e8a0d8 60%, #fff 100%)",
-    boxShadow: "0 2px 8px rgba(255,45,120,0.3), inset 0 1px 0 rgba(255,255,255,0.9)",
-    color: "#c0006a", border: "1px solid rgba(255,255,255,0.8)",
+    background: "linear-gradient(135deg, #fff 0%, #eef1fb 30%, #C2CBED 60%, #fff 100%)",
+    boxShadow: "0 2px 8px rgba(90,109,176,0.28), inset 0 1px 0 rgba(255,255,255,0.9)",
+    color: "#3d4a7a", border: "1px solid rgba(255,255,255,0.8)",
   }}>{children}</div>
 );
 
 function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string }) {
   const stars = [
-    { x: "7%", y: "9%", size: 22, delay: 0, color: "#ff2d78" },
-    { x: "83%", y: "6%", size: 18, delay: 0.5, color: "#c44dff" },
-    { x: "90%", y: "70%", size: 24, delay: 1.1, color: "#ff80c8" },
-    { x: "4%", y: "75%", size: 20, delay: 0.3, color: "#ff2d78" },
-    { x: "48%", y: "3%", size: 14, delay: 0.8, color: "#e040fb" },
-    { x: "15%", y: "48%", size: 12, delay: 1.6, color: "#ff80c8" },
-    { x: "75%", y: "45%", size: 12, delay: 2.0, color: "#c44dff" },
-    { x: "35%", y: "87%", size: 16, delay: 0.6, color: "#ff2d78" },
-    { x: "62%", y: "84%", size: 14, delay: 1.4, color: "#c44dff" },
-    { x: "68%", y: "18%", size: 18, delay: 0.9, color: "#ff80c8" },
-    { x: "25%", y: "15%", size: 13, delay: 2.2, color: "#ff2d78" },
+    { x: "7%", y: "9%", size: 22, delay: 0, color: "#7a8fd4" },
+    { x: "83%", y: "6%", size: 18, delay: 0.5, color: "#5a6db0" },
+    { x: "90%", y: "70%", size: 24, delay: 1.1, color: "#C2CBED" },
+    { x: "4%", y: "75%", size: 20, delay: 0.3, color: "#9aa8d8" },
+    { x: "48%", y: "3%", size: 14, delay: 0.8, color: "#a8b8e8" },
+    { x: "15%", y: "48%", size: 12, delay: 1.6, color: "#C2CBED" },
+    { x: "75%", y: "45%", size: 12, delay: 2.0, color: "#7a8fd4" },
+    { x: "35%", y: "87%", size: 16, delay: 0.6, color: "#5a6db0" },
+    { x: "62%", y: "84%", size: 14, delay: 1.4, color: "#b8c4e8" },
+    { x: "68%", y: "18%", size: 18, delay: 0.9, color: "#a8b8e8" },
+    { x: "25%", y: "15%", size: 13, delay: 2.2, color: "#7a8fd4" },
   ];
 
   return (
@@ -143,15 +143,15 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
           background: "radial-gradient(ellipse 80% 60% at 50% 20%, rgba(255,255,255,0.55) 0%, transparent 70%)",
         }} />
         <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
-          backgroundImage: "radial-gradient(circle, #ff2d78 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(circle, #7a8fd4 1px, transparent 1px)",
           backgroundSize: "22px 22px",
         }} />
         <div className="absolute inset-3 rounded-xl pointer-events-none" style={{
           border: "1.5px solid rgba(255,255,255,0.7)",
-          boxShadow: "0 0 0 1px rgba(255,45,120,0.15) inset",
+          boxShadow: "0 0 0 1px rgba(122,143,212,0.2) inset",
         }} />
         <div className="absolute inset-5 rounded-lg pointer-events-none" style={{
-          border: "1px dashed rgba(196,77,255,0.35)",
+          border: "1px dashed rgba(122,143,212,0.4)",
         }} />
         <div className="absolute top-3 left-3"><Corner /></div>
         <div className="absolute top-3 right-3"><Corner flip /></div>
@@ -165,51 +165,51 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
           <motion.div className="flex gap-2 items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
             {[0, 0.15, 0.3].map((d, i) => (
               <motion.div key={i} animate={{ y: [0, -4, 0] }} transition={{ duration: 1.4, delay: d, repeat: Infinity, ease: "easeInOut" }}>
-                <PixelHeart size={i === 1 ? 20 : 14} color={i === 1 ? "#ff2d78" : "#c44dff"} />
+                <PixelHeart size={i === 1 ? 20 : 14} color={i === 1 ? "#5a6db0" : "#7a8fd4"} />
               </motion.div>
             ))}
           </motion.div>
           <motion.div className="text-center" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.75, duration: 1, ease: [0.22, 1, 0.36, 1] }}>
             <h1 
-              style={{ fontFamily: '"Great Vibes", "Comic Sans MS", "Malgun Gothic", sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1',
-              background: "linear-gradient(135deg, #d4006a 0%, #ff2d78 30%, #c44dff 60%, #ff2d78 80%, #d4006a 100%)",
+              style={{ fontFamily: '"Great Vibes", "Comic Sans MS", "Malgun Gothic", sans-serif', fontSize: '1.3rem', color: '#3d4a7a', lineHeight: '1.1',
+              background: "linear-gradient(135deg, #3d4a7a 0%, #5a6db0 30%, #7a8fd4 60%, #5a6db0 80%, #3d4a7a 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-              filter: "drop-shadow(0 2px 8px rgba(255,45,120,0.35))",
+              filter: "drop-shadow(0 2px 8px rgba(90,109,176,0.35))",
             }}>Re:world</h1>
             <motion.div className="mx-auto mt-1 h-0.5 rounded-full" style={{
-              background: "linear-gradient(90deg, transparent, #ff80c8, #fff, #c44dff, #ff80c8, transparent)",
-              boxShadow: "0 0 6px rgba(255,80,200,0.6)",
+              background: "linear-gradient(90deg, transparent, #C2CBED, #fff, #7a8fd4, #C2CBED, transparent)",
+              boxShadow: "0 0 6px rgba(122,143,212,0.5)",
             }} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 1.2, duration: 0.9 }} />
           </motion.div>
-          <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.42rem", color: "#c44dff", letterSpacing: "0.08em", textAlign: "center", lineHeight: 2, opacity: 0.8 }}>
+          <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.42rem", color: "#5a6db0", letterSpacing: "0.08em", textAlign: "center", lineHeight: 2, opacity: 0.8 }}>
             thoughts · memories · dreams
           </p>
           <div className="flex items-center gap-2 w-full px-4">
-            <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(255,45,120,0.4))" }} />
-            <span style={{ color: "#ff2d78", fontSize: 14 }}>✦</span>
-            <span style={{ color: "#c44dff", fontSize: 10 }}>★</span>
-            <span style={{ color: "#ff80c8", fontSize: 14 }}>✦</span>
-            <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(196,77,255,0.4))" }} />
+            <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, transparent, rgba(122,143,212,0.45))" }} />
+            <span style={{ color: "#7a8fd4", fontSize: 14 }}>✦</span>
+            <span style={{ color: "#5a6db0", fontSize: 10 }}>★</span>
+            <span style={{ color: "#C2CBED", fontSize: 14 }}>✦</span>
+            <div className="flex-1 h-px" style={{ background: "linear-gradient(to left, transparent, rgba(90,109,176,0.45))" }} />
           </div>
           <motion.div className="relative px-6 py-1.5 rounded-full overflow-hidden" style={{
-            background: "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,200,240,0.9) 50%, rgba(255,255,255,0.8) 100%)",
-            boxShadow: "0 3px 12px rgba(255,45,120,0.25), inset 0 1px 0 rgba(255,255,255,1)",
-            border: "1.5px solid rgba(255,45,120,0.2)",
+            background: "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(232,236,250,0.92) 50%, rgba(255,255,255,0.85) 100%)",
+            boxShadow: "0 3px 12px rgba(90,109,176,0.22), inset 0 1px 0 rgba(255,255,255,1)",
+            border: "1.5px solid rgba(122,143,212,0.25)",
           }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.0 }}>
             <div className="absolute inset-x-0 top-0 h-1/2 rounded-full" style={{ background: "rgba(255,255,255,0.6)" }} />
-            <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 600, fontSize: "0.78rem", letterSpacing: "0.25em", color: "#d4006a", position: "relative" }}>2 0 2 6</span>
+            <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 600, fontSize: "0.78rem", letterSpacing: "0.25em", color: "#3d4a7a", position: "relative" }}>2 0 2 6</span>
           </motion.div>
           <motion.div className="flex gap-3 items-center mt-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.3 }}>
             {[0.1, 0, 0.2, 0, 0.1].map((d, i) => (
               <motion.div key={i} animate={{ y: [0, -5, 0] }} transition={{ duration: 1.2, delay: d + i * 0.07, repeat: Infinity }}>
-                <PixelHeart size={i === 2 ? 18 : 12} color={["#c44dff", "#ff80c8", "#ff2d78", "#ff80c8", "#c44dff"][i]} />
+                <PixelHeart size={i === 2 ? 18 : 12} color={["#7a8fd4", "#C2CBED", "#5a6db0", "#a8b8e8", "#7a8fd4"][i]} />
               </motion.div>
             ))}
           </motion.div>
           {/* open hint */}
           <motion.p
             className="mt-2 text-center"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.65rem", color: "#c44dff", letterSpacing: "0.1em" }}
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.65rem", color: "#5a6db0", letterSpacing: "0.1em" }}
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 2, repeat: Infinity }}
           >
@@ -223,7 +223,7 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
           background: "linear-gradient(110deg, transparent 35%, rgba(255,255,255,0.22) 50%, transparent 65%)",
         }} initial={{ x: "-100%" }} animate={{ x: "200%" }} transition={{ duration: 2.2, delay: 1.6, ease: "easeInOut" }} />
         <div className="absolute left-0 top-0 bottom-0 w-4 pointer-events-none" style={{
-          background: "linear-gradient(to right, rgba(200,0,100,0.12), transparent)",
+          background: "linear-gradient(to right, rgba(90,109,176,0.12), transparent)",
         }} />
       </motion.div>
       <div className="absolute" style={{
@@ -1062,8 +1062,8 @@ function MiniRoomPage({
               className="px-2 py-0.5 rounded-full"
               style={{
                 fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 600,
-                color: "#9060b0", background: "rgba(255,255,255,0.7)",
-                border: "1px solid rgba(196,77,255,0.2)",
+                color: "#5a6db0", background: "rgba(255,255,255,0.7)",
+                border: "1px solid rgba(122,143,212,0.2)",
               }}
             >
               초기화
@@ -1415,7 +1415,7 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
           <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#4a2060" }}>{nb.name}</span>
         </div>
         <button onClick={onBack} className="px-2 py-0.5 rounded-full"
-          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600, background: "rgba(196,77,255,0.1)", color: "#9060b0" }}>
+          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600, background: "rgba(122,143,212,0.1)", color: "#5a6db0" }}>
           ← 돌아가기
         </button>
       </div>
@@ -1428,8 +1428,8 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
             style={{
               fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
               background: mode === m.id ? `linear-gradient(135deg, ${nb.color}, ${nb.color}aa)` : "rgba(255,255,255,0.6)",
-              color: mode === m.id ? "#fff" : "#9060b0",
-              border: mode === m.id ? "none" : "1px solid rgba(196,77,255,0.15)",
+              color: mode === m.id ? "#fff" : "#5a6db0",
+              border: mode === m.id ? "none" : "1px solid rgba(122,143,212,0.15)",
               boxShadow: mode === m.id ? `0 2px 8px ${nb.color}55` : "none",
               transition: "all 0.15s",
             }}>
@@ -1451,7 +1451,7 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
         )}
         {mode === "guest" && (
           <div className="h-full flex flex-col gap-2 p-3 rounded-xl overflow-y-auto" style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${nb.color}33` }}>
-            <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.33rem", color: "#c44dff" }}>방명록</p>
+            <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.33rem", color: "#7a8fd4" }}>방명록</p>
             {[
               { user: "Re:world ✦", msg: "항상 행복하게 지내요 🌸", date: "2026.06.20" },
               { user: "민트초코🍃", msg: "자주 놀러올게요 💚", date: "2026.06.18" },
@@ -1459,7 +1459,7 @@ function FriendVisitPage({ nb, onBack }: { nb: Neighbor; onBack: () => void }) {
               <div key={i} className="rounded-xl p-2" style={{ background: "rgba(255,255,255,0.8)", border: `1px solid ${nb.color}33` }}>
                 <div className="flex justify-between mb-0.5">
                   <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.55rem", color: "#6040a0" }}>{e.user}</span>
-                  <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#b090c0" }}>{e.date}</span>
+                  <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#7a8fd4" }}>{e.date}</span>
                 </div>
                 <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.57rem", color: "#5a3080" }}>{e.msg}</p>
               </div>
@@ -1513,15 +1513,15 @@ function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name:
         className="w-full max-w-[220px] rounded-2xl p-4 flex flex-col gap-3"
         style={{
           background: "linear-gradient(160deg, #fff8ff 0%, #f8f0ff 100%)",
-          border: "2px solid rgba(196,77,255,0.25)",
-          boxShadow: "0 8px 32px rgba(196,77,255,0.2)",
+          border: "2px solid rgba(122,143,212,0.25)",
+          boxShadow: "0 8px 32px rgba(122,143,212,0.2)",
         }}
         initial={{ opacity: 0, scale: 0.9, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>♡</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#7a8fd4" }}>♡</span>
           <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.65rem", color: "#6040a0" }}>친구 추가</span>
         </div>
         <input
@@ -1535,14 +1535,14 @@ function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name:
           className="w-full px-3 py-2 rounded-xl outline-none"
           style={{
             fontFamily: "'Quicksand', sans-serif", fontSize: "0.6rem", fontWeight: 600,
-            background: "rgba(255,255,255,0.9)", border: "1.5px solid rgba(196,77,255,0.2)", color: "#4a2060",
+            background: "rgba(255,255,255,0.9)", border: "1.5px solid rgba(122,143,212,0.2)", color: "#4a2060",
           }}
         />
         <div className="flex gap-2">
           <button
             onClick={onClose}
             className="flex-1 py-1.5 rounded-xl"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 600, color: "#9060b0", background: "rgba(196,77,255,0.08)" }}
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 600, color: "#5a6db0", background: "rgba(122,143,212,0.08)" }}
           >
             취소
           </button>
@@ -1552,7 +1552,7 @@ function AddFriendModal({ onClose, onAdd }: { onClose: () => void; onAdd: (name:
             className="flex-1 py-1.5 rounded-xl text-white"
             style={{
               fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
-              background: name.trim() ? "linear-gradient(90deg, #c44dff, #ff2d78)" : "rgba(196,77,255,0.25)",
+              background: name.trim() ? "linear-gradient(90deg, #ff4757, #ff6b81)" : "rgba(122,143,212,0.25)",
               opacity: name.trim() ? 1 : 0.6,
             }}
           >
@@ -1607,16 +1607,16 @@ function HomeRightPage({
       <div className="rounded-xl overflow-hidden flex-shrink-0 relative" style={{
         border: "1.5px solid rgba(255,110,180,0.25)",
         background: "#fafafc",
-        boxShadow: "inset 0 2px 8px rgba(196,77,255,0.06)",
+        boxShadow: "inset 0 2px 8px rgba(122,143,212,0.06)",
       }}>
         <RoomCanvas selections={roomSelections} />
         <div className="absolute top-1.5 left-2 flex items-center gap-1">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.32rem", color: "#ff2d78" }}>★ MINI ROOM</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.32rem", color: "#5a6db0" }}>★ MINI ROOM</span>
         </div>
         <button
           onClick={onDecorate}
           className="absolute top-1.5 right-2 px-1.5 py-0.5 rounded-full text-white"
-          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", fontWeight: 700, background: "linear-gradient(90deg,#ff2d78,#c44dff)" }}>
+          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", fontWeight: 700, background: "linear-gradient(90deg,#ff4757,#ff6b81)" }}>
           꾸미기
         </button>
       </div>
@@ -1624,8 +1624,8 @@ function HomeRightPage({
       {/* ③ 친구 목록 — 정사각형 그리드 */}
       <div className="flex flex-col gap-1.5 flex-shrink-0">
         <div className="flex items-center justify-between flex-shrink-0">
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#c44dff" }}>이웃 ♡</span>
-          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#9060b0" }}>{neighbors.length}명</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.35rem", color: "#7a8fd4" }}>이웃 ♡</span>
+          <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: "#5a6db0" }}>{neighbors.length}명</span>
         </div>
         <div>
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
@@ -1661,9 +1661,9 @@ function HomeRightPage({
           className="w-full py-2 rounded-xl flex items-center justify-center gap-1.5 flex-shrink-0"
           style={{
             fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #c44dff, #ff2d78)",
+            background: "linear-gradient(90deg, #ff4757, #ff6b81)",
             color: "white",
-            boxShadow: "0 2px 10px rgba(196,77,255,0.3)",
+            boxShadow: "0 2px 10px rgba(122,143,212,0.3)",
           }}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
@@ -1683,31 +1683,31 @@ function HomeBoardSection({ onExpand }: { onExpand: () => void }) {
   return (
     <div className="rounded-xl overflow-hidden flex-shrink-0" style={{
       background: "rgba(255,255,255,0.75)",
-      border: "1px solid rgba(196,77,255,0.15)",
-      boxShadow: "0 2px 10px rgba(196,77,255,0.06)",
+      border: "1px solid rgba(122,143,212,0.15)",
+      boxShadow: "0 2px 10px rgba(122,143,212,0.06)",
     }}>
       <div className="flex items-center justify-between px-2.5 py-1.5" style={{
-        background: "linear-gradient(90deg, rgba(255,180,220,0.2), rgba(196,77,255,0.1))",
-        borderBottom: "1px solid rgba(196,77,255,0.12)",
+        background: "linear-gradient(90deg, rgba(194,203,237,0.22), rgba(122,143,212,0.1))",
+        borderBottom: "1px solid rgba(122,143,212,0.12)",
       }}>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#c44dff" }}>게시판 💬</span>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#7a8fd4" }}>게시판 💬</span>
         <button onClick={onExpand}
           className="w-5 h-5 rounded-full flex items-center justify-center text-white"
-          style={{ background: "linear-gradient(135deg, #ff2d78, #c44dff)", fontSize: 12, fontWeight: 700 }}>+</button>
+          style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", fontSize: 12, fontWeight: 700 }}>+</button>
       </div>
       {BOARD_POSTS.map((post, i) => (
         <div key={post.id} className="px-2.5 py-1.5 flex flex-col gap-0.5" style={{
-          borderBottom: i < BOARD_POSTS.length - 1 ? "1px solid rgba(196,77,255,0.08)" : "none",
+          borderBottom: i < BOARD_POSTS.length - 1 ? "1px solid rgba(122,143,212,0.08)" : "none",
         }}>
           <div className="flex items-center justify-between">
             <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.5rem", color: "#7040a0" }}>{post.user}</span>
-            <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#b090c0" }}>{post.time}</span>
+            <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#7a8fd4" }}>{post.time}</span>
           </div>
           <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem", color: "#5a3080", lineHeight: 1.4,
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{post.content}</p>
           <button onClick={() => setLiked(prev => { const n = new Set(prev); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
             className="self-start flex items-center gap-0.5"
-            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: liked.has(post.id) ? "#ff2d78" : "#b090c0", fontWeight: 600 }}>
+            style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", color: liked.has(post.id) ? "#ff2d78" : "#7a8fd4", fontWeight: 600 }}>
             {liked.has(post.id) ? "♥" : "♡"} {post.likes + (liked.has(post.id) ? 1 : 0)}
           </button>
         </div>
@@ -1728,33 +1728,33 @@ function BoardExpandPage({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3" style={{ background: "linear-gradient(160deg, #fff5fd 0%, #f0e8ff 100%)" }}>
-      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(196,77,255,0.2)" }}>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.42rem", color: "#c44dff" }}>게시판 💬</span>
+    <div className="h-full flex flex-col gap-2 p-3" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
+      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(122,143,212,0.2)" }}>
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.42rem", color: "#7a8fd4" }}>게시판 💬</span>
         <button onClick={onBack} className="px-2 py-0.5 rounded-full" style={{
           fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 600,
-          background: "rgba(196,77,255,0.1)", color: "#9060b0",
+          background: "rgba(122,143,212,0.1)", color: "#5a6db0",
         }}>← 닫기</button>
       </div>
       <div className="flex gap-1.5 flex-shrink-0">
         <input value={newPost} onChange={e => setNewPost(e.target.value)} placeholder="글 남기기 ✨"
           className="flex-1 px-2 py-1.5 rounded-xl outline-none"
-          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", color: "#5a3080", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(196,77,255,0.2)" }} />
+          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", color: "#5a3080", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(122,143,212,0.2)" }} />
         <button onClick={submit} className="px-3 rounded-xl text-white"
-          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700, background: "linear-gradient(90deg,#ff2d78,#c44dff)" }}>등록</button>
+          style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700, background: "linear-gradient(90deg,#ff4757,#ff6b81)" }}>등록</button>
       </div>
       <div className="flex-1 overflow-y-auto flex flex-col gap-1.5" style={{ minHeight: 0 }}>
         {posts.map((post, i) => (
           <motion.div key={post.id} className="rounded-xl p-2.5"
-            style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(196,77,255,0.12)" }}
+            style={{ background: "rgba(255,255,255,0.75)", border: "1px solid rgba(122,143,212,0.12)" }}
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
             <div className="flex justify-between mb-0.5">
               <span style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: 700, fontSize: "0.55rem", color: "#7040a0" }}>{post.user}</span>
-              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#b090c0" }}>{post.time}</span>
+              <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#7a8fd4" }}>{post.time}</span>
             </div>
             <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", color: "#5a3080", lineHeight: 1.5, marginBottom: 4 }}>{post.content}</p>
             <button onClick={() => setLiked(prev => { const n = new Set(prev); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
-              style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: liked.has(post.id) ? "#ff2d78" : "#b090c0", fontWeight: 600 }}>
+              style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", color: liked.has(post.id) ? "#ff2d78" : "#7a8fd4", fontWeight: 600 }}>
               {liked.has(post.id) ? "♥" : "♡"} {post.likes + (liked.has(post.id) ? 1 : 0)}
             </button>
           </motion.div>
@@ -1773,26 +1773,26 @@ function HomeLeftPage() {
   if (showBoard) return <BoardExpandPage onBack={() => setShowBoard(false)} />;
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #fff5fd 0%, #f0e8ff 100%)" }}>
+    <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: "linear-gradient(160deg, #f4f6fc 0%, #C2CBED 100%)" }}>
       {/* bulletin board */}
       <HomeBoardSection onExpand={() => setShowBoard(true)} />
 
       {/* divider */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        <div className="flex-1 h-px" style={{ background: "linear-gradient(to right,transparent,rgba(196,77,255,0.3))" }} />
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#c44dff" }}>MY INFO</span>
-        <div className="flex-1 h-px" style={{ background: "linear-gradient(to left,transparent,rgba(196,77,255,0.3))" }} />
+        <div className="flex-1 h-px" style={{ background: "linear-gradient(to right,transparent,rgba(122,143,212,0.3))" }} />
+        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#7a8fd4" }}>MY INFO</span>
+        <div className="flex-1 h-px" style={{ background: "linear-gradient(to left,transparent,rgba(122,143,212,0.3))" }} />
       </div>
 
       {/* compact avatar card */}
       <div className="rounded-xl p-2 flex gap-2 items-center flex-shrink-0" style={{
-        background: "linear-gradient(135deg,rgba(255,180,220,0.3),rgba(196,77,255,0.1))",
+        background: "linear-gradient(135deg,rgba(194,203,237,0.35),rgba(122,143,212,0.1))",
         border: "1px solid rgba(255,110,180,0.2)",
       }}>
         <div className="rounded-lg overflow-hidden flex-shrink-0" style={{
           width: 44, height: 50,
           background: "linear-gradient(135deg,#ffe0f4,#e8d0ff)",
-          border: "1.5px solid rgba(255,45,120,0.25)",
+          border: "1.5px solid rgba(122,143,212,0.28)",
         }}>
           <div style={{ transform: "scale(0.6)", transformOrigin: "top left", width: "167%", height: "167%" }}>
             <PixelAvatar />
@@ -1800,7 +1800,7 @@ function HomeLeftPage() {
         </div>
         <div>
           <p style={{ fontFamily: 'Great Vibes, Comic Sans MS, Malgun Gothic, sans-serif', fontSize: '1.3rem', color: 'rgb(212, 0, 106)', lineHeight: '1.1' }}>Re:world</p>
-          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", color: "#9060b0" }}>일상 기록중 🌸</p>
+          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", color: "#5a6db0" }}>일상 기록중 🌸</p>
         </div>
         <div className="ml-auto flex items-center gap-1">
           <div className="w-2 h-2 rounded-full" style={{ background: "#4cda64" }} />
@@ -1810,20 +1810,20 @@ function HomeLeftPage() {
 
       {/* music player compact */}
       <div className="rounded-xl p-2 flex items-center gap-2 flex-shrink-0" style={{
-        background: "linear-gradient(90deg,rgba(255,45,120,0.07),rgba(196,77,255,0.07))",
+        background: "linear-gradient(90deg,rgba(194,203,237,0.15),rgba(122,143,212,0.08))",
         border: "1px solid rgba(255,80,180,0.18)",
       }}>
         <button onClick={() => setIsPlaying(!isPlaying)}
           className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-          style={{ background: "linear-gradient(135deg,#ff2d78,#c44dff)", boxShadow: "0 1px 6px rgba(255,45,120,0.35)" }}>
+          style={{ background: "linear-gradient(135deg,#ff4757,#ff6b81)", boxShadow: "0 1px 6px rgba(255,45,120,0.35)" }}>
           <span style={{ color: "white", fontSize: 9, paddingLeft: isPlaying ? 0 : 1 }}>{isPlaying ? "⏸" : "▶"}</span>
         </button>
         <div className="flex-1 min-w-0">
-          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700, color: "#d4006a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.52rem", fontWeight: 700, color: "#5a6db0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             ♪ Lovefool - The Cardigans
           </p>
-          <div className="mt-0.5 h-1 rounded-full overflow-hidden" style={{ background: "rgba(196,77,255,0.15)" }}>
-            <motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg,#ff2d78,#c44dff)" }}
+          <div className="mt-0.5 h-1 rounded-full overflow-hidden" style={{ background: "rgba(122,143,212,0.15)" }}>
+            <motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg,#ff4757,#ff6b81)" }}
               animate={isPlaying ? { width: ["30%","80%"] } : { width: "30%" }}
               transition={isPlaying ? { duration: 20, ease: "linear" } : {}} />
           </div>
@@ -1832,22 +1832,22 @@ function HomeLeftPage() {
 
       {/* visitor count */}
       <div className="rounded-xl px-2.5 py-1.5 flex items-center justify-between flex-shrink-0" style={{
-        background: "linear-gradient(90deg,rgba(255,180,220,0.2),rgba(196,77,255,0.08))",
+        background: "linear-gradient(90deg,rgba(194,203,237,0.22),rgba(122,143,212,0.1))",
         border: "1px solid rgba(255,110,180,0.18)",
       }}>
         <div className="flex items-center gap-1.5">
           <span style={{ fontSize: 12 }}>👣</span>
-          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.33rem", color: "#9060b0" }}>TODAY</span>
+          <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.33rem", color: "#5a6db0" }}>TODAY</span>
         </div>
         <div className="flex items-center gap-0.5">
           {["0","1","2","8"].map((d,i) => (
             <div key={i} className="w-4 h-5 rounded flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg,#ff2d78,#c44dff)" }}>
+              style={{ background: "linear-gradient(135deg,#ff4757,#ff6b81)" }}>
               <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "white" }}>{d}</span>
             </div>
           ))}
         </div>
-        <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#b080d0" }}>전체 <b style={{ color: "#ff2d78" }}>1,247</b></span>
+        <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#7a8fd4" }}>전체 <b style={{ color: "#ff4757" }}>1,247</b></span>
       </div>
     </div>
   );
@@ -1898,7 +1898,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
       <div className="absolute pointer-events-none" style={{
         width: 600, height: 400, top: "50%", left: "50%",
         transform: "translate(-50%,-50%)",
-        background: "radial-gradient(ellipse, rgba(255,80,180,0.12) 0%, transparent 70%)",
+        background: "radial-gradient(ellipse, rgba(122,143,212,0.14) 0%, transparent 70%)",
         filter: "blur(40px)",
       }} />
 
@@ -1908,7 +1908,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         style={{
           width: DIARY_SPREAD_W,
           height: DIARY.pageH,
-          boxShadow: "0 20px 80px rgba(180,0,120,0.2), 0 4px 20px rgba(180,50,255,0.15)",
+          boxShadow: "0 20px 80px rgba(90,109,176,0.22), 0 4px 20px rgba(122,143,212,0.18)",
         }}
         initial={{ scaleX: 0.3, opacity: 0 }}
         animate={{ scaleX: 1, opacity: 1 }}
@@ -1930,13 +1930,13 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         <div style={{
           width: DIARY.spineW,
           height: DIARY.pageH,
-          background: "linear-gradient(to right, #e8b0d8, #d090c0, #e8b0d8)",
+          background: "linear-gradient(to right, #b8c4e8, #9aa8d8, #b8c4e8)",
           boxShadow: "2px 0 8px rgba(0,0,0,0.08), -2px 0 8px rgba(0,0,0,0.08)",
           flexShrink: 0,
         }}>
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="mx-auto mt-3 w-1.5 h-1.5 rounded-full" style={{
-              background: i % 3 === 0 ? "#ff80c8" : "rgba(255,255,255,0.4)",
+              background: i % 3 === 0 ? "#7a8fd4" : "rgba(255,255,255,0.45)",
             }} />
           ))}
         </div>
@@ -1994,7 +1994,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
                 fontFamily: "'Quicksand', sans-serif",
                 fontSize: "0.48rem",
                 fontWeight: activeTab === tab.id ? 700 : 500,
-                color: activeTab === tab.id ? "#fff" : "rgba(80,30,60,0.75)",
+                color: activeTab === tab.id ? "#fff" : "rgba(61,74,122,0.78)",
                 letterSpacing: "0.05em",
                 userSelect: "none",
               }}>
@@ -2011,8 +2011,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           className="px-3 py-1.5 rounded-full text-white text-xs font-semibold"
           style={{
             fontFamily: "'Quicksand', sans-serif",
-            background: "linear-gradient(135deg, #ff2d78, #c44dff)",
-            boxShadow: "0 2px 10px rgba(255,45,120,0.35)",
+            background: "linear-gradient(135deg, #5a6db0, #7a8fd4)",
+            boxShadow: "0 2px 10px rgba(90,109,176,0.35)",
             fontSize: "0.65rem",
           }}
           onClick={onClose}
@@ -2031,9 +2031,9 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
               fontFamily: "'Quicksand', sans-serif",
               fontSize: "0.58rem",
               fontWeight: 600,
-              color: "#9060b0",
-              background: "rgba(255,255,255,0.85)",
-              border: "1px solid rgba(196,77,255,0.2)",
+              color: "#5a6db0",
+              background: "rgba(255,255,255,0.88)",
+              border: "1px solid rgba(122,143,212,0.3)",
             }}
             onClick={onLogout}
             whileHover={{ scale: 1.05 }}
