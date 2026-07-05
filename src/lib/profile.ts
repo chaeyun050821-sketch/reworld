@@ -4,6 +4,7 @@ export type UserProfile = {
   fields: ProfileField[];
   status: string;
   tags: string[];
+  bgmTitle?: string;
 };
 
 const PROFILE_KEY_PREFIX = "reworld_profile_";
@@ -18,6 +19,7 @@ export function defaultProfile(nickname: string): UserProfile {
     ],
     status: "일상 기록중 🌸",
     tags: ["#daily", "#y2k", "#diary"],
+    bgmTitle: "♬ Lovefool - The Cardigans",
   };
 }
 
