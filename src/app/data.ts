@@ -806,9 +806,6 @@ export const INIT_FIELDS: ProfileField[] = [
 ];
 
 export const AVATAR_ITEMS: AvatarItem[] = [
-  { id: "hair-bob", cat: "헤어", emoji: "", label: "브라운 단발", color: "#7a4a2a" },
-  { id: "hair-twintail", cat: "헤어", emoji: "", label: "트윈테일", color: "#4b342b" },
-  { id: "hair-wave", cat: "헤어", emoji: "", label: "웨이브 헤어", color: "#3f3848" },
   { id: "face-blush", cat: "얼굴", emoji: "", label: "블러셔", color: "#d99a86" },
   { id: "face-glasses", cat: "얼굴", emoji: "", label: "픽셀 안경", color: "#5b4b2d" },
   { id: "face-freckle", cat: "얼굴", emoji: "", label: "주근깨", color: "#9b6a3c" },

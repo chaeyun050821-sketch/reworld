@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { useState, useEffect, type Dispatch, type SetStateAction, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import AuthPage from "./AuthPage";
 import { getSession, signOut, updateUserNickname, type User } from "../lib/auth";
@@ -398,7 +398,7 @@ const DEFAULT_DIARY_PROFILE: DiaryProfile = {
   bgmTitle: "Lovefool - The Cardigans",
 };
 
-const AVATAR_ITEM_CATEGORIES = ["전체", "헤어", "얼굴", "의상", "악세사리", "기타"] as const;
+const AVATAR_ITEM_CATEGORIES = ["전체", "얼굴", "의상", "악세사리", "기타"] as const;
 type AvatarItemCategory = typeof AVATAR_ITEM_CATEGORIES[number];
 
 const getPixelKey = (x: number, y: number) => x + "-" + y;
@@ -471,17 +471,15 @@ function PixelAvatar({
   avatar = DEFAULT_AVATAR_PROFILE,
   width = 84,
   height = 102,
-  viewBox = `0 0 ${PIXEL_COLS} ${PIXEL_ROWS}`,
 }: {
   avatar?: AvatarProfile;
   width?: number;
   height?: number;
-  viewBox?: string;
 }) {
   const { config, equipped } = avatar;
 
   return (
-    <svg width={width} height={height} viewBox={viewBox} style={{ imageRendering: "pixelated" }}>
+    <svg width={width} height={height} viewBox={`0 0 ${PIXEL_COLS} ${PIXEL_ROWS}`} style={{ imageRendering: "pixelated" }}>
       {getAvatarRects(config).map(({ part, ...rect }, i) => (
         <rect key={String(part) + "-" + i} {...rect} />
       ))}
@@ -490,40 +488,6 @@ function PixelAvatar({
         if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
         return <rect key={"paint-" + key} x={x} y={y} width="1" height="1" fill={fill} />;
       })}
-      {equipped.includes("hair-bob") && (
-        <>
-          <rect x="10" y="2" width="12" height="2" fill="#6a3a20" />
-          <rect x="8" y="4" width="16" height="4" fill="#7a4a2a" />
-          <rect x="7" y="7" width="4" height="8" fill="#7a4a2a" />
-          <rect x="21" y="7" width="4" height="8" fill="#7a4a2a" />
-          <rect x="10" y="6" width="12" height="2" fill="#8b5a36" />
-          <rect x="13" y="7" width="2" height="3" fill="#6a3a20" />
-        </>
-      )}
-      {equipped.includes("hair-twintail") && (
-        <>
-          <rect x="10" y="2" width="12" height="2" fill="#3b2a24" />
-          <rect x="8" y="4" width="16" height="5" fill="#4b342b" />
-          <rect x="5" y="8" width="5" height="9" fill="#4b342b" />
-          <rect x="22" y="8" width="5" height="9" fill="#4b342b" />
-          <rect x="6" y="12" width="3" height="7" fill="#3b2a24" />
-          <rect x="23" y="12" width="3" height="7" fill="#3b2a24" />
-          <rect x="7" y="8" width="3" height="2" fill="#d86f86" />
-          <rect x="22" y="8" width="3" height="2" fill="#d86f86" />
-        </>
-      )}
-      {equipped.includes("hair-wave") && (
-        <>
-          <rect x="9" y="1" width="14" height="3" fill="#2f2a35" />
-          <rect x="7" y="4" width="18" height="5" fill="#3f3848" />
-          <rect x="6" y="8" width="5" height="10" fill="#3f3848" />
-          <rect x="21" y="8" width="5" height="10" fill="#3f3848" />
-          <rect x="10" y="6" width="5" height="2" fill="#554c61" />
-          <rect x="17" y="5" width="5" height="2" fill="#554c61" />
-          <rect x="8" y="15" width="3" height="3" fill="#2f2a35" />
-          <rect x="22" y="15" width="3" height="3" fill="#2f2a35" />
-        </>
-      )}
       {equipped.includes("face-blush") && (
         <>
           <rect x="8" y="11" width="4" height="2" fill="#d99a86" opacity="0.75" />
@@ -645,10 +609,6 @@ function PixelAvatar({
       )}
     </svg>
   );
-}
-
-function PixelAvatarBust({ avatar, width = 72, height = 80 }: { avatar: AvatarProfile; width?: number; height?: number }) {
-  return <PixelAvatar avatar={avatar} width={width} height={height} viewBox="4 -2 24 33" />;
 }
 
 const BGM_DURATION_SECONDS = 198;
@@ -806,9 +766,7 @@ function LeftPage({
   const [tags, setTags] = useState<string[]>(() => getUserProfile(user.id, user.nickname).tags);
   const [fields, setFields] = useState<ProfileField[]>(() => getUserProfile(user.id, user.nickname).fields);
   const [draft, setDraft] = useState<ProfileField[]>(fields);
-  const [bgmTitle, setBgmTitle] = useState(() => getUserProfile(user.id, user.nickname).bgmTitle ?? "♬ Lovefool - The Cardigans");
-  const [bgmSrc, setBgmSrc] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [bgmTitle, setBgmTitle] = useState("♬ Lovefool - The Cardigans");
 
   useEffect(() => {
     const profile = getUserProfile(user.id, user.nickname);
@@ -816,31 +774,13 @@ function LeftPage({
     setDraft(profile.fields);
     setStatus(profile.status);
     setTags(profile.tags);
-    setBgmTitle(profile.bgmTitle ?? "♬ Lovefool - The Cardigans");
   }, [user.id, user.nickname]);
-
-  useEffect(() => {
-    return () => {
-      if (bgmSrc) URL.revokeObjectURL(bgmSrc);
-    };
-  }, [bgmSrc]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !bgmSrc) return;
-
-    if (isPlaying) {
-      void audio.play().catch(() => setIsPlaying(false));
-    } else {
-      audio.pause();
-    }
-  }, [bgmSrc, isPlaying]);
 
   const displayName = fields.find((f) => f.label === "이름")?.value || user.nickname;
   const startEdit = () => { setDraft([...fields]); setEditing(true); };
   const saveEdit = () => {
     setFields(draft);
-    saveUserProfile(user.id, { fields: draft, status, tags, bgmTitle });
+    saveUserProfile(user.id, { fields: draft, status, tags });
     setEditing(false);
     const nameValue = draft.find((f) => f.label === "이름")?.value.trim();
     if (nameValue && nameValue !== user.nickname) {
@@ -849,12 +789,6 @@ function LeftPage({
     }
   };
   const cancelEdit = () => { setDraft([...fields]); setEditing(false); };
-  const handleBgmFileChange = (file: File | null) => {
-    if (!file) return;
-    setBgmSrc(URL.createObjectURL(file));
-    setBgmTitle("♬ " + file.name.replace(/\.mp3$/i, ""));
-    setIsPlaying(false);
-  };
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: DIARY_PAPER_BG }}>
@@ -875,7 +809,7 @@ function LeftPage({
       <div className="rounded-xl p-2.5 flex gap-3 items-start flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(194,203,237,0.45) 0%, rgba(140,155,210,0.15) 100%)", border: "1px solid rgba(140,155,210,0.3)" }}>
         <div className="relative flex-shrink-0">
           <div className="rounded-lg overflow-hidden flex items-center justify-center" style={{ width: 72, height: 80, background: "linear-gradient(135deg, #eef1fb 0%, #C2CBED 100%)", border: "2px solid rgba(122,143,212,0.35)", boxShadow: "0 2px 8px rgba(122,143,212,0.2)" }}>
-            <PixelAvatarBust avatar={avatar} width={72} height={80} />
+            <PixelAvatar avatar={avatar} width={72} height={90} />
           </div>
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
         </div>
@@ -909,19 +843,12 @@ function LeftPage({
       <div className="rounded-xl p-2.5 flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(194,203,237,0.15) 0%, rgba(140,155,210,0.1) 100%)", border: "1px solid rgba(140,155,210,0.25)" }}>
         <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.38rem", color: "#7a8fd4", marginBottom: 6 }}>♬ BGM</p>
         <div className="flex items-center gap-2">
-          {bgmSrc && <audio ref={audioRef} src={bgmSrc} loop />}
           <button onClick={() => setIsPlaying(!isPlaying)} className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", boxShadow: "0 2px 8px rgba(255,71,87,0.35)" }}>
             <span style={{ color: "white", fontSize: 10, paddingLeft: isPlaying ? 0 : 2 }}>{isPlaying ? "⏸" : "▶"}</span>
           </button>
           <div className="flex-1 min-w-0">
             {editing ? (
-              <div className="flex items-center gap-1">
-                <input value={bgmTitle} onChange={(e) => setBgmTitle(e.target.value)} className="flex-1 min-w-0 px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.56rem", fontWeight: 700, color: "#5a6db0", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(140,155,210,0.25)" }} />
-                <label className="flex-shrink-0 px-2 py-0.5 rounded-full cursor-pointer" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 800, color: "white", background: "linear-gradient(90deg,#7a8fd4,#5a6db0)" }}>
-                  MP3
-                  <input type="file" accept=".mp3,audio/mpeg" className="hidden" onChange={(e) => handleBgmFileChange(e.target.files?.[0] ?? null)} />
-                </label>
-              </div>
+              <input value={bgmTitle} onChange={(e) => setBgmTitle(e.target.value)} className="w-full px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.56rem", fontWeight: 700, color: "#5a6db0", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(140,155,210,0.25)" }} />
             ) : (
               <p style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.58rem", fontWeight: 700, color: "#5a6db0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bgmTitle}</p>
             )}
@@ -1404,40 +1331,9 @@ function AvatarPixelCanvas({
   );
 }
 
-function PixelItemIcon({ id, color, size = 30 }: { id: string; color: string; size?: number }) {
+function PixelItemIcon({ id, color }: { id: string; color: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" style={{ imageRendering: "pixelated" }}>
-      {id === "hair-bob" && (
-        <>
-          <rect x="5" y="3" width="10" height="2" fill="#6a3a20" />
-          <rect x="4" y="5" width="12" height="4" fill={color} />
-          <rect x="3" y="8" width="3" height="7" fill={color} />
-          <rect x="14" y="8" width="3" height="7" fill={color} />
-          <rect x="7" y="6" width="7" height="2" fill="#8b5a36" />
-        </>
-      )}
-      {id === "hair-twintail" && (
-        <>
-          <rect x="5" y="3" width="10" height="2" fill="#3b2a24" />
-          <rect x="4" y="5" width="12" height="4" fill={color} />
-          <rect x="1" y="8" width="4" height="8" fill={color} />
-          <rect x="15" y="8" width="4" height="8" fill={color} />
-          <rect x="2" y="12" width="2" height="5" fill="#3b2a24" />
-          <rect x="16" y="12" width="2" height="5" fill="#3b2a24" />
-          <rect x="2" y="8" width="3" height="2" fill="#d86f86" />
-          <rect x="15" y="8" width="3" height="2" fill="#d86f86" />
-        </>
-      )}
-      {id === "hair-wave" && (
-        <>
-          <rect x="4" y="2" width="12" height="3" fill="#2f2a35" />
-          <rect x="3" y="5" width="14" height="5" fill={color} />
-          <rect x="2" y="9" width="4" height="8" fill={color} />
-          <rect x="14" y="9" width="4" height="8" fill={color} />
-          <rect x="6" y="6" width="4" height="2" fill="#554c61" />
-          <rect x="11" y="5" width="4" height="2" fill="#554c61" />
-        </>
-      )}
+    <svg width="30" height="30" viewBox="0 0 20 20" style={{ imageRendering: "pixelated" }}>
       {id === "face-glasses" && (
         <>
           <rect x="3" y="8" width="5" height="1" fill={color} />
@@ -1973,56 +1869,6 @@ function PixelEditor({
   );
 }
 
-function CreatorCanvas({
-  label,
-  color,
-  children,
-}: {
-  label: string;
-  color: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className="relative rounded-xl overflow-hidden flex items-center justify-center w-full h-full"
-      style={{
-        minHeight: 0,
-        background: "#fff8e8",
-        border: "1.5px solid rgba(216,196,155,0.32)",
-        boxShadow: "inset 0 0 0 1px rgba(120,90,45,0.05)",
-      }}
-    >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(176,138,74,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(176,138,74,0.12) 1px, transparent 1px)",
-          backgroundSize: "18px 18px",
-        }}
-      />
-      <div className="absolute left-2 top-2 px-1.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.82)", border: "1px solid rgba(176,138,74,0.18)" }}>
-        <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.26rem", color }}>{label}</span>
-      </div>
-      <motion.div
-        className="relative flex items-center justify-center"
-        style={{
-          width: "min(86%, 190px)",
-          height: "min(82%, 190px)",
-          minWidth: 118,
-          minHeight: 118,
-          background: "rgba(255,255,255,0.58)",
-          border: `1px dashed ${color}88`,
-          borderRadius: 12,
-        }}
-        animate={{ boxShadow: [`0 0 0 ${color}00`, `0 0 18px ${color}55`, `0 0 0 ${color}00`] }}
-        transition={{ duration: 1.8, repeat: Infinity }}
-      >
-        {children}
-      </motion.div>
-    </div>
-  );
-}
-
 function ProfileAvatarPage({
   avatar,
   onSaveAvatar,
@@ -2052,15 +1898,7 @@ function ProfileAvatarPage({
   const toggle = (id: string) => {
     setDraft(prev => {
       const next = new Set(prev.equipped);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        const target = allItems.find(item => item.id === id);
-        if (target?.cat === "헤어") {
-          allItems.filter(item => item.cat === "헤어").forEach(item => next.delete(item.id));
-        }
-        next.add(id);
-      }
+      next.has(id) ? next.delete(id) : next.add(id);
       return { ...prev, equipped: [...next] };
     });
     setSaved(false);
@@ -2069,12 +1907,7 @@ function ProfileAvatarPage({
   const equipVisible = () => {
     setDraft(prev => ({
       ...prev,
-      equipped: activeCategory === "헤어"
-        ? [
-            ...prev.equipped.filter(id => !allItems.some(item => item.cat === "헤어" && item.id === id)),
-            ...(visibleItems[0] ? [visibleItems[0].id] : []),
-          ]
-        : Array.from(new Set([...prev.equipped, ...visibleItems.map(item => item.id)])),
+      equipped: Array.from(new Set([...prev.equipped, ...visibleItems.map(item => item.id)])),
     }));
     setSaved(false);
   };
@@ -2199,14 +2032,14 @@ function ProfileAvatarPage({
       <AnimatePresence>
         {showItemCreator && (
           <motion.div className="absolute inset-0 z-50 p-3 flex items-center justify-center" style={{ background: "rgba(20,16,10,0.72)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="w-full h-full rounded-2xl p-3 flex flex-col" style={{ background: "linear-gradient(180deg, #2a2114, #171309)", border: "1px solid rgba(216,196,155,0.22)", boxShadow: "0 16px 40px rgba(0,0,0,0.35)" }}>
+            <div className="w-full max-w-[760px] rounded-2xl p-3" style={{ background: "linear-gradient(180deg, #2a2114, #171309)", border: "1px solid rgba(216,196,155,0.22)", boxShadow: "0 16px 40px rgba(0,0,0,0.35)" }}>
               <div className="flex items-center justify-between mb-2">
                 <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.36rem", color: "#d8c49b" }}>HAND TRACKING ITEM MAKER</span>
                 <button onClick={() => setShowItemCreator(false)} className="px-2 py-0.5 rounded-full" style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.45rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>닫기</button>
               </div>
-              <div className="grid gap-2 flex-1" style={{ minHeight: 0, gridTemplateColumns: "minmax(0, 1fr) 118px" }}>
-                <div className="rounded-xl p-2 flex flex-col gap-2" style={{ minHeight: 0, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div className="relative rounded-xl overflow-hidden flex-1" style={{ minHeight: 0 }}>
+              <div className="grid gap-3 md:grid-cols-[1.35fr_0.95fr]">
+                <div className="rounded-xl p-2" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="relative rounded-lg overflow-hidden" style={{ minHeight: 340 }}>
                     <FakeCameraView>
                       <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-2 py-1" style={{ background: "rgba(0,0,0,0.42)" }}>
                         <motion.span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ff3b3b", boxShadow: "0 0 10px #ff3b3b" }} animate={{ opacity: [1, 0.35, 1] }} transition={{ duration: 1, repeat: Infinity }} />
@@ -2214,7 +2047,7 @@ function ProfileAvatarPage({
                       </div>
                       <div className="absolute inset-0 pointer-events-none">
                         {[[28, 24], [44, 18], [61, 29], [70, 43], [54, 58], [36, 54], [24, 70], [68, 72]].map(([x, y], i) => (
-                          <motion.div key={i} className="absolute w-2 h-2 rounded-full" style={{ left: `${x}%`, top: `${y}%`, background: creatorDraft.color, boxShadow: `0 0 6px ${creatorDraft.color}` }} animate={{ scale: [1, 1.45, 1], opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.3, delay: i * 0.12, repeat: Infinity }} />
+                          <motion.div key={i} className="absolute w-2 h-2 rounded-full" style={{ left: `${x}%`, top: `${y}%`, background: "#d8c49b", boxShadow: "0 0 6px #d8c49b" }} animate={{ scale: [1, 1.45, 1], opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.3, delay: i * 0.12, repeat: Infinity }} />
                         ))}
                       </div>
                       <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
@@ -2222,14 +2055,13 @@ function ProfileAvatarPage({
                       </div>
                     </FakeCameraView>
                   </div>
-                  <div className="flex-1" style={{ minHeight: 0 }}>
-                    <CreatorCanvas label="CANVAS" color={creatorDraft.color}>
-                      <PixelItemIcon id={creatorDraft.templateId} color={creatorDraft.color} size={92} />
-                    </CreatorCanvas>
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" className="flex-1 py-2 rounded-xl text-white" style={{ background: "linear-gradient(90deg,#b08a4a,#8b9a72)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 800 }}>픽셀화하기</button>
+                    <button type="button" className="flex-1 py-2 rounded-xl text-white" onClick={createItem} style={{ background: "linear-gradient(90deg,#8b9a72,#b08a4a)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 800 }}>저장하기</button>
                   </div>
                 </div>
-                <div className="rounded-xl p-2 flex flex-col gap-2" style={{ minHeight: 0, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div className="grid gap-2 flex-shrink-0">
+                <div className="rounded-xl p-2" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="grid gap-2">
                     <label className="flex flex-col gap-1">
                       <span style={{ fontFamily: "'Quicksand', sans-serif", fontSize: "0.42rem", color: "#d8c49b" }}>이름</span>
                       <input value={creatorDraft.label} onChange={e => setCreatorDraft(prev => ({ ...prev, label: e.target.value }))} className="px-2 py-1 rounded-lg outline-none" style={{ background: "rgba(255,255,255,0.9)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.55rem" }} />
@@ -2240,18 +2072,15 @@ function ProfileAvatarPage({
                         {AVATAR_ITEM_CATEGORIES.filter(v => v !== "전체").map(v => <option key={v} value={v}>{v}</option>)}
                       </select>
                     </label>
-                  </div>
-                  <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-                    <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#8b9a72", marginBottom: 8 }}>COLOR</p>
-                    <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                    <div>
+                      <p style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#8b9a72", marginBottom: 8 }}>COLOR</p>
+                      <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
                         {PALETTE.slice(0, 24).map(color => (
                           <button key={color} type="button" onClick={() => setCreatorDraft(prev => ({ ...prev, color }))} style={{ width: 20, height: 20, borderRadius: 4, background: color, border: creatorDraft.color === color ? "2px solid white" : "1px solid rgba(255,255,255,0.2)" }} />
                         ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    <button type="button" className="px-3 py-1.5 rounded-full text-white" style={{ background: "linear-gradient(90deg,#b08a4a,#8b9a72)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>픽셀화하기</button>
-                    <button type="button" onClick={createItem} className="px-3 py-1.5 rounded-full text-white" style={{ background: "linear-gradient(90deg,#8b9a72,#b08a4a)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>저장하기</button>
+                    <button type="button" onClick={createItem} className="px-3 py-1.5 rounded-full text-white" style={{ background: "linear-gradient(90deg,#b08a4a,#8b9a72)", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>저장하기</button>
                     <button type="button" onClick={() => setShowItemCreator(false)} className="px-3 py-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.1)", color: "#f7efd9", fontFamily: "'Quicksand', sans-serif", fontSize: "0.48rem", fontWeight: 700 }}>취소</button>
                   </div>
                 </div>
@@ -2358,8 +2187,6 @@ function EmoticonSidebar({ selected, onSelect }: { selected: number | null; onSe
 function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [isRec, setIsRec] = useState(true);
-  const [selectedColor, setSelectedColor] = useState(PALETTE[0]);
-  const selectedEmoticon = SAMPLE_EMOTICONS.find(e => e.id === selected);
 
   return (
     <div className="h-full flex flex-col" style={{
@@ -2390,67 +2217,33 @@ function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* main area */}
-      <div className="flex-1 grid gap-2 px-3 pb-3" style={{ minHeight: 0, gridTemplateColumns: "minmax(0, 1fr) 118px" }}>
-        <div className="flex flex-col gap-2" style={{ minWidth: 0, minHeight: 0 }}>
-          <div className="relative flex-1" style={{ minHeight: 0 }}>
-            <FakeCameraView>
-              {/* hand tracking dots */}
-              {[[42,62],[50,55],[58,62],[54,72],[46,72],[40,80],[60,80]].map(([x,y],i) => (
-                <motion.div key={i} className="absolute w-2 h-2 rounded-full"
-                  style={{ left: `${x}%`, top: `${y}%`, background: selectedColor, boxShadow: `0 0 6px ${selectedColor}` }}
-                  animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
-                  transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity }} />
-              ))}
-              {/* connecting lines hint */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.4 }}>
-                <polyline points="42%,62% 50%,55% 58%,62% 54%,72% 46%,72% 40%,80% 60%,80%"
-                  fill="none" stroke={selectedColor} strokeWidth="1" />
-              </svg>
-              {/* live label */}
-              <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded"
-                style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,80,120,0.4)" }}>
-                <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#d8c49b" }}>LIVE</span>
-              </div>
-            </FakeCameraView>
-          </div>
-          <div className="flex-1" style={{ minHeight: 0 }}>
-            <CreatorCanvas label="EMOTE CANVAS" color={selectedColor}>
-              <PixelEmoticonIcon icon={selectedEmoticon?.icon ?? "sparkle-face"} color={selectedColor} size={96} glow />
-            </CreatorCanvas>
-          </div>
+      <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
+        {/* camera */}
+        <div className="flex-1 relative" style={{ minWidth: 0 }}>
+          <FakeCameraView>
+            {/* hand tracking dots */}
+            {[[42,62],[50,55],[58,62],[54,72],[46,72],[40,80],[60,80]].map(([x,y],i) => (
+              <motion.div key={i} className="absolute w-2 h-2 rounded-full"
+                style={{ left: `${x}%`, top: `${y}%`, background: "#b08a4a", boxShadow: "0 0 6px #b08a4a" }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 1.2, delay: i * 0.15, repeat: Infinity }} />
+            ))}
+            {/* connecting lines hint */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ opacity: 0.4 }}>
+              <polyline points="42%,62% 50%,55% 58%,62% 54%,72% 46%,72% 40%,80% 60%,80%"
+                fill="none" stroke="#d8c49b" strokeWidth="1" />
+            </svg>
+            {/* live label */}
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded"
+              style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,80,120,0.4)" }}>
+              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.3rem", color: "#d8c49b" }}>LIVE</span>
+            </div>
+          </FakeCameraView>
         </div>
 
-        <div className="flex flex-col gap-2" style={{ minHeight: 0 }}>
-          <div className="rounded-xl p-2 flex flex-col gap-2 flex-shrink-0" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }}>
-            <div className="flex items-center justify-between">
-              <span style={{ fontFamily: "'Press Start 2P', monospace", fontSize: "0.28rem", color: "#8b9a72" }}>COLOR</span>
-              <span style={{ width: 18, height: 18, borderRadius: 4, background: selectedColor, border: "1px solid rgba(255,255,255,0.7)" }} />
-            </div>
-            <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-              {PALETTE.slice(0, 24).map(color => (
-                <button
-                  key={"emoticon-color-" + color}
-                  type="button"
-                  onClick={() => setSelectedColor(color)}
-                  aria-label="이모티콘 색상 선택"
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 4,
-                    background: color,
-                    border: selectedColor === color ? "2px solid white" : "1px solid rgba(255,255,255,0.22)",
-                    boxShadow: selectedColor === color ? "0 0 7px rgba(255,255,255,0.48)" : "none",
-                  }}
-                />
-              ))}
-            </div>
-            <div className="rounded-lg flex items-center justify-center py-2" style={{ background: "rgba(0,0,0,0.22)", border: "1px solid rgba(216,196,155,0.14)" }}>
-              <PixelEmoticonIcon icon={selectedEmoticon?.icon ?? "sparkle-face"} color={selectedColor} size={42} glow />
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
-            <EmoticonSidebar selected={selected} onSelect={setSelected} />
-          </div>
+        {/* sidebar */}
+        <div className="flex flex-col gap-2" style={{ width: 56 }}>
+          <EmoticonSidebar selected={selected} onSelect={setSelected} />
           {selected !== null && (
             <motion.button
               className="w-full py-1 rounded-lg text-white"
@@ -2470,7 +2263,23 @@ function EmoticonMakerPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-function PhotoBoothPage({ onBack, avatar }: { onBack: () => void; avatar: AvatarProfile }) {
+const PixelCharSvg = () => (
+  <svg width="50" height="64" viewBox="0 0 18 22" style={{ imageRendering: "pixelated", filter: "drop-shadow(0 2px 6px rgba(139,154,114,0.6))" }}>
+    <rect x="5" y="1" width="8" height="1" fill="#3d1a00" /><rect x="4" y="2" width="10" height="1" fill="#3d1a00" />
+    <rect x="4" y="3" width="10" height="4" fill="#5c2800" /><rect x="3" y="4" width="1" height="3" fill="#5c2800" />
+    <rect x="14" y="4" width="1" height="3" fill="#5c2800" /><rect x="4" y="5" width="10" height="7" fill="#ffc8a0" />
+    <rect x="6" y="7" width="2" height="2" fill="#2d1a00" /><rect x="10" y="7" width="2" height="2" fill="#2d1a00" />
+    <rect x="7" y="7" width="1" height="1" fill="#ffffff" /><rect x="11" y="7" width="1" height="1" fill="#ffffff" />
+    <rect x="5" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" /><rect x="11" y="9" width="2" height="1" fill="#ffaaaa" opacity="0.7" />
+    <rect x="8" y="10" width="2" height="1" fill="#ff8080" /><rect x="7" y="12" width="4" height="2" fill="#ffc8a0" />
+    <rect x="3" y="14" width="12" height="6" fill="#8b9a72" /><rect x="2" y="14" width="3" height="5" fill="#a030d0" />
+    <rect x="13" y="14" width="3" height="5" fill="#a030d0" /><rect x="7" y="14" width="4" height="1" fill="#a030d0" />
+    <rect x="7" y="15" width="4" height="3" fill="#f5e7c7" /><rect x="5" y="20" width="3" height="2" fill="#d8c49b" />
+    <rect x="10" y="20" width="3" height="2" fill="#d8c49b" />
+  </svg>
+);
+
+function PhotoBoothPage({ onBack }: { onBack: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [showChar, setShowChar] = useState(false);
   const [shots, setShots] = useState<string[]>([]);
@@ -2525,9 +2334,7 @@ function PhotoBoothPage({ onBack, avatar }: { onBack: () => void; avatar: Avatar
                 <motion.div className="absolute bottom-16 left-4"
                   initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <div style={{ filter: "drop-shadow(0 2px 8px rgba(216,196,155,0.55))" }}>
-                    <PixelAvatar avatar={avatar} width={78} height={102} />
-                  </div>
+                  <PixelCharSvg />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -2614,12 +2421,12 @@ function PhotoBoothPage({ onBack, avatar }: { onBack: () => void; avatar: Avatar
 }
 
 /* ── Emoticon Room landing ── */
-function EmoticonRoomPage({ avatar }: { avatar: AvatarProfile }) {
+function EmoticonRoomPage() {
   const [view, setView] = useState<"home" | "maker" | "photo">("home");
   const [category, setCategory] = useState("전체");
 
   if (view === "maker") return <EmoticonMakerPage onBack={() => setView("home")} />;
-  if (view === "photo") return <PhotoBoothPage onBack={() => setView("home")} avatar={avatar} />;
+  if (view === "photo") return <PhotoBoothPage onBack={() => setView("home")} />;
 
   const categorized = category === "전체" ? SAMPLE_EMOTICONS : SAMPLE_EMOTICONS.filter(e => e.category === category);
   const categories = ["전체", ...Array.from(new Set(SAMPLE_EMOTICONS.map(e => e.category)))];
@@ -3731,7 +3538,7 @@ function RightPage({
   if (activeTab === "profile") return <ProfileAvatarPage avatar={avatar} onSaveAvatar={onSaveAvatar} />;
   if (activeTab === "photo") return <PhotoPage />;
   if (activeTab === "guest") return <GuestbookPage />;
-  if (activeTab === "emoticon") return <EmoticonRoomPage avatar={avatar} />;
+  if (activeTab === "emoticon") return <EmoticonRoomPage />;
   if (activeTab === "diary") return <DiaryPage />;
   if (activeTab === "home") return <HomeRightPage roomSelections={roomSelections} onDecorate={() => onNavigateTab("miniroom")} />;
   if (activeTab === "miniroom") return <MiniRoomPage selections={roomSelections} setSelections={setRoomSelections} />;
