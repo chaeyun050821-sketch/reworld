@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>핸드트래킹 드로잉 & AI 도트 다듬기</title>
+    <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
+    <style>
+        /* 나만의 스티커 보관함 스타일 */
+.inventory-container {
+    width: 640px; 
+    margin-top: 20px;
+    background: #ffffffdd; 
+    padding: 15px; 
+    border-radius: 20px;
+    display: flex; 
+    gap: 10px; 
+    overflow-x: auto;
+    box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
+    min-height: 90px;
+}
+.inventory-item-wrapper {
+    position: relative;
+    flex: 0 0 auto;
+}
+.inventory-item {
+    width: 80px; 
+    height: 80px; 
+    border: 2px solid #E4D9F5; 
+    border-radius: 12px;
+    cursor: pointer; 
+    background: white; 
+    object-fit: contain;
+    transition: 0.2s;
+    display: block;
+}
+.inventory-item:hover { 
+    transform: scale(1.1) translateY(-5px); 
+}
+.inventory-item.selected { 
+    border: 4px solid #FF9AA2; 
+    box-shadow: 0 0 10px #FF9AA2aa;
+}
+.inventory-edit-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5B9BD5;
+    color: #fff;
+    border: 2px solid #fff;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    z-index: 2;
+}
+.inventory-item-wrapper:hover .inventory-edit-btn {
+    opacity: 1;
+}
+.inventory-provider-tag {
+    position: absolute;
+    bottom: -6px;
+    left: -6px;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #ffffffee;
+    border: 1px solid #E4D9F5;
+    color: #6a5d85;
+    pointer-events: none;
+}
+        body {
+            margin: 0;
+            padding-bottom: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: linear-gradient(160deg, #FDEFF4 0%, #E9E4F5 45%, #DCE6F7 100%);
+            font-family: 'Gowun Dodum', 'Segoe UI', sans-serif;
+            color: #5b5470;
+            min-height: 100vh;
+        }
+        h1 {
+            margin-top: 34px;
+            font-family: 'Jua', sans-serif;
+            font-size: 30px;
+            color: #7c6a9c;
+            letter-spacing: 1px;
+            text-shadow: 2px 2px 0px #ffffffaa;
+        }
+        .container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin-top: 14px;
+            border: 5px solid #ffffff;
+            border-radius: 20px;
+            overflow: hidden;
+            background-color: #2c2c3a;
+            box-shadow: 0 12px 28px rgba(150, 130, 190, 0.25);
+        }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); z-index: 10; }
+        #overlay_canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            transform: scaleX(-1);
+            z-index: 15;
+            pointer-events: none;
+        }
+
+        .color-palette { margin-top: 18px; display: flex; gap: 14px; }
+        .color-btn {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            border: 3px solid #ffffff;
+            cursor: pointer;
+            transition: transform 0.2s;
+            box-shadow: 0 4px 10px rgba(150, 130, 190, 0.3);
+        }
+        .color-btn:hover { transform: scale(1.12) rotate(-4deg); }
+        #btnRed { background-color: #FF9AA2; }
+        #btnGreen { background-color: #A0E7C7; }
+        #btnBlue { background-color: #A6C8FF; }
+
+        #rainbowPickerBtn {
+            background: conic-gradient(#FF9AA2, #FFD6A5, #FDFFB6, #A0E7C7, #A6C8FF, #C9B6F5, #FF9AA2);
+        }
+        .brush-size-control {
+            margin-top: 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #6a5d85;
+            font-size: 15px;
+            background: #ffffffaa;
+            padding: 10px 20px;
+            border-radius: 30px;
+            box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
+        }
+        #brushSizeSlider, #eraserSizeSlider { width: 180px; cursor: pointer; accent-color: #C9B6F5; }
+        #brushSizeValue { min-width: 40px; font-weight: bold; color: #e07a9e; }
+        #eraserSizeValue { min-width: 40px; font-weight: bold; color: #7c9ec9; }
+
+        .controls {
+            margin-top: 22px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            max-width: 640px;
+        }
+        .action-btn {
+            padding: 13px 24px;
+            font-family: 'Gowun Dodum', sans-serif;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 16px;
+            transition: 0.2s;
+            box-shadow: 0 4px 10px rgba(150, 130, 190, 0.25);
+            color: white;
+        }
+        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(150, 130, 190, 0.35); }
+        .action-btn:disabled {
+            background-color: #b8c9da !important;
+            cursor: not-allowed;
+            opacity: 0.65;
+            transform: none;
+            box-shadow: none;
+        }
+        #saveBtn { background-color: #FFC48C; }
+        #saveBtn:hover { background-color: #ffb266; }
+        #clearBtn { background-color: #B8B8D1; }
+        #clearBtn:hover { background-color: #a3a3c2; }
+        #aiRefineBtn { background-color: #C9B6F5; }
+        #aiRefineBtn:hover { background-color: #b49ceb; }
+        #copilotRefineBtn { background-color: #5B9BD5; }
+        #copilotRefineBtn:hover { background-color: #4a89c4; }
+        #saveAiBtn { background-color: #7FD8BE; }
+        #saveAiBtn:hover { background-color: #5cc9aa; }
+        #copilotEditBtn { background-color: #0078D4; }
+        #copilotEditBtn:hover:not(:disabled) { background-color: #006cbd; }
+        #copilotEditBtn:disabled {
+            background-color: #b8c9da;
+            cursor: not-allowed;
+            opacity: 0.65;
+            transform: none;
+            box-shadow: none;
+        }
+        #geminiEditBtn { background-color: #A78BFA; }
+        #geminiEditBtn:hover:not(:disabled) { background-color: #8f6ef0; }
+        .ai-provider-badge {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #6a5d85;
+            background: #ffffffcc;
+            padding: 6px 14px;
+            border-radius: 999px;
+            border: 1px solid #E4D9F5;
+        }
+
+        #canvasOnBtn { background-color: #A6C8FF; }
+        #canvasOnBtn:hover { background-color: #8bb6f7; }
+        #canvasOffBtn { background-color: #FF9AA2; }
+        #canvasOffBtn:hover { background-color: #ff7f89; }
+
+        .status {
+            margin-top: 16px;
+            font-size: 15px;
+            color: #a3729c;
+            font-weight: bold;
+            background: #ffffffaa;
+            padding: 8px 18px;
+            border-radius: 20px;
+        }
+
+        .prompt-container { margin-top: 22px; width: 640px; display: flex; gap: 10px; }
+        #customPrompt {
+            flex: 1;
+            padding: 13px 16px;
+            font-family: 'Gowun Dodum', sans-serif;
+            font-size: 15px;
+            border-radius: 14px;
+            border: 2px solid #E4D9F5;
+            outline: none;
+            transition: 0.2s;
+            background: #ffffffdd;
+            color: #5b5470;
+        }
+        #customPrompt:focus { border-color: #C9B6F5; box-shadow: 0 0 0 3px #C9B6F544; }
+        #applyPromptBtn { background-color: #A6C8FF; }
+        #applyPromptBtn:hover { background-color: #8bb6f7; }
+
+        .top-bar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.94);
+            border-bottom: 1px solid rgba(124, 106, 156, 0.18);
+            box-sizing: border-box;
+            box-shadow: 0 2px 10px rgba(150, 130, 190, 0.12);
+        }
+        #backToDiaryBtn {
+            font-family: 'Gowun Dodum', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            color: #7c6a9c;
+            background: #fff;
+            border: 2px solid #E4D9F5;
+            border-radius: 999px;
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+        #backToDiaryBtn:hover {
+            color: #5a4a78;
+            border-color: #C9B6F5;
+            background: #faf7ff;
+        }
+
+        .loading-container { width: 80%; height: 12px; background-color: #eee3f7; border-radius: 6px; margin: 15px auto; overflow: hidden; border: 1px solid #d8c8ee; }
+        .loading-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFC48C, #C9B6F5); animation: loading 2s infinite linear; }
+        @keyframes loading { 0% { width: 0%; transform: translateX(-100%); } 100% { width: 100%; transform: translateX(100%); } }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <button type="button" id="backToDiaryBtn">← 다이어리로 돌아가기</button>
+    </div>
+
+    <h1>  Re:world Drawing</h1>
+    <div class="status" id="statusText">웹캠과 AI 모델을 불러오는 중입니다. 잠시만 기다려주세요...</div>
+
+    <div class="container">
+        <video id="input_video" autoplay playsinline></video>
+        <canvas id="output_canvas" width="640" height="480"></canvas>
+        <canvas id="overlay_canvas" width="640" height="480"></canvas>
+    </div>
+
+    <div class="color-palette">
+        <button class="color-btn" id="btnRed" title="빨간색"></button>
+        <button class="color-btn" id="btnGreen" title="초록색"></button>
+        <button class="color-btn" id="btnBlue" title="파란색"></button>
+
+        <button class="color-btn" id="rainbowPickerBtn" title="자유롭게 색상 고르기"></button>
+        <input type="color" id="customColorPicker" style="opacity: 0; position: absolute; pointer-events: none;">
+
+        <button class="color-btn" id="btnEraser" title="부분 지우개" style="background-color: #fff; border: 3px dashed #C9B6F5; font-size: 20px; display: flex; justify-content: center; align-items: center;">🧽</button>
+    </div>
+
+    <div class="brush-size-control">
+        <span>펜 굵기:</span>
+        <input type="range" id="brushSizeSlider" min="2" max="30" value="6">
+        <span id="brushSizeValue">6px</span>
+
+        <span style="margin-left: 20px;">🧽 지우개 굵기:</span>
+        <input type="range" id="eraserSizeSlider" min="10" max="100" value="20">
+        <span id="eraserSizeValue">20px</span>
+    </div>
+
+    <div class="controls">
+        <button class="action-btn" id="saveBtn">💾 사진 찍기</button>
+        <button class="action-btn" id="canvasOnBtn">✏️ ON (Space)</button>
+        <button class="action-btn" id="canvasOffBtn">✏️ OFF (Space)</button>
+        <button class="action-btn" id="clearBtn">🗑️ 펜 그림 지우기</button>
+        <button class="action-btn" id="aiRefineBtn">✨ Gemini 도트 변환</button>
+        <button class="action-btn" id="copilotRefineBtn">🤖 Copilot 도트 변환</button>
+        <button class="action-btn" id="saveAiBtn">🖼️ AI 그림만 저장</button>
+        <!-- 다른 버튼들 사이에 아래 줄을 추가하세요 -->
+<button class="action-btn" id="addToInventoryBtn" style="background-color: #FFD6A5;">🎒 보관함에 넣기</button>
+    </div>
+
+    <div class="prompt-container">
+        <input type="text" id="customPrompt" placeholder="수정 요청 (예: 테두리를 더 굵게 해줘)">
+        <button class="action-btn" id="applyPromptBtn" disabled title="먼저 도트 변환을 하거나 보관함에서 ✏️로 그림을 불러오세요">💬 Gemini 수정</button>
+        <button class="action-btn" id="copilotEditBtn" disabled title="먼저 Copilot으로 만든 그림을 불러오세요">🤖 Copilot 수정</button>
+    </div>
+    <div class="ai-provider-badge" id="aiProviderBadge">AI 미리보기 · 아직 변환된 그림이 없어요</div>
+
+    <div id="svgOutput" style="margin-top: 22px; width: 640px; min-height: 200px; border: 2px dashed #C9B6F5; border-radius: 18px; display: flex; justify-content: center; align-items: center; background-color: #ffffffcc; padding: 20px; box-sizing: border-box;">
+        <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
+            1. 허공에 그림을 먼저 그리세요.<br>
+            2. <b>✨ Gemini</b> 또는 <b>🤖 Copilot</b> 도트 변환을 누르면 픽셀 아트로 바뀝니다. (변환하기)<br>
+            3. 방금 만든 그림이나, 보관함 스티커의 <b>✏️</b> 아이콘으로 불러온 그림을 <b>💬 Gemini 수정</b> / <b>🤖 Copilot 수정</b>으로 다듬을 수 있어요! (수정하기)
+        </p>
+    </div>
+    <div class="inventory-container" id="inventory">
+        <span style="color:#8a7ba3; font-weight:bold; line-height:80px; text-align:center; width:100%;">
+            여기에 나만의 도트 스티커가 모입니다! (그림을 변환하고 '보관함에 넣기'를 누르세요)
+        </span>
+    </div>
+    <div id="historyContainer" style="width: 640px; margin-top: 10px; font-size: 14px; color: #8a7ba3; text-align: left; max-height: 100px; overflow-y: auto;"></div>
+
+    <script type="module">
+        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const overlayCanvas = document.getElementById('overlay_canvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+        const statusText = document.getElementById('statusText');
+
+        function hexToRgba(hex, alpha) {
+            const h = hex.replace('#', '');
+            const bigint = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+            const r = (bigint >> 16) & 255;
+            const g = (bigint >> 8) & 255;
+            const b = bigint & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        // 펜촉(nib) 모양의 포인터를 그려주는 함수. (x, y)가 실제 펜 끝(닿는 지점)이 됩니다.
+        // isDown = true  -> 그려지는 중 (꽉 찬 펜촉)
+        // isDown = false -> 펜이 떠 있음 (테두리만 있는 빈 펜촉)
+        function drawPenNib(ctx, x, y, color, isDown, sizeScale = 1) {
+            const w = 8 * sizeScale;   // 펜촉 몸통 폭
+            const h = 24 * sizeScale;  // 펜촉 길이
+
+            ctx.save();
+            ctx.translate(x, y);
+
+            // 펜촉 몸체 (끝이 뾰족한 나뭇잎/눈물 모양, 뾰족한 끝이 (0,0) = 실제 좌표)
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.bezierCurveTo(-w, -h * 0.45, -w * 0.7, -h, 0, -h);
+            ctx.bezierCurveTo(w * 0.7, -h, w, -h * 0.45, 0, 0);
+            ctx.closePath();
+
+            if (isDown) {
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+            } else {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.fill();
+                ctx.strokeStyle = color;
+                ctx.setLineDash([4, 3]);
+            }
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 펜촉 가운데 갈라진 선 (만년필 특유의 슬릿)
+            ctx.beginPath();
+            ctx.moveTo(0, -h * 0.15);
+            ctx.lineTo(0, -h * 0.9);
+            ctx.strokeStyle = isDown ? 'rgba(255,255,255,0.9)' : color;
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+
+            ctx.restore();
+
+            // 실제 좌표(펜촉 맨 끝)를 정확히 짚어주는 아주 작은 점
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        let isDrawing = false;
+        let isProcessingAI = false;
+        let placedStickers = []; // 화면에 찍힌 스티커들을 기억하는 주머니
+        let isPinchingPrevious = false; // 방금 전까지 손가락을 꼬집고 있었는지 기억
+        let draggingStickerIndex = -1; // 지금 집고 있는 스티커 번호 (-1은 빈 손)
+        let lastX = 0; let lastY = 0;
+        let handLandmarker = undefined;
+        let lastVideoTime = -1;
+
+        // 📌 손 모션(두 손) 크기 조절을 위한 상태값
+        const MIN_STICKER_SIZE = 30;
+        const MAX_STICKER_SIZE = 420;
+        let resizeBaselineDist = null;
+        let resizeBaselineSize = null;
+
+        async function createHandLandmarker() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 2
+            });
+            startCamera();
+        }
+        createHandLandmarker();
+
+        async function startCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoElement.srcObject = stream;
+            videoElement.addEventListener("loadeddata", predictWebcam);
+        }
+
+        async function predictWebcam() {
+            if (!handLandmarker) return;
+            let startTimeMs = performance.now();
+
+            if (lastVideoTime !== videoElement.currentTime) {
+                lastVideoTime = videoElement.currentTime;
+                const results = handLandmarker.detectForVideo(videoElement, startTimeMs);
+
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+               // 📌 저장된 스티커들을 화면에 계속 띄워줍니다. (좌우반전 방지)
+               placedStickers.forEach((sticker) => {
+                overlayCtx.save();
+                // 1. 스티커의 정중앙 좌표로 이동
+                overlayCtx.translate(sticker.x + sticker.size / 2, sticker.y + sticker.size / 2);
+                // 2. 스티커만 좌우로 휙 뒤집어주기 (캔버스의 반전 효과 상쇄!)
+                overlayCtx.scale(-1, 1);
+                // 3. 중심을 기준으로 스티커 그리기
+                overlayCtx.drawImage(sticker.img, -sticker.size / 2, -sticker.size / 2, sticker.size, sticker.size);
+                overlayCtx.restore();
+            });
+
+                if (results.landmarks && results.landmarks.length > 0 && !isProcessingAI) {
+                    if (statusText.innerText.includes("화면 밖으로")) {
+                        statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
+                        statusText.style.color = "#a3729c"; // 원래 색상으로 복구
+                    }
+                    const landmarks = results.landmarks[0]; // 첫 번째 손 = 그리기/드래그 담당 손
+                    const secondHandLandmarks = results.landmarks.length > 1 ? results.landmarks[1] : null; // 두 번째 손 = 크기 조절 담당 손
+                    const indexTip = landmarks[8];
+                    const thumbTip = landmarks[4];
+
+                    const indexX = indexTip.x * canvasElement.width;
+                    const indexY = indexTip.y * canvasElement.height;
+                    const thumbX = thumbTip.x * canvasElement.width;
+                    const thumbY = thumbTip.y * canvasElement.height;
+
+                    // 검지와 엄지 끝 사이의 거리 -> 두 손가락을 붙이면(핀치) 펜을 든 것으로 간주
+                    const pinchDist = Math.hypot(indexX - thumbX, indexY - thumbY);
+                    const PINCH_THRESHOLD = 70; // 이 값보다 가까우면 "붙었다"고 판단 (필요시 조정)
+                    const isPinching = pinchDist < PINCH_THRESHOLD;
+                    // 📌 스티커 집고 옮기기 마법!
+                    if (isPinching && !isPinchingPrevious) {
+                        for (let i = placedStickers.length - 1; i >= 0; i--) {
+                            const s = placedStickers[i];
+                            if (indexX >= s.x && indexX <= s.x + s.size && indexY >= s.y && indexY <= s.y + s.size) {
+                                draggingStickerIndex = i; // 스티커 획득!
+                                break;
+                            }
+                        }
+                    }
+                        // 스티커를 집고 있다면 손가락 따라 이동
+                        if (isPinching && draggingStickerIndex !== -1) {
+                            placedStickers[draggingStickerIndex].x = indexX - (placedStickers[draggingStickerIndex].size / 2);
+                            placedStickers[draggingStickerIndex].y = indexY - (placedStickers[draggingStickerIndex].size / 2);
+                        }
+
+                        // 📌 스티커를 잡은 채로 다른 손을 꼬집으면(핀치) 그 벌어지는 정도로 크기를 조절합니다.
+                        if (isPinching && draggingStickerIndex !== -1 && secondHandLandmarks) {
+                            const t2 = secondHandLandmarks[4];
+                            const i2 = secondHandLandmarks[8];
+                            const t2x = t2.x * canvasElement.width, t2y = t2.y * canvasElement.height;
+                            const i2x = i2.x * canvasElement.width, i2y = i2.y * canvasElement.height;
+                            const secondPinchDist = Math.hypot(i2x - t2x, i2y - t2y);
+
+                            if (resizeBaselineDist === null) {
+                                // 두 번째 손이 방금 나타났다면 기준값을 기록 (갑자기 크기가 튀지 않도록)
+                                resizeBaselineDist = secondPinchDist;
+                                resizeBaselineSize = placedStickers[draggingStickerIndex].size;
+                            } else {
+                                const delta = (secondPinchDist - resizeBaselineDist) * 1.6;
+                                let newSize = resizeBaselineSize + delta;
+                                newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
+                                placedStickers[draggingStickerIndex].size = newSize;
+                            }
+
+                            // 두 번째 손 핀치 지점을 살짝 표시해서 크기 조절 중임을 알려줍니다.
+                            overlayCtx.save();
+                            overlayCtx.beginPath();
+                            overlayCtx.moveTo(t2x, t2y);
+                            overlayCtx.lineTo(i2x, i2y);
+                            overlayCtx.strokeStyle = '#5B9BD5';
+                            overlayCtx.lineWidth = 3;
+                            overlayCtx.setLineDash([5, 4]);
+                            overlayCtx.stroke();
+                            overlayCtx.setLineDash([]);
+                            overlayCtx.fillStyle = '#5B9BD5';
+                            overlayCtx.font = '20px sans-serif';
+                            overlayCtx.fillText('🔍', (t2x + i2x) / 2 - 10, (t2y + i2y) / 2 - 12);
+                            overlayCtx.restore();
+                        } else {
+                            // 두 번째 손이 없어지거나 드래그를 멈추면 기준값 초기화
+                            resizeBaselineDist = null;
+                            resizeBaselineSize = null;
+                        }
+
+                        // 📌 스티커를 잡고 있는 동안 화면 아래에 '휴지통' 영역 표시하기
+                    if (draggingStickerIndex !== -1) {
+                        overlayCtx.save();
+                        overlayCtx.fillStyle = 'rgba(255, 100, 100, 0.6)'; // 반투명한 빨간색
+                        overlayCtx.beginPath();
+                        // 화면 맨 아래 가운데에 반원 모양 휴지통 그리기
+                        overlayCtx.arc(canvasElement.width / 2, canvasElement.height, 80, 0, Math.PI * 2);
+                        overlayCtx.fill();
+                        overlayCtx.fillStyle = 'white';
+                        overlayCtx.font = '30px Arial';
+                        overlayCtx.textAlign = 'center';
+                        overlayCtx.fillText('🗑️', canvasElement.width / 2, canvasElement.height - 20);
+                        overlayCtx.restore();
+                    }
+
+                    // 손가락을 펴면(꼬집기 해제) 스티커를 놓음
+                    if (!isPinching) {
+                        // 막 손을 편 순간(이전 프레임까진 꼬집고 있었음) + 스티커를 잡고 있었음
+                        if (isPinchingPrevious && draggingStickerIndex !== -1) {
+                            const s = placedStickers[draggingStickerIndex];
+                            const centerX = s.x + (s.size / 2);
+                            const centerY = s.y + (s.size / 2);
+                            
+                            // 스티커 중심과 휴지통(화면 아래 가운데) 사이의 거리 계산
+                            const trashDist = Math.hypot(centerX - (canvasElement.width / 2), centerY - canvasElement.height);
+                            
+                            // 휴지통 근처(반경 80px 이내)에 떨어뜨렸다면 배열에서 삭제!
+                            if (trashDist < 80) {
+                                placedStickers.splice(draggingStickerIndex, 1);
+                            }
+                        }
+                        draggingStickerIndex = -1; // 무조건 빈 손으로 초기화
+                        resizeBaselineDist = null;
+                        resizeBaselineSize = null;
+                    }
+                        isPinchingPrevious = isPinching;
+
+                    const currentSize = isEraserMode ? eraserSize : brushSize;
+                    const cursorColor = isEraserMode ? '#95a5a6' : currentColor;
+                    const isDragging = (draggingStickerIndex !== -1);
+                    const canActuallyDraw = isDrawingMode && !isPinching && !isDragging;
+
+
+                    if (isEraserMode) {
+                        // 지우개는 굵기 미리보기가 더 중요하므로 원형 커서를 그대로 사용 (점선으로 펜과 구분)
+                        overlayCtx.save();
+                        overlayCtx.beginPath();
+                        overlayCtx.arc(indexX, indexY, currentSize / 2 + 4, 0, 2 * Math.PI);
+                        overlayCtx.setLineDash(canActuallyDraw ? [] : [5, 4]);
+                        overlayCtx.fillStyle = canActuallyDraw ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 0.45)';
+                        overlayCtx.strokeStyle = cursorColor;
+                        overlayCtx.lineWidth = 2;
+                        overlayCtx.fill();
+                        overlayCtx.stroke();
+                        overlayCtx.setLineDash([]);
+                        overlayCtx.restore();
+                    } else {
+                        // 펜촉처럼 보이는 커서: 실제로 그려지는 중이면 꽉 찬 펜촉, 아니면(핀치/펜OFF) 빈 펜촉
+                        const scale = 0.8 + Math.min(brushSize / 30, 1) * 0.6;
+                        drawPenNib(overlayCtx, indexX, indexY, cursorColor, canActuallyDraw, scale);
+                    }
+
+                    if (canActuallyDraw) {
+                        if (!isDrawing) {
+                            isDrawing = true;
+                            lastX = indexX;
+                            lastY = indexY;
+                        } else {
+                            canvasCtx.beginPath();
+                            canvasCtx.moveTo(lastX, lastY);
+                            canvasCtx.lineTo(indexX, indexY);
+
+                            if (isEraserMode) {
+                                // 부분 지우개: 지나간 자리만 정확히 투명하게 지웁니다.
+                                canvasCtx.globalCompositeOperation = 'destination-out';
+                                canvasCtx.lineWidth = eraserSize;
+                            } else {
+                                canvasCtx.globalCompositeOperation = 'source-over';
+                                canvasCtx.strokeStyle = currentColor;
+                                canvasCtx.lineWidth = brushSize;
+                            }
+
+                            canvasCtx.lineCap = 'round';
+                            canvasCtx.lineJoin = 'round';
+                            canvasCtx.stroke();
+                            lastX = indexX;
+                            lastY = indexY;
+                        }
+                    } else {
+                        // 핀치 중이거나 펜이 꺼져 있으면 선을 끊어서(펜을 든 상태) 다시 시작할 때 이전 위치와 이어지지 않게 합니다.
+                        isDrawing = false;
+                    }
+                } else {
+                    isDrawing = false;
+                    isPinchingPrevious = false;
+                    draggingStickerIndex = -1;
+
+                    if (isDrawingMode) {
+                        statusText.innerText = "✋ 화면 밖으로 손이 나갔어요! 손바닥 전체가 보이게 들어주세요.";
+                        statusText.style.color = "#e74c3c"; // 글씨를 빨간색으로 강조
+                    }
+                }
+            }
+
+            if (statusText.innerText.includes("불러오는 중")) {
+                statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
+            } 
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        let isDrawingMode = true;
+        let isEraserMode = false;
+        let currentColor = '#e74c3c';
+        let brushSize = 6;
+        let eraserSize = 20;
+
+        document.getElementById('btnRed').addEventListener('click', () => { currentColor = '#e74c3c'; isEraserMode = false; });
+        document.getElementById('btnGreen').addEventListener('click', () => { currentColor = '#2ecc71'; isEraserMode = false; });
+        document.getElementById('btnBlue').addEventListener('click', () => { currentColor = '#3498db'; isEraserMode = false; });
+
+        document.getElementById('rainbowPickerBtn').addEventListener('click', () => {
+            document.getElementById('customColorPicker').click();
+        });
+
+        document.getElementById('customColorPicker').addEventListener('input', (e) => {
+            currentColor = e.target.value;
+            isEraserMode = false;
+        });
+
+        document.getElementById('btnEraser').addEventListener('click', () => {
+            isEraserMode = true;
+        });
+
+        document.getElementById('brushSizeSlider').addEventListener('input', (e) => {
+            brushSize = parseInt(e.target.value);
+            document.getElementById('brushSizeValue').innerText = brushSize + 'px';
+        });
+
+        document.getElementById('eraserSizeSlider').addEventListener('input', (e) => {
+            eraserSize = parseInt(e.target.value);
+            document.getElementById('eraserSizeValue').innerText = eraserSize + 'px';
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElement.width; tempCanvas.height = canvasElement.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.translate(tempCanvas.width, 0); tempCtx.scale(-1, 1);
+            tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            // 📌 찰칵! 스티커들도 사진에 같이 찍히도록 합치기
+            // 📌 찰칵! 스티커들도 사진에 같이 찍히도록 합치기 (좌우반전 방지)
+            placedStickers.forEach(sticker => {
+                tempCtx.save();
+                // 1. 스티커의 정중앙 좌표로 이동
+                tempCtx.translate(sticker.x + sticker.size / 2, sticker.y + sticker.size / 2);
+                // 2. 사진 캔버스의 반전 효과 상쇄
+                tempCtx.scale(-1, 1);
+                // 3. 중심을 기준으로 스티커 그리기
+                tempCtx.drawImage(sticker.img, -sticker.size / 2, -sticker.size / 2, sticker.size, sticker.size);
+                tempCtx.restore();
+            });
+            const link = document.createElement('a');
+            link.download = 'my_ar_drawing.png'; link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            // 📌 요청에 따라 '펜으로 그린 그림'만 지웁니다. 붙여둔 스티커(도장)는 그대로 유지!
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        });
+
+        // 🚨 깃허브에 올리실 때는 아래 API 키를 꼭 지워주세요! (예: 'YOUR_API_KEY')
+        const API_KEY = ' ';
+        // Microsoft Copilot (Azure OpenAI) — Azure Portal에서 발급한 값으로 교체하세요
+        const COPILOT_CONFIG = {
+            endpoint: 'https://YOUR-RESOURCE.openai.azure.com',
+            apiKey: 'YOUR_AZURE_API_KEY',
+            deployment: 'gpt-4o',
+            apiVersion: '2024-08-01-preview',
+        };
+
+        const svgOutput = document.getElementById('svgOutput');
+        const customPromptInput = document.getElementById('customPrompt');
+        const historyContainer = document.getElementById('historyContainer');
+        const copilotEditBtn = document.getElementById('copilotEditBtn');
+        const geminiEditBtn = document.getElementById('applyPromptBtn');
+        const aiProviderBadge = document.getElementById('aiProviderBadge');
+
+        let lastAiProvider = null;
+
+        const BASE_SVG_PROMPT = "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, 전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. 선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. 완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. 응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. 배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
+
+        const BASE_SVG_EDIT_PROMPT = "아래는 이전에 만들어진 픽셀 아트 SVG입니다. 원본의 전체적인 형태와 구도, 스타일(레트로 8비트 픽셀 아트)은 최대한 유지하면서, 사용자의 수정 요청사항만 반영해 주세요. 완전히 새로운 그림으로 다시 만들지 마세요. 응답에는 어떠한 설명이나 마크다운 기호도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 SVG 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정하고, 배경은 반드시 투명하게 유지하세요.";
+
+        function cleanSvgResponse(text) {
+            return text.replace(/```xml/g, '').replace(/```svg/g, '').replace(/```/g, '').trim();
+        }
+
+        function updateAiProviderUi() {
+            const hasSvg = Boolean(svgOutput.querySelector('svg'));
+            copilotEditBtn.disabled = !(hasSvg && lastAiProvider === 'copilot');
+            geminiEditBtn.disabled = !(hasSvg && lastAiProvider === 'gemini');
+            if (!hasSvg || !lastAiProvider) {
+                aiProviderBadge.textContent = 'AI 미리보기 · 아직 변환된 그림이 없어요';
+                return;
+            }
+            aiProviderBadge.textContent = lastAiProvider === 'copilot'
+                ? '🤖 Copilot으로 만든 그림 · Copilot 수정 버튼 사용 가능'
+                : '✨ Gemini로 만든 그림 · Gemini 수정 버튼 사용 가능';
+        }
+
+        function appendPromptHistory(userText) {
+            const record = document.createElement('p');
+            record.style.margin = '5px 0';
+            record.innerText = `📝 요청 기록: ${userText}`;
+            historyContainer.appendChild(record);
+        }
+
+        function showAiLoading(providerLabel) {
+            svgOutput.innerHTML = `
+                <div style="text-align: center; width: 100%;">
+                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ ${providerLabel}가 도트 아트로 변환 중입니다...</p>
+                    <div class="loading-container"><div class="loading-bar"></div></div>
+                    <p style="color: #a89bc0; font-size: 14px;">(보통 5~10초 정도 걸려요. 캔버스가 일시적으로 잠깁니다!)</p>
+                </div>
+            `;
+        }
+
+        function showAiError(providerLabel, error) {
+            console.error(`[${providerLabel}] 에러 상세:`, error);
+            let message = error instanceof Error ? error.message : '알 수 없는 오류';
+            if (error?.status === 503 || message.toLowerCase().includes('overloaded')) {
+                message = `${providerLabel} 서버가 잠시 바빠요 (503). 1~2분 뒤에 다시 시도해 주세요.`;
+            } else if (message.toLowerCase().includes('quota') || message.includes('무료 사용량')) {
+                message = message.split('*')[0].trim();
+            }
+            svgOutput.innerHTML = `<p style="color: #e07a9e; line-height: 1.6;">❌ 변환에 실패했습니다.<br><span style="font-size: 13px;">${message}</span></p>`;
+            lastAiProvider = null;
+            updateAiProviderUi();
+        }
+
+        function captureCanvasBase64() {
+            const maxWidth = 384;
+            const scale = Math.min(1, maxWidth / canvasElement.width);
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = Math.round(canvasElement.width * scale);
+            tempCanvas.height = Math.round(canvasElement.height * scale);
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.translate(tempCanvas.width, 0);
+            tempCtx.scale(-1, 1);
+            tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height);
+            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+        }
+
+        function isCopilotConfigured() {
+            const { endpoint, apiKey, deployment } = COPILOT_CONFIG;
+            return endpoint
+                && apiKey
+                && deployment
+                && !endpoint.includes('YOUR-RESOURCE')
+                && apiKey !== 'YOUR_AZURE_API_KEY';
+        }
+
+        // ====== ✨ Gemini: 도트 "변환하기" (허공 스케치 -> 픽셀 아트, 항상 새로 생성) ======
+        async function callGeminiConvert() {
+            const base64Image = captureCanvasBase64();
+            const response = await fetch('/api/gemini-convert', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    imageBase64: base64Image,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                let apiMessage = data?.error || `HTTP ${response.status}`;
+                if (response.status === 504 || response.status === 500) {
+                    apiMessage = '서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
+                }
+                const err = new Error(apiMessage);
+                err.status = response.status;
+                throw err;
+            }
+
+            if (!data?.svg) {
+                throw new Error('Gemini가 SVG를 반환하지 않았어요.');
+            }
+
+            return cleanSvgResponse(data.svg);
+        }
+
+        // ====== 💬 Gemini: 이미 있는 SVG(방금 변환했거나, 보관함에서 불러온 것)를 "수정하기" ======
+        async function callGeminiEditExistingSvg() {
+            const svgElement = svgOutput.querySelector('svg');
+            if (!svgElement) {
+                throw new Error('수정할 그림이 없어요! 먼저 도트 변환을 하거나 보관함에서 ✏️로 그림을 불러오세요.');
+            }
+            if (lastAiProvider !== 'gemini') {
+                throw new Error('Gemini로 만든(또는 불러온) 그림만 Gemini 수정을 사용할 수 있어요.');
+            }
+            const userText = customPromptInput.value.trim();
+            if (!userText) {
+                throw new Error('수정 요청을 입력창에 적어주세요!');
+            }
+
+            const currentSvg = new XMLSerializer().serializeToString(svgElement);
+
+            const response = await fetch('/api/gemini-convert', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    existingSvg: currentSvg,
+                    customPrompt: userText,
+                    isCustomRefine: true,
+                    mode: 'edit',
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                let apiMessage = data?.error || `HTTP ${response.status}`;
+                if (response.status === 504 || response.status === 500) {
+                    apiMessage = '서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
+                }
+                const err = new Error(apiMessage);
+                err.status = response.status;
+                throw err;
+            }
+
+            if (!data?.svg) {
+                throw new Error('Gemini가 수정된 SVG를 반환하지 않았어요.');
+            }
+
+            appendPromptHistory(userText);
+            return cleanSvgResponse(data.svg);
+        }
+
+        // ====== 🤖 Copilot: 도트 "변환하기" ======
+        async function callCopilotConvert() {
+            if (!isCopilotConfigured()) {
+                throw new Error('COPILOT_CONFIG에 Azure OpenAI endpoint, apiKey, deployment를 입력해주세요!');
+            }
+
+            const base64Image = captureCanvasBase64();
+            const { endpoint, apiKey, deployment, apiVersion } = COPILOT_CONFIG;
+            const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-key': apiKey,
+                },
+                body: JSON.stringify({
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: BASE_SVG_PROMPT },
+                            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
+                        ],
+                    }],
+                    max_tokens: 4096,
+                    temperature: 0.4,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const apiMessage = data?.error?.message || `HTTP ${response.status}`;
+                const err = new Error(apiMessage);
+                err.status = response.status;
+                throw err;
+            }
+
+            const text = data?.choices?.[0]?.message?.content;
+            if (!text) {
+                throw new Error('Copilot이 SVG를 반환하지 않았어요.');
+            }
+
+            return cleanSvgResponse(text);
+        }
+
+        // ====== 🤖 Copilot: 이미 있는 SVG를 "수정하기" (방금 변환했거나, 보관함에서 불러온 것) ======
+        async function callCopilotEditExistingSvg() {
+            if (!isCopilotConfigured()) {
+                throw new Error('COPILOT_CONFIG에 Azure OpenAI endpoint, apiKey, deployment를 입력해주세요!');
+            }
+
+            const svgElement = svgOutput.querySelector('svg');
+            if (!svgElement) {
+                throw new Error('수정할 그림이 없어요!');
+            }
+            if (lastAiProvider !== 'copilot') {
+                throw new Error('Copilot으로 만든(또는 불러온) 그림만 Copilot 수정을 사용할 수 있어요.');
+            }
+
+            const userText = customPromptInput.value.trim();
+            if (!userText) {
+                throw new Error('수정 요청을 입력창에 적어주세요!');
+            }
+
+            const currentSvg = new XMLSerializer().serializeToString(svgElement);
+            const editPrompt = `${BASE_SVG_EDIT_PROMPT}\n\n[사용자 수정 요청사항]: "${userText}"\n\n[현재 SVG]:\n${currentSvg}`;
+
+            const { endpoint, apiKey, deployment, apiVersion } = COPILOT_CONFIG;
+            const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-key': apiKey,
+                },
+                body: JSON.stringify({
+                    messages: [{ role: 'user', content: editPrompt }],
+                    max_tokens: 4096,
+                    temperature: 0.4,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const apiMessage = data?.error?.message || `HTTP ${response.status}`;
+                const err = new Error(apiMessage);
+                err.status = response.status;
+                throw err;
+            }
+
+            const text = data?.choices?.[0]?.message?.content;
+            if (!text) {
+                throw new Error('Copilot이 수정된 SVG를 반환하지 않았어요.');
+            }
+
+            appendPromptHistory(userText);
+            return cleanSvgResponse(text);
+        }
+
+        async function runConversion(provider) {
+            isProcessingAI = true;
+            const providerLabel = provider === 'copilot' ? 'Copilot' : 'Gemini';
+            showAiLoading(providerLabel);
+
+            try {
+                const svgCode = provider === 'copilot'
+                    ? await callCopilotConvert()
+                    : await callGeminiConvert();
+
+                svgOutput.innerHTML = svgCode;
+                lastAiProvider = provider;
+                updateAiProviderUi();
+            } catch (error) {
+                showAiError(providerLabel, error);
+            } finally {
+                isProcessingAI = false;
+            }
+        }
+
+        async function runEdit(provider) {
+            isProcessingAI = true;
+            const providerLabel = provider === 'copilot' ? 'Copilot' : 'Gemini';
+            showAiLoading(providerLabel);
+
+            try {
+                const svgCode = provider === 'copilot'
+                    ? await callCopilotEditExistingSvg()
+                    : await callGeminiEditExistingSvg();
+
+                svgOutput.innerHTML = svgCode;
+                lastAiProvider = provider;
+                updateAiProviderUi();
+            } catch (error) {
+                showAiError(providerLabel, error);
+            } finally {
+                isProcessingAI = false;
+            }
+        }
+
+        document.getElementById('aiRefineBtn').addEventListener('click', () => { runConversion('gemini'); });
+        document.getElementById('copilotRefineBtn').addEventListener('click', () => { runConversion('copilot'); });
+        geminiEditBtn.addEventListener('click', () => { runEdit('gemini'); });
+        copilotEditBtn.addEventListener('click', () => { runEdit('copilot'); });
+        updateAiProviderUi();
+        document.getElementById('saveAiBtn').addEventListener('click', () => {
+            const svgElement = svgOutput.querySelector('svg');
+            if (!svgElement) {
+                alert('아직 생성된 AI 그림이 없어요! 먼저 ✨ 변환하기를 눌러주세요.');
+                return;
+            }
+
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+            const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+            const DOMURL = window.URL || window.webkitURL || window;
+            const url = DOMURL.createObjectURL(svgBlob);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                DOMURL.revokeObjectURL(url);
+
+                const imgURI = canvas.toDataURL('image/png');
+
+                const link = document.createElement('a');
+                link.download = 'ai_pixel_art_nukki.png';
+                link.href = imgURI;
+                link.click();
+            };
+
+            img.src = url;
+        });
+
+        document.getElementById('canvasOnBtn').addEventListener('click', () => {
+            setDrawingMode(true);
+        });
+
+        document.getElementById('canvasOffBtn').addEventListener('click', () => {
+            setDrawingMode(false);
+        });
+
+        function setDrawingMode(on) {
+            isDrawingMode = on;
+            isDrawing = false;
+            statusText.innerText = on
+                ? "✅ 펜 모드 ON! 허공에 그림을 그려보세요. (스페이스바로도 켜고 끌 수 있어요)"
+                : "🚫 펜 모드 OFF! 손을 움직여도 그려지지 않아요. (스페이스바로도 켜고 끌 수 있어요)";
+        }
+
+        // 📌 스페이스바로 펜 ON/OFF 토글하기 (입력창에 글자를 쓰는 중일 땐 무시)
+        window.addEventListener('keydown', (e) => {
+            if (e.code !== 'Space') return;
+            const activeTag = document.activeElement ? document.activeElement.tagName : '';
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+            e.preventDefault();
+            setDrawingMode(!isDrawingMode);
+        });
+        // ====== 나만의 스티커 보관함 & 도장 찍기 기능 ======
+
+        const HANDMADE_KEY_PREFIX = 'reworld_handmade_';
+        const STICKER_STORAGE_KEY = 'myArStickers_v2';
+        const LEGACY_STICKER_STORAGE_KEY = 'myArStickers';
+        const pageParams = new URLSearchParams(window.location.search);
+        let diaryUserId = pageParams.get('userId') || '';
+        if (!diaryUserId) {
+            try {
+                diaryUserId = sessionStorage.getItem('reworld_hand_tracking_user_id') || '';
+            } catch {
+                diaryUserId = '';
+            }
+        }
+
+        function getDiaryReturnUrl() {
+            const fromQuery = pageParams.get('return');
+            if (fromQuery) return fromQuery;
+            try {
+                const stored = sessionStorage.getItem('reworld_hand_tracking_return');
+                if (stored) return stored;
+            } catch {
+                /* ignore */
+            }
+            return new URL('../', window.location.href).href;
+        }
+
+        document.getElementById('backToDiaryBtn').addEventListener('click', () => {
+            try {
+                sessionStorage.setItem('reworld_diary_restore', 'spread');
+            } catch {
+                /* ignore */
+            }
+            window.location.href = getDiaryReturnUrl();
+        });
+
+        function persistDiaryHandMadeItem(svgData) {
+            if (!diaryUserId) return false;
+            try {
+                const key = HANDMADE_KEY_PREFIX + diaryUserId;
+                const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                const avatarCount = existing.filter((entry) => entry.type === 'avatar').length;
+                const item = {
+                    id: 'custom-' + Date.now(),
+                    type: 'avatar',
+                    label: '만든 아이템 ' + (avatarCount + 1),
+                    cat: '악세사리',
+                    color: '#b08a4a',
+                    source: 'handmade',
+                    imageDataUrl: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData),
+                    createdAt: new Date().toISOString(),
+                };
+                const next = [item, ...existing.filter((entry) => entry.id !== item.id)];
+                localStorage.setItem(key, JSON.stringify(next));
+                return true;
+            } catch (error) {
+                console.error('[hand-tracking] diary item save failed:', error);
+                return false;
+            }
+        }
+
+        let selectedSticker = null; 
+        const inventory = document.getElementById('inventory');
+
+        // 📌 0. 보관함 저장소 읽기/쓰기 (구버전 문자열 배열도 자동으로 새 형식으로 옮겨줍니다)
+        function loadStickerRecords() {
+            try {
+                const v2raw = localStorage.getItem(STICKER_STORAGE_KEY);
+                if (v2raw) {
+                    const parsed = JSON.parse(v2raw);
+                    if (Array.isArray(parsed)) return parsed;
+                }
+            } catch (error) {
+                console.error('[hand-tracking] 보관함 불러오기 실패:', error);
+            }
+
+            // v2가 없다면 예전 형식(myArStickers: 문자열 배열)이 있는지 확인해서 옮겨줍니다.
+            try {
+                const legacyRaw = localStorage.getItem(LEGACY_STICKER_STORAGE_KEY);
+                if (legacyRaw) {
+                    const legacyParsed = JSON.parse(legacyRaw);
+                    if (Array.isArray(legacyParsed)) {
+                        const migrated = legacyParsed.map((svgData, idx) => ({
+                            id: 'legacy-' + idx + '-' + Date.now(),
+                            svg: svgData,
+                            provider: 'gemini', // 예전 그림은 기본적으로 Gemini로 간주 (수정 버튼 활성화를 위해)
+                            createdAt: null,
+                        }));
+                        saveStickerRecords(migrated);
+                        return migrated;
+                    }
+                }
+            } catch (error) {
+                console.error('[hand-tracking] 예전 보관함 이전 실패:', error);
+            }
+            return [];
+        }
+
+        function saveStickerRecords(records) {
+            try {
+                localStorage.setItem(STICKER_STORAGE_KEY, JSON.stringify(records));
+                return true;
+            } catch (error) {
+                console.error('[hand-tracking] 보관함 저장 실패:', error);
+                statusText.innerText = '⚠️ 보관함 저장에 실패했어요 (저장 공간을 확인해주세요).';
+                return false;
+            }
+        }
+
+        let stickerRecords = loadStickerRecords();
+
+        // 📌 1. 스티커를 화면(보관함)에 추가해주는 전용 함수 (썸네일 클릭=도장용 선택, ✏️ 클릭=수정하기용 불러오기)
+        function createStickerElement(record) {
+            const svgBlob = new Blob([record.svg], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(svgBlob);
+
+            // 보관함 안내 문구 숨기기
+            const placeholder = inventory.querySelector('span');
+            if (placeholder) placeholder.style.display = 'none';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'inventory-item-wrapper';
+
+            const img = new Image();
+            img.src = url;
+            img.className = 'inventory-item';
+            img.title = '클릭하면 도장으로 선택돼요';
+
+            // 스티커 클릭 시 동작 (AR 캔버스에 도장 찍을 스티커로 선택)
+            img.addEventListener('click', () => {
+                document.querySelectorAll('.inventory-item').forEach(el => el.classList.remove('selected'));
+                img.classList.add('selected');
+                selectedSticker = img;
+                statusText.innerText = "✅ 스티커 준비 완료! 마우스로 화면을 클릭해 붙이거나, 손가락으로 집어 옮겨보세요.";
+            });
+
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'inventory-edit-btn';
+            editBtn.innerText = '✏️';
+            editBtn.title = '이 그림을 불러와서 AI로 수정하기';
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                svgOutput.innerHTML = record.svg;
+                lastAiProvider = record.provider === 'copilot' ? 'copilot' : 'gemini';
+                updateAiProviderUi();
+                statusText.innerText = `✏️ 보관함 그림을 불러왔어요! ${lastAiProvider === 'copilot' ? 'Copilot 수정' : 'Gemini 수정'} 버튼으로 다듬어보세요.`;
+                window.scrollTo({ top: svgOutput.offsetTop - 20, behavior: 'smooth' });
+            });
+
+            const tag = document.createElement('span');
+            tag.className = 'inventory-provider-tag';
+            tag.innerText = record.provider === 'copilot' ? '🤖' : '✨';
+
+            wrapper.appendChild(img);
+            wrapper.appendChild(editBtn);
+            wrapper.appendChild(tag);
+            inventory.appendChild(wrapper);
+        }
+
+        // 📌 2. 페이지가 처음 켜질 때 (혹은 다이어리에 갔다가 다시 돌아왔을 때) 보관함 저장소에서 예전 스티커들 불러오기
+        stickerRecords.forEach((record) => {
+            createStickerElement(record);
+        });
+
+        // 📌 3. AI 그림을 보관함에 넣는 기능 (+ 새로고침/페이지 이동 후에도 남아있도록 영구 저장까지!)
+        document.getElementById('addToInventoryBtn').addEventListener('click', () => {
+            const svgElement = svgOutput.querySelector('svg');
+            if (!svgElement) {
+                alert('보관함에 넣을 AI 그림이 없어요! 먼저 ✨ 변환하기를 눌러주세요.');
+                return;
+            }
+
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+            const record = {
+                id: 'sticker-' + Date.now(),
+                svg: svgData,
+                provider: lastAiProvider === 'copilot' ? 'copilot' : 'gemini',
+                createdAt: new Date().toISOString(),
+            };
+
+            // 화면 보관함에 시각적으로 추가하기
+            createStickerElement(record);
+
+            // 브라우저 저장소에 기록해서 나갔다 들어와도(새로고침해도) 안 날아가게 만들기
+            stickerRecords.push(record);
+            const saved = saveStickerRecords(stickerRecords);
+
+            const syncedToDiary = persistDiaryHandMadeItem(svgData);
+            statusText.innerText = syncedToDiary
+                ? '🎒 보관함에 저장했어요! 다이어리 「내 아이템」에서도 볼 수 있어요.'
+                : (saved ? '🎒 보관함에 저장했어요!' : '🎒 화면엔 추가했지만 영구 저장에는 실패했어요.');
+        });
+
+// ====== 마우스로 스티커 옮기기 / 크기 조절하기 ======
+let mouseDraggingIndex = -1;
+let mouseDragOffsetX = 0;
+let mouseDragOffsetY = 0;
+let mouseInteractionHappened = false; // 방금 상호작용이 '기존 스티커 드래그'였는지 표시 (새 도장 찍기와 구분용)
+
+function getMirroredCanvasPoint(e) {
+    const rect = canvasElement.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    // 캔버스가 좌우 반전(scaleX(-1))되어 있으므로 X좌표를 뒤집어 계산
+    const realX = canvasElement.width - clickX;
+    return { x: realX, y: clickY };
+}
+
+function findStickerAt(x, y) {
+    for (let i = placedStickers.length - 1; i >= 0; i--) {
+        const s = placedStickers[i];
+        if (x >= s.x && x <= s.x + s.size && y >= s.y && y <= s.y + s.size) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+canvasElement.addEventListener('mousedown', (e) => {
+    const { x, y } = getMirroredCanvasPoint(e);
+    const hitIndex = findStickerAt(x, y);
+    if (hitIndex !== -1) {
+        mouseDraggingIndex = hitIndex;
+        mouseDragOffsetX = x - placedStickers[hitIndex].x;
+        mouseDragOffsetY = y - placedStickers[hitIndex].y;
+        mouseInteractionHappened = true;
+    } else {
+        mouseInteractionHappened = false;
+    }
+});
+
+canvasElement.addEventListener('mousemove', (e) => {
+    if (mouseDraggingIndex === -1) return;
+    const { x, y } = getMirroredCanvasPoint(e);
+    placedStickers[mouseDraggingIndex].x = x - mouseDragOffsetX;
+    placedStickers[mouseDraggingIndex].y = y - mouseDragOffsetY;
+});
+
+window.addEventListener('mouseup', () => {
+    mouseDraggingIndex = -1;
+});
+
+// 마우스 휠로 스티커 크기 조절하기 (스티커 위에서 스크롤)
+canvasElement.addEventListener('wheel', (e) => {
+    const { x, y } = getMirroredCanvasPoint(e);
+    const hitIndex = findStickerAt(x, y);
+    if (hitIndex === -1) return;
+    e.preventDefault();
+    const delta = -e.deltaY * 0.15; // 위로 스크롤하면 확대, 아래로 스크롤하면 축소
+    let newSize = placedStickers[hitIndex].size + delta;
+    newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
+    placedStickers[hitIndex].size = newSize;
+}, { passive: false });
+
+// 2. 화면(캔버스)을 클릭하면 선택된 스티커를 화면에 도장처럼 찍는 기능
+canvasElement.addEventListener('click', (e) => {
+    // 방금 클릭이 '기존 스티커를 옮기던 드래그'였다면, 새 도장을 찍지 않고 그냥 넘어갑니다.
+    if (mouseInteractionHappened) {
+        mouseInteractionHappened = false;
+        return;
+    }
+
+    if (!selectedSticker) return; // 선택된 스티커가 없으면 아무것도 안 함
+
+    const { x: realX, y: clickY } = getMirroredCanvasPoint(e);
+
+    // 도장(스티커) 크기 설정 (픽셀 단위, 원하는 대로 숫자 수정 가능)
+    const stickerSize = 180; 
+
+    // 스티커의 중앙이 마우스 클릭 위치에 오도록 좌표 조정해서 그리기
+    // 📌 캔버스에 바로 그리지 않고, 주머니에 스티커 정보를 추가합니다!
+    placedStickers.push({
+        img: selectedSticker,
+        x: realX - (stickerSize / 2),
+        y: clickY - (stickerSize / 2),
+        size: stickerSize
+    });
+});
+
+// ====== 키보드로 잡고 있는 스티커 크기 조절 & 삭제하기 ======
+window.addEventListener('keydown', (e) => {
+    // 현재 손가락(또는 마우스)으로 스티커를 잡고 있는(Dragging) 상태일 때만 작동!
+    const activeIndex = draggingStickerIndex !== -1 ? draggingStickerIndex : mouseDraggingIndex;
+    if (activeIndex !== -1) {
+        if (e.key === 'ArrowUp') {
+            placedStickers[activeIndex].size = Math.min(MAX_STICKER_SIZE, placedStickers[activeIndex].size + 15); // 위 화살표: 확대
+            e.preventDefault(); 
+        } else if (e.key === 'ArrowDown') {
+            placedStickers[activeIndex].size = Math.max(MIN_STICKER_SIZE, placedStickers[activeIndex].size - 15); // 아래 화살표: 축소
+            e.preventDefault();
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+            // 📌 백스페이스나 딜리트 키를 누르면 즉시 삭제!
+            placedStickers.splice(activeIndex, 1);
+            draggingStickerIndex = -1; // 지웠으니 잡고 있던 손도 빈 손 처리
+            mouseDraggingIndex = -1;
+            e.preventDefault();
+        }
+    }
+});
+    </script>
+
+</body>
+</html>

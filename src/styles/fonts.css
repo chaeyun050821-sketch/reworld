@@ -1,0 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Noto+Sans+KR:wght@400;500;600;700&family=Quicksand:wght@300;400;500;600;700&family=Press+Start+2P&display=swap');
+
+:root {
+  --font-ui: 'Quicksand', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-kr: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-pixel: 'Press Start 2P', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', monospace;
+}

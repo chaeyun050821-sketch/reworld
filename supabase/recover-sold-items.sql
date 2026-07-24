@@ -1,0 +1,48 @@
+-- 판매 버그로 사라진 판매자 아이템 수동 복구
+-- Supabase SQL Editor에서 실행
+--
+-- 1) 먼저 복구 후보 찾기 (구매자 인벤토리에만 남은 purchased- 복사본)
+-- SELECT
+--   elem->>'id' AS purchased_id,
+--   regexp_replace(elem->>'id', '^purchased-(.+)-\d+$', '\1') AS original_id,
+--   elem->>'label' AS label
+-- FROM public.user_inventory ui,
+--      jsonb_array_elements(ui.items) elem
+-- WHERE elem->>'source' = 'purchased'
+--   AND elem->>'id' LIKE 'purchased-%';
+
+-- 2) 아래 값을 본인 것으로 바꾼 뒤 실행
+--    SELLER_ID: 판매자(본인) UUID
+--    ORIGINAL_ITEM_ID: custom-1234567890 형태의 원본 아이템 ID
+--    BUYER_ID: 구매자 UUID (모르면 1번 쿼리로 purchased_id 찾기)
+
+-- BEGIN;
+
+-- WITH buyer_copy AS (
+--   SELECT elem AS item
+--   FROM public.user_inventory ui,
+--        jsonb_array_elements(ui.items) elem
+--   WHERE ui.user_id = 'BUYER_ID'::uuid
+--     AND elem->>'id' LIKE 'purchased-ORIGINAL_ITEM_ID-%'
+--   LIMIT 1
+-- ),
+-- restored AS (
+--   SELECT (item - 'source') || jsonb_build_object(
+--     'id', 'ORIGINAL_ITEM_ID',
+--     'source', 'handmade'
+--   ) AS item
+--   FROM buyer_copy
+-- )
+-- UPDATE public.user_inventory seller
+-- SET
+--   items = jsonb_build_array((SELECT item FROM restored)) || seller.items,
+--   updated_at = now()
+-- WHERE seller.user_id = 'SELLER_ID'::uuid
+--   AND EXISTS (SELECT 1 FROM restored)
+--   AND NOT EXISTS (
+--     SELECT 1
+--     FROM jsonb_array_elements(seller.items) existing
+--     WHERE existing->>'id' = 'ORIGINAL_ITEM_ID'
+--   );
+
+-- COMMIT;

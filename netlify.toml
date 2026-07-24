@@ -1,0 +1,19 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/bgm-search"
+  to = "/.netlify/functions/bgm-search"
+  status = 200
+
+[[redirects]]
+  from = "/api/gemini-convert"
+  to = "/.netlify/functions/gemini-convert"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
