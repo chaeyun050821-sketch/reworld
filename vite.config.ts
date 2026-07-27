@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import tailwindcss from '@tailwindcss/vite'
@@ -18,7 +18,15 @@ function figmaAssetResolver() {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // Vite는 VITE_ 접두사만 클라이언트에 노출함.
+  // 서버 미들웨어용 GEMINI_API_KEY는 loadEnv로 직접 process.env에 넣어야 함.
+  const env = loadEnv(mode, __dirname, '')
+  if (env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY) {
+    process.env.GEMINI_API_KEY = env.GEMINI_API_KEY
+  }
+
+  return {
   base: './',
   plugins: [
     figmaAssetResolver(),
@@ -53,6 +61,10 @@ export default defineConfig({
             }
 
             try {
+              // .env가 hot-reload 전에 안 잡힌 경우 재주입
+              if (!process.env.GEMINI_API_KEY && env.GEMINI_API_KEY) {
+                process.env.GEMINI_API_KEY = env.GEMINI_API_KEY
+              }
               const { convertDrawingWithGemini } = await import('./src/lib/gemini-convert-server')
               const svg = await convertDrawingWithGemini({
                 imageBase64: payload.imageBase64 ?? '',
@@ -130,4 +142,5 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  }
 })

@@ -48,10 +48,12 @@ export async function fetchActiveShopListings(): Promise<ShopListingWithItem[]> 
   }
 
   if (!data) return [];
-  return (data as ShopListingRow[]).map(rowToListing);
+  return (data as ShopListingRow[])
+    .filter((row) => row.item_snapshot && typeof row.item_snapshot === "object")
+    .map(rowToListing);
 }
 
-export async function fetchSellerShopListings(sellerId: string): Promise<ShopListingWithItem[]> {
+export async function fetchSellerShopListings(sellerId: string): Promise<ShopListingWithItem[] | null> {
   if (!isSupabaseConfigured()) return [];
 
   const { data, error } = await supabase
@@ -63,11 +65,13 @@ export async function fetchSellerShopListings(sellerId: string): Promise<ShopLis
 
   if (error) {
     console.error("[shop-sync] fetch seller listings failed:", error.message, error.code);
-    return [];
+    return null;
   }
 
   if (!data) return [];
-  return (data as ShopListingRow[]).map(rowToListing);
+  return (data as ShopListingRow[])
+    .filter((row) => row.item_snapshot && typeof row.item_snapshot === "object")
+    .map(rowToListing);
 }
 
 export type FriendShopCatalog = {
@@ -83,10 +87,11 @@ export async function fetchFriendShopCatalog(
     return { listed: [], unlisted: [] };
   }
 
-  const [listed, inventory] = await Promise.all([
+  const [listedResult, inventory] = await Promise.all([
     fetchSellerShopListings(sellerId),
     fetchUserInventory(sellerId),
   ]);
+  const listed = listedResult ?? [];
   const listedItemIds = new Set(listed.map(entry => entry.itemId));
   const unlisted = (inventory?.items ?? [])
     .filter(item => canListInMyShop(item))
@@ -180,12 +185,19 @@ function listingRowFromRemote(entry: ShopListingWithItem): ShopListing {
   };
 }
 
-/** Pull seller listings from Supabase, re-publish any local-only rows, save to localStorage. */
+/** Pull seller listings from Supabase, re-publish any local-only rows, save to localStorage.
+ *  Buying does NOT remove listings — digital copies stay on sale for other buyers.
+ */
 export async function syncSellerShopListings(userId: string, nickname: string): Promise<ShopListing[]> {
   const local = loadMyListings(userId);
   if (!isSupabaseConfigured()) return local;
 
   let remote = await fetchSellerShopListings(userId);
+  if (remote === null) {
+    // 네트워크/권한 오류 시 로컬 목록을 지우지 않음
+    return local;
+  }
+
   const remoteIds = new Set(remote.map(entry => entry.id));
 
   for (const listing of local) {
@@ -197,7 +209,21 @@ export async function syncSellerShopListings(userId: string, nickname: string): 
   }
 
   remote = await fetchSellerShopListings(userId);
-  const next = remote.map(listingRowFromRemote);
+  if (remote === null) {
+    return local;
+  }
+
+  const byId = new Map<string, ShopListing>();
+  for (const entry of remote) {
+    byId.set(entry.id, listingRowFromRemote(entry));
+  }
+  // 원격에 아직 못 올라간 로컬 등록도 유지 (재시도용)
+  for (const listing of local) {
+    if (!byId.has(listing.id)) byId.set(listing.id, listing);
+  }
+  const next = [...byId.values()].sort(
+    (a, b) => (Date.parse(b.listedAt) || 0) - (Date.parse(a.listedAt) || 0),
+  );
   saveMyListings(userId, next);
   return next;
 }
@@ -223,7 +249,9 @@ export async function publishShopListing(
   listing: ShopListing,
   item: HandMadeItem,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: "Supabase 연결이 필요해요. 로컬에만 임시 저장됐어요." };
+  }
 
   const { error } = await supabase.from("shop_listings").upsert(
     {

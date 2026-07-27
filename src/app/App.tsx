@@ -156,6 +156,7 @@ import {
   markAvatarPlacedItems,
   markListingOwned,
   hasPurchasedShopListing,
+  ensureDevPreownedOfficialShopItems,
   mergePublicShopListings,
   normalizeItemPlacement,
   resolveHandMadeItemImageUrl,
@@ -9157,7 +9158,7 @@ function FriendVisitShopPanel({
       return;
     }
     if (hasPurchasedShopListing(buyer.id, listing, ownedIds)) {
-      showToast("이미 구매한 아이템이에요");
+      showToast("이미 구매한 아이템이에요 (1인 1회)");
       return;
     }
     if (coins < listing.price) {
@@ -11839,7 +11840,7 @@ function ShopPage({
   inventoryRevision: number;
   onPurchaseComplete?: () => void;
 }) {
-  const PREVIEW_LIMIT = 2;
+  const PREVIEW_LIMIT = 6;
   const [shopSourceItems, setShopSourceItems] = useState<HandMadeItem[]>(() => loadShopSourceItems(user.id));
   const [myInventory, setMyInventory] = useState<HandMadeItem[]>(() => loadMyInventory(user.id));
   const [myListings, setMyListings] = useState(() => loadMyListings(user.id));
@@ -11905,9 +11906,21 @@ function ShopPage({
   };
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured()) {
+      ensureDevPreownedOfficialShopItems(user.id);
+      setMyInventory(loadMyInventory(user.id));
+      setOwnedIds(loadOwnedListingIds(user.id));
+      return;
+    }
     void syncBuyerInventoryFromServer(user.id).then((remoteCoins) => {
-      if (remoteCoins !== null) setCoins(remoteCoins);
+      const granted = ensureDevPreownedOfficialShopItems(user.id);
+      if (granted) {
+        void upsertUserInventory(user.id, getInventorySnapshot(user.id));
+      }
+      if (remoteCoins !== null) setCoins(loadCoins(user.id));
+      else setCoins(loadCoins(user.id));
+      setMyInventory(loadMyInventory(user.id));
+      setOwnedIds(loadOwnedListingIds(user.id));
     });
   }, [user.id, inventoryRevision]);
 
@@ -11959,6 +11972,14 @@ function ShopPage({
       price: Math.floor(price),
       listedAt: new Date().toISOString(),
     };
+    // 로컬에 먼저 저장 (원본 아이템은 그대로 두고, 상점에는 복사본 판매)
+    const nextLocal = [
+      listing,
+      ...loadMyListings(user.id).filter(entry => entry.itemId !== item.id && entry.id !== listing.id),
+    ];
+    saveMyListings(user.id, nextLocal);
+    setMyListings(nextLocal);
+
     const publishResult = await publishShopListing(user.id, user.nickname, listing, item);
     if (!publishResult.ok) {
       showToast(`등록 저장 실패: ${publishResult.error}`);
@@ -11971,7 +11992,7 @@ function ShopPage({
       delete next[item.id];
       return next;
     });
-    showToast(`"${item.label}" 상점에 등록했어요`);
+    showToast(`"${item.label}" 상점에 등록했어요 (여러 명이 살 수 있어요)`);
     void refreshPublicListings();
   };
 
@@ -12020,7 +12041,7 @@ function ShopPage({
       return;
     }
     if (hasPurchasedShopListing(user.id, listing, ownedIds)) {
-      showToast("이미 구매한 아이템이에요");
+      showToast("이미 구매한 아이템이에요 (1인 1회)");
       return;
     }
     if (coins < listing.price) {
@@ -12041,6 +12062,8 @@ function ShopPage({
     setOwnedIds(loadOwnedListingIds(user.id));
     showToast(`"${result.listing.item.label}" 구매 완료!`);
     setBuyingId(null);
+    // 판매 목록은 유지됨 (판매자 원본·리스팅 유지, 구매자는 복사본만 받음)
+    void refreshPublicListings();
     onPurchaseComplete?.();
   };
 
@@ -13033,13 +13056,24 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           : mergedItems;
         const mergedOwned = Array.from(new Set([...localInventory.ownedListingIds, ...remoteInventory.ownedListingIds]));
         applyInventorySnapshot(user.id, finalItems, mergedOwned, remoteInventory.coins);
-        if (localRecoverable.length > 0 || localInventory.items.some(
-          item => !remoteInventory.items.some(remoteItem => remoteItem.id === item.id),
-        )) {
+        // 로컬/개발 테스트용: 핑크 원피스를 현재 계정에 보유 처리 (다른 계정은 상점 구매 필요)
+        const grantedTesterItem = ensureDevPreownedOfficialShopItems(user.id);
+        if (
+          grantedTesterItem
+          || localRecoverable.length > 0
+          || localInventory.items.some(
+            item => !remoteInventory.items.some(remoteItem => remoteItem.id === item.id),
+          )
+        ) {
           void upsertUserInventory(user.id, getInventorySnapshot(user.id));
         }
       } else if (localInventory.items.length > 0 || localInventory.coins !== DEFAULT_SHOP_COINS) {
-        void upsertUserInventory(user.id, localInventory);
+        ensureDevPreownedOfficialShopItems(user.id);
+        void upsertUserInventory(user.id, getInventorySnapshot(user.id));
+      } else {
+        if (ensureDevPreownedOfficialShopItems(user.id)) {
+          void upsertUserInventory(user.id, getInventorySnapshot(user.id));
+        }
       }
 
       if (remoteAvatar) {

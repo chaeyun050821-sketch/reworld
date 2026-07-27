@@ -61,13 +61,36 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     z-index: 2;
 }
-.inventory-item-wrapper:hover .inventory-edit-btn {
+.inventory-delete-btn {
+    position: absolute;
+    top: -6px;
+    left: -6px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #FF9AA2;
+    color: #fff;
+    border: 2px solid #fff;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    z-index: 2;
+}
+.inventory-item-wrapper:hover .inventory-edit-btn,
+.inventory-item-wrapper:hover .inventory-delete-btn {
     opacity: 1;
 }
 .inventory-provider-tag {
     position: absolute;
     bottom: -6px;
-    left: -6px;
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 10px;
     padding: 1px 6px;
     border-radius: 999px;
@@ -183,30 +206,8 @@
         #clearBtn:hover { background-color: #a3a3c2; }
         #aiRefineBtn { background-color: #C9B6F5; }
         #aiRefineBtn:hover { background-color: #b49ceb; }
-        #copilotRefineBtn { background-color: #5B9BD5; }
-        #copilotRefineBtn:hover { background-color: #4a89c4; }
         #saveAiBtn { background-color: #7FD8BE; }
         #saveAiBtn:hover { background-color: #5cc9aa; }
-        #copilotEditBtn { background-color: #0078D4; }
-        #copilotEditBtn:hover:not(:disabled) { background-color: #006cbd; }
-        #copilotEditBtn:disabled {
-            background-color: #b8c9da;
-            cursor: not-allowed;
-            opacity: 0.65;
-            transform: none;
-            box-shadow: none;
-        }
-        #geminiEditBtn { background-color: #A78BFA; }
-        #geminiEditBtn:hover:not(:disabled) { background-color: #8f6ef0; }
-        .ai-provider-badge {
-            margin-top: 10px;
-            font-size: 13px;
-            color: #6a5d85;
-            background: #ffffffcc;
-            padding: 6px 14px;
-            border-radius: 999px;
-            border: 1px solid #E4D9F5;
-        }
 
         #canvasOnBtn { background-color: #A6C8FF; }
         #canvasOnBtn:hover { background-color: #8bb6f7; }
@@ -316,8 +317,7 @@
         <button class="action-btn" id="canvasOnBtn">✏️ ON (Space)</button>
         <button class="action-btn" id="canvasOffBtn">✏️ OFF (Space)</button>
         <button class="action-btn" id="clearBtn">🗑️ 펜 그림 지우기</button>
-        <button class="action-btn" id="aiRefineBtn">✨ Gemini 도트 변환</button>
-        <button class="action-btn" id="copilotRefineBtn">🤖 Copilot 도트 변환</button>
+        <button class="action-btn" id="aiRefineBtn">✨ AI 도트 변환</button>
         <button class="action-btn" id="saveAiBtn">🖼️ AI 그림만 저장</button>
         <!-- 다른 버튼들 사이에 아래 줄을 추가하세요 -->
 <button class="action-btn" id="addToInventoryBtn" style="background-color: #FFD6A5;">🎒 보관함에 넣기</button>
@@ -325,16 +325,14 @@
 
     <div class="prompt-container">
         <input type="text" id="customPrompt" placeholder="수정 요청 (예: 테두리를 더 굵게 해줘)">
-        <button class="action-btn" id="applyPromptBtn" disabled title="먼저 도트 변환을 하거나 보관함에서 ✏️로 그림을 불러오세요">💬 Gemini 수정</button>
-        <button class="action-btn" id="copilotEditBtn" disabled title="먼저 Copilot으로 만든 그림을 불러오세요">🤖 Copilot 수정</button>
+        <button class="action-btn" id="applyPromptBtn">💬 수정하기</button>
     </div>
-    <div class="ai-provider-badge" id="aiProviderBadge">AI 미리보기 · 아직 변환된 그림이 없어요</div>
 
     <div id="svgOutput" style="margin-top: 22px; width: 640px; min-height: 200px; border: 2px dashed #C9B6F5; border-radius: 18px; display: flex; justify-content: center; align-items: center; background-color: #ffffffcc; padding: 20px; box-sizing: border-box;">
         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
             1. 허공에 그림을 먼저 그리세요.<br>
-            2. <b>✨ Gemini</b> 또는 <b>🤖 Copilot</b> 도트 변환을 누르면 픽셀 아트로 바뀝니다. (변환하기)<br>
-            3. 방금 만든 그림이나, 보관함 스티커의 <b>✏️</b> 아이콘으로 불러온 그림을 <b>💬 Gemini 수정</b> / <b>🤖 Copilot 수정</b>으로 다듬을 수 있어요! (수정하기)
+            2. <b>✨ AI 도트 변환</b>을 누르면 스케치가 픽셀 아트로 변환됩니다.<br>
+            3. 보관함 스티커의 <b>✏️</b>로 불러오거나, 변환된 그림에 수정 사항을 적고 <b>💬 수정하기</b>를 누르세요!
         </p>
     </div>
     <div class="inventory-container" id="inventory">
@@ -716,44 +714,12 @@
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         });
 
-        // 🚨 깃허브에 올리실 때는 아래 API 키를 꼭 지워주세요! (예: 'YOUR_API_KEY')
-        const API_KEY = ' ';
-        // Microsoft Copilot (Azure OpenAI) — Azure Portal에서 발급한 값으로 교체하세요
-        const COPILOT_CONFIG = {
-            endpoint: 'https://YOUR-RESOURCE.openai.azure.com',
-            apiKey: 'YOUR_AZURE_API_KEY',
-            deployment: 'gpt-4o',
-            apiVersion: '2024-08-01-preview',
-        };
-
         const svgOutput = document.getElementById('svgOutput');
         const customPromptInput = document.getElementById('customPrompt');
         const historyContainer = document.getElementById('historyContainer');
-        const copilotEditBtn = document.getElementById('copilotEditBtn');
-        const geminiEditBtn = document.getElementById('applyPromptBtn');
-        const aiProviderBadge = document.getElementById('aiProviderBadge');
-
-        let lastAiProvider = null;
-
-        const BASE_SVG_PROMPT = "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, 전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. 선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. 완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. 응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. 배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
-
-        const BASE_SVG_EDIT_PROMPT = "아래는 이전에 만들어진 픽셀 아트 SVG입니다. 원본의 전체적인 형태와 구도, 스타일(레트로 8비트 픽셀 아트)은 최대한 유지하면서, 사용자의 수정 요청사항만 반영해 주세요. 완전히 새로운 그림으로 다시 만들지 마세요. 응답에는 어떠한 설명이나 마크다운 기호도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 SVG 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정하고, 배경은 반드시 투명하게 유지하세요.";
 
         function cleanSvgResponse(text) {
             return text.replace(/```xml/g, '').replace(/```svg/g, '').replace(/```/g, '').trim();
-        }
-
-        function updateAiProviderUi() {
-            const hasSvg = Boolean(svgOutput.querySelector('svg'));
-            copilotEditBtn.disabled = !(hasSvg && lastAiProvider === 'copilot');
-            geminiEditBtn.disabled = !(hasSvg && lastAiProvider === 'gemini');
-            if (!hasSvg || !lastAiProvider) {
-                aiProviderBadge.textContent = 'AI 미리보기 · 아직 변환된 그림이 없어요';
-                return;
-            }
-            aiProviderBadge.textContent = lastAiProvider === 'copilot'
-                ? '🤖 Copilot으로 만든 그림 · Copilot 수정 버튼 사용 가능'
-                : '✨ Gemini로 만든 그림 · Gemini 수정 버튼 사용 가능';
         }
 
         function appendPromptHistory(userText) {
@@ -763,271 +729,133 @@
             historyContainer.appendChild(record);
         }
 
-        function showAiLoading(providerLabel) {
+        function captureCanvasBase64() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElement.width;
+            tempCanvas.height = canvasElement.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.translate(tempCanvas.width, 0);
+            tempCtx.scale(-1, 1);
+            tempCtx.drawImage(canvasElement, 0, 0);
+            return tempCanvas.toDataURL('image/png').split(',')[1];
+        }
+
+        // 미리보기/보관함 SVG를 PNG로 바꿔서 수정 요청의 원본으로 씀
+        function captureSvgBase64(svgElement) {
+            return new Promise((resolve, reject) => {
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(svgBlob);
+                const img = new Image();
+                img.onload = () => {
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvasElement.width;
+                    tempCanvas.height = canvasElement.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+                    tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+                    URL.revokeObjectURL(url);
+                    resolve(tempCanvas.toDataURL('image/png').split(',')[1]);
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('보관함 그림을 불러오지 못했어요.'));
+                };
+                img.src = url;
+            });
+        }
+
+        // 보관함에서 선택한 스티커 이미지(도장용 img)도 수정 원본으로 쓸 수 있게
+        function captureImageElementBase64(imgEl) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElement.width;
+            tempCanvas.height = canvasElement.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(imgEl, 0, 0, tempCanvas.width, tempCanvas.height);
+            return tempCanvas.toDataURL('image/png').split(',')[1];
+        }
+
+        async function generateAIImage(isCustomRefine) {
+            if (isProcessingAI) return;
+
+            const userText = customPromptInput.value.trim();
+            if (isCustomRefine && userText === '') {
+                alert('수정 요청을 입력창에 적어주세요!');
+                return;
+            }
+
+            // 수정하기: 현재 미리보기 SVG → 없으면 보관함에서 선택한 스티커 사용
+            let imageBase64 = null;
+            let loadingLabel = '✨ 제미나이가 도트 아트로 변환 중입니다...';
+            if (isCustomRefine) {
+                const existingSvg = svgOutput.querySelector('svg');
+                if (existingSvg) {
+                    try {
+                        imageBase64 = await captureSvgBase64(existingSvg);
+                    } catch (error) {
+                        alert(error instanceof Error ? error.message : '그림을 불러오지 못했어요.');
+                        return;
+                    }
+                } else if (selectedSticker) {
+                    imageBase64 = captureImageElementBase64(selectedSticker);
+                } else {
+                    alert('수정할 그림이 없어요! 보관함 스티커의 ✏️로 불러오거나, 먼저 도트 변환을 해주세요.');
+                    return;
+                }
+                loadingLabel = '✨ 제미나이가 요청대로 그림을 수정 중입니다...';
+            } else {
+                imageBase64 = captureCanvasBase64();
+            }
+
+            isProcessingAI = true;
             svgOutput.innerHTML = `
                 <div style="text-align: center; width: 100%;">
-                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ ${providerLabel}가 도트 아트로 변환 중입니다...</p>
+                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">${loadingLabel}</p>
                     <div class="loading-container"><div class="loading-bar"></div></div>
                     <p style="color: #a89bc0; font-size: 14px;">(보통 5~10초 정도 걸려요. 캔버스가 일시적으로 잠깁니다!)</p>
                 </div>
             `;
-        }
-
-        function showAiError(providerLabel, error) {
-            console.error(`[${providerLabel}] 에러 상세:`, error);
-            let message = error instanceof Error ? error.message : '알 수 없는 오류';
-            if (error?.status === 503 || message.toLowerCase().includes('overloaded')) {
-                message = `${providerLabel} 서버가 잠시 바빠요 (503). 1~2분 뒤에 다시 시도해 주세요.`;
-            } else if (message.toLowerCase().includes('quota') || message.includes('무료 사용량')) {
-                message = message.split('*')[0].trim();
-            }
-            svgOutput.innerHTML = `<p style="color: #e07a9e; line-height: 1.6;">❌ 변환에 실패했습니다.<br><span style="font-size: 13px;">${message}</span></p>`;
-            lastAiProvider = null;
-            updateAiProviderUi();
-        }
-
-        function captureCanvasBase64() {
-            const maxWidth = 384;
-            const scale = Math.min(1, maxWidth / canvasElement.width);
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = Math.round(canvasElement.width * scale);
-            tempCanvas.height = Math.round(canvasElement.height * scale);
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.translate(tempCanvas.width, 0);
-            tempCtx.scale(-1, 1);
-            tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height);
-            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
-        }
-
-        function isCopilotConfigured() {
-            const { endpoint, apiKey, deployment } = COPILOT_CONFIG;
-            return endpoint
-                && apiKey
-                && deployment
-                && !endpoint.includes('YOUR-RESOURCE')
-                && apiKey !== 'YOUR_AZURE_API_KEY';
-        }
-
-        // ====== ✨ Gemini: 도트 "변환하기" (허공 스케치 -> 픽셀 아트, 항상 새로 생성) ======
-        async function callGeminiConvert() {
-            const base64Image = captureCanvasBase64();
-            const response = await fetch('/api/gemini-convert', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    imageBase64: base64Image,
-                }),
-            });
-
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                let apiMessage = data?.error || `HTTP ${response.status}`;
-                if (response.status === 504 || response.status === 500) {
-                    apiMessage = '서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
-                }
-                const err = new Error(apiMessage);
-                err.status = response.status;
-                throw err;
-            }
-
-            if (!data?.svg) {
-                throw new Error('Gemini가 SVG를 반환하지 않았어요.');
-            }
-
-            return cleanSvgResponse(data.svg);
-        }
-
-        // ====== 💬 Gemini: 이미 있는 SVG(방금 변환했거나, 보관함에서 불러온 것)를 "수정하기" ======
-        async function callGeminiEditExistingSvg() {
-            const svgElement = svgOutput.querySelector('svg');
-            if (!svgElement) {
-                throw new Error('수정할 그림이 없어요! 먼저 도트 변환을 하거나 보관함에서 ✏️로 그림을 불러오세요.');
-            }
-            if (lastAiProvider !== 'gemini') {
-                throw new Error('Gemini로 만든(또는 불러온) 그림만 Gemini 수정을 사용할 수 있어요.');
-            }
-            const userText = customPromptInput.value.trim();
-            if (!userText) {
-                throw new Error('수정 요청을 입력창에 적어주세요!');
-            }
-
-            const currentSvg = new XMLSerializer().serializeToString(svgElement);
-
-            const response = await fetch('/api/gemini-convert', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    existingSvg: currentSvg,
-                    customPrompt: userText,
-                    isCustomRefine: true,
-                    mode: 'edit',
-                }),
-            });
-
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                let apiMessage = data?.error || `HTTP ${response.status}`;
-                if (response.status === 504 || response.status === 500) {
-                    apiMessage = '서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
-                }
-                const err = new Error(apiMessage);
-                err.status = response.status;
-                throw err;
-            }
-
-            if (!data?.svg) {
-                throw new Error('Gemini가 수정된 SVG를 반환하지 않았어요.');
-            }
-
-            appendPromptHistory(userText);
-            return cleanSvgResponse(data.svg);
-        }
-
-        // ====== 🤖 Copilot: 도트 "변환하기" ======
-        async function callCopilotConvert() {
-            if (!isCopilotConfigured()) {
-                throw new Error('COPILOT_CONFIG에 Azure OpenAI endpoint, apiKey, deployment를 입력해주세요!');
-            }
-
-            const base64Image = captureCanvasBase64();
-            const { endpoint, apiKey, deployment, apiVersion } = COPILOT_CONFIG;
-            const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'api-key': apiKey,
-                },
-                body: JSON.stringify({
-                    messages: [{
-                        role: 'user',
-                        content: [
-                            { type: 'text', text: BASE_SVG_PROMPT },
-                            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
-                        ],
-                    }],
-                    max_tokens: 4096,
-                    temperature: 0.4,
-                }),
-            });
-
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const apiMessage = data?.error?.message || `HTTP ${response.status}`;
-                const err = new Error(apiMessage);
-                err.status = response.status;
-                throw err;
-            }
-
-            const text = data?.choices?.[0]?.message?.content;
-            if (!text) {
-                throw new Error('Copilot이 SVG를 반환하지 않았어요.');
-            }
-
-            return cleanSvgResponse(text);
-        }
-
-        // ====== 🤖 Copilot: 이미 있는 SVG를 "수정하기" (방금 변환했거나, 보관함에서 불러온 것) ======
-        async function callCopilotEditExistingSvg() {
-            if (!isCopilotConfigured()) {
-                throw new Error('COPILOT_CONFIG에 Azure OpenAI endpoint, apiKey, deployment를 입력해주세요!');
-            }
-
-            const svgElement = svgOutput.querySelector('svg');
-            if (!svgElement) {
-                throw new Error('수정할 그림이 없어요!');
-            }
-            if (lastAiProvider !== 'copilot') {
-                throw new Error('Copilot으로 만든(또는 불러온) 그림만 Copilot 수정을 사용할 수 있어요.');
-            }
-
-            const userText = customPromptInput.value.trim();
-            if (!userText) {
-                throw new Error('수정 요청을 입력창에 적어주세요!');
-            }
-
-            const currentSvg = new XMLSerializer().serializeToString(svgElement);
-            const editPrompt = `${BASE_SVG_EDIT_PROMPT}\n\n[사용자 수정 요청사항]: "${userText}"\n\n[현재 SVG]:\n${currentSvg}`;
-
-            const { endpoint, apiKey, deployment, apiVersion } = COPILOT_CONFIG;
-            const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'api-key': apiKey,
-                },
-                body: JSON.stringify({
-                    messages: [{ role: 'user', content: editPrompt }],
-                    max_tokens: 4096,
-                    temperature: 0.4,
-                }),
-            });
-
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const apiMessage = data?.error?.message || `HTTP ${response.status}`;
-                const err = new Error(apiMessage);
-                err.status = response.status;
-                throw err;
-            }
-
-            const text = data?.choices?.[0]?.message?.content;
-            if (!text) {
-                throw new Error('Copilot이 수정된 SVG를 반환하지 않았어요.');
-            }
-
-            appendPromptHistory(userText);
-            return cleanSvgResponse(text);
-        }
-
-        async function runConversion(provider) {
-            isProcessingAI = true;
-            const providerLabel = provider === 'copilot' ? 'Copilot' : 'Gemini';
-            showAiLoading(providerLabel);
 
             try {
-                const svgCode = provider === 'copilot'
-                    ? await callCopilotConvert()
-                    : await callGeminiConvert();
+                const response = await fetch('/api/gemini-convert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        imageBase64,
+                        customPrompt: isCustomRefine ? userText : undefined,
+                        isCustomRefine: isCustomRefine && userText !== '',
+                    }),
+                });
 
-                svgOutput.innerHTML = svgCode;
-                lastAiProvider = provider;
-                updateAiProviderUi();
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    let apiMessage = data?.error || `HTTP ${response.status}`;
+                    if (response.status === 504 || response.status === 500) {
+                        apiMessage = '서버 오류가 발생했어요. .env의 GEMINI_API_KEY를 확인하고 잠시 후 다시 시도해 주세요.';
+                    }
+                    throw new Error(apiMessage);
+                }
+                if (!data?.svg) {
+                    throw new Error('Gemini가 SVG를 반환하지 않았어요.');
+                }
+
+                if (isCustomRefine && userText !== '') {
+                    appendPromptHistory(userText);
+                }
+
+                svgOutput.innerHTML = cleanSvgResponse(data.svg);
             } catch (error) {
-                showAiError(providerLabel, error);
+                console.error('에러 상세 내용:', error);
+                const message = error instanceof Error ? error.message : '알 수 없는 오류';
+                svgOutput.innerHTML = `<p style="color: #e07a9e; line-height: 1.6;">❌ 변환에 실패했습니다.<br><span style="font-size: 13px;">${message}</span></p>`;
             } finally {
                 isProcessingAI = false;
             }
         }
 
-        async function runEdit(provider) {
-            isProcessingAI = true;
-            const providerLabel = provider === 'copilot' ? 'Copilot' : 'Gemini';
-            showAiLoading(providerLabel);
-
-            try {
-                const svgCode = provider === 'copilot'
-                    ? await callCopilotEditExistingSvg()
-                    : await callGeminiEditExistingSvg();
-
-                svgOutput.innerHTML = svgCode;
-                lastAiProvider = provider;
-                updateAiProviderUi();
-            } catch (error) {
-                showAiError(providerLabel, error);
-            } finally {
-                isProcessingAI = false;
-            }
-        }
-
-        document.getElementById('aiRefineBtn').addEventListener('click', () => { runConversion('gemini'); });
-        document.getElementById('copilotRefineBtn').addEventListener('click', () => { runConversion('copilot'); });
-        geminiEditBtn.addEventListener('click', () => { runEdit('gemini'); });
-        copilotEditBtn.addEventListener('click', () => { runEdit('copilot'); });
-        updateAiProviderUi();
+        document.getElementById('aiRefineBtn').addEventListener('click', () => { generateAIImage(false); });
+        document.getElementById('applyPromptBtn').addEventListener('click', () => { generateAIImage(true); });
         document.getElementById('saveAiBtn').addEventListener('click', () => {
             const svgElement = svgOutput.querySelector('svg');
             if (!svgElement) {
@@ -1150,46 +978,137 @@
         let selectedSticker = null; 
         const inventory = document.getElementById('inventory');
 
-        // 📌 0. 보관함 저장소 읽기/쓰기 (구버전 문자열 배열도 자동으로 새 형식으로 옮겨줍니다)
-        function loadStickerRecords() {
+        function getStickerStorageKey() {
+            return diaryUserId ? `${STICKER_STORAGE_KEY}:${diaryUserId}` : STICKER_STORAGE_KEY;
+        }
+
+        function normalizeStickerRecord(entry, fallbackId) {
+            if (typeof entry === 'string' && entry.includes('<svg')) {
+                return { id: fallbackId, svg: entry, createdAt: null };
+            }
+            if (entry && typeof entry === 'object' && typeof entry.svg === 'string' && entry.svg.includes('<svg')) {
+                return {
+                    id: entry.id || fallbackId,
+                    svg: entry.svg,
+                    createdAt: entry.createdAt || null,
+                };
+            }
+            return null;
+        }
+
+        function svgFromHandMadeImageDataUrl(imageDataUrl) {
+            if (!imageDataUrl || typeof imageDataUrl !== 'string') return null;
+            if (!imageDataUrl.startsWith('data:image/svg+xml')) return null;
+            const comma = imageDataUrl.indexOf(',');
+            if (comma < 0) return null;
+            const meta = imageDataUrl.slice(0, comma);
+            const data = imageDataUrl.slice(comma + 1);
             try {
-                const v2raw = localStorage.getItem(STICKER_STORAGE_KEY);
-                if (v2raw) {
-                    const parsed = JSON.parse(v2raw);
-                    if (Array.isArray(parsed)) return parsed;
-                }
+                const decoded = meta.includes(';base64') ? atob(data) : decodeURIComponent(data);
+                return decoded.includes('<svg') ? decoded : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function readJsonArray(key) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
             } catch (error) {
-                console.error('[hand-tracking] 보관함 불러오기 실패:', error);
+                console.error('[hand-tracking] storage read failed:', key, error);
+                return [];
+            }
+        }
+
+        function collectStickerRecordsFromSources() {
+            const byId = new Map();
+            const bySvg = new Map();
+
+            const addList = (list, idPrefix) => {
+                list.forEach((entry, idx) => {
+                    const record = normalizeStickerRecord(entry, `${idPrefix}-${idx}-${Date.now()}`);
+                    if (!record) return;
+                    if (byId.has(record.id) || bySvg.has(record.svg)) return;
+                    byId.set(record.id, record);
+                    bySvg.set(record.svg, record);
+                });
+            };
+
+            // 1) 현재 유저 전용 보관함
+            addList(readJsonArray(getStickerStorageKey()), 'user');
+            // 2) 예전 공통 키 (유저 분리 전)
+            if (diaryUserId) {
+                addList(readJsonArray(STICKER_STORAGE_KEY), 'shared');
+            }
+            // 3) 레거시 문자열 배열
+            addList(readJsonArray(LEGACY_STICKER_STORAGE_KEY), 'legacy');
+            // 4) 다이어리 「내 아이템」에 저장된 핸드메이드도 보관함에 복원
+            if (diaryUserId) {
+                const handmade = readJsonArray(HANDMADE_KEY_PREFIX + diaryUserId);
+                const fromDiary = handmade
+                    .map((item, idx) => {
+                        const svg = svgFromHandMadeImageDataUrl(item?.imageDataUrl);
+                        if (!svg) return null;
+                        return {
+                            id: item.id || `handmade-${idx}`,
+                            svg,
+                            createdAt: item.createdAt || null,
+                        };
+                    })
+                    .filter(Boolean);
+                addList(fromDiary, 'handmade');
             }
 
-            // v2가 없다면 예전 형식(myArStickers: 문자열 배열)이 있는지 확인해서 옮겨줍니다.
-            try {
-                const legacyRaw = localStorage.getItem(LEGACY_STICKER_STORAGE_KEY);
-                if (legacyRaw) {
-                    const legacyParsed = JSON.parse(legacyRaw);
-                    if (Array.isArray(legacyParsed)) {
-                        const migrated = legacyParsed.map((svgData, idx) => ({
-                            id: 'legacy-' + idx + '-' + Date.now(),
-                            svg: svgData,
-                            provider: 'gemini', // 예전 그림은 기본적으로 Gemini로 간주 (수정 버튼 활성화를 위해)
-                            createdAt: null,
-                        }));
-                        saveStickerRecords(migrated);
-                        return migrated;
-                    }
-                }
-            } catch (error) {
-                console.error('[hand-tracking] 예전 보관함 이전 실패:', error);
+            return [...byId.values()].sort((a, b) => {
+                const ta = Date.parse(a.createdAt || '') || 0;
+                const tb = Date.parse(b.createdAt || '') || 0;
+                return tb - ta;
+            });
+        }
+
+        // 📌 0. 보관함 저장소 읽기/쓰기 (유저별 + 예전 저장/다이어리 아이템까지 합쳐서 복원)
+        function loadStickerRecords() {
+            const merged = collectStickerRecordsFromSources();
+            if (merged.length > 0) {
+                // 복원한 목록을 현재 키에 다시 저장해 나갔다 들어와도 유지되게 함
+                saveStickerRecords(merged);
             }
-            return [];
+            return merged;
         }
 
         function saveStickerRecords(records) {
+            const key = getStickerStorageKey();
             try {
-                localStorage.setItem(STICKER_STORAGE_KEY, JSON.stringify(records));
+                localStorage.setItem(key, JSON.stringify(records));
+                // 공통 키에도 백업 (userId 없이 들어와도 일부 복원 가능)
+                if (diaryUserId) {
+                    try {
+                        localStorage.setItem(STICKER_STORAGE_KEY, JSON.stringify(records));
+                    } catch {
+                        /* ignore backup quota */
+                    }
+                }
                 return true;
             } catch (error) {
                 console.error('[hand-tracking] 보관함 저장 실패:', error);
+                // 용량 초과 시 오래된 것부터 줄여서 재시도
+                try {
+                    let trimmed = records.slice(0, Math.max(1, Math.floor(records.length * 0.7)));
+                    while (trimmed.length > 0) {
+                        try {
+                            localStorage.setItem(key, JSON.stringify(trimmed));
+                            statusText.innerText = '⚠️ 저장 공간이 부족해서 최근 스티커 위주로 보관했어요.';
+                            return true;
+                        } catch {
+                            trimmed = trimmed.slice(0, Math.max(0, trimmed.length - 1));
+                        }
+                    }
+                } catch {
+                    /* ignore */
+                }
                 statusText.innerText = '⚠️ 보관함 저장에 실패했어요 (저장 공간을 확인해주세요).';
                 return false;
             }
@@ -1197,8 +1116,78 @@
 
         let stickerRecords = loadStickerRecords();
 
+        function removeDiaryHandMadeMatching(record) {
+            if (!diaryUserId || !record) return;
+            try {
+                const key = HANDMADE_KEY_PREFIX + diaryUserId;
+                const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                if (!Array.isArray(existing) || existing.length === 0) return;
+                const next = existing.filter((entry) => {
+                    if (entry?.id && record.id && entry.id === record.id) return false;
+                    const svg = svgFromHandMadeImageDataUrl(entry?.imageDataUrl);
+                    if (svg && record.svg && svg === record.svg) return false;
+                    return true;
+                });
+                if (next.length !== existing.length) {
+                    localStorage.setItem(key, JSON.stringify(next));
+                }
+            } catch (error) {
+                console.error('[hand-tracking] diary item delete failed:', error);
+            }
+        }
+
+        function ensureInventoryPlaceholder() {
+            if (inventory.querySelector('.inventory-item-wrapper')) return;
+            let placeholder = inventory.querySelector('span');
+            if (!placeholder) {
+                placeholder = document.createElement('span');
+                placeholder.style.cssText = 'color:#8a7ba3;font-weight:bold;line-height:80px;text-align:center;width:100%;';
+                placeholder.textContent = "여기에 나만의 도트 스티커가 모입니다! (그림을 변환하고 '보관함에 넣기'를 누르세요)";
+                inventory.appendChild(placeholder);
+            } else {
+                placeholder.style.display = '';
+            }
+        }
+
+        function deleteStickerRecord(record, wrapper, imgEl) {
+            if (!confirm('이 스티커를 보관함에서 삭제할까요?')) return;
+
+            stickerRecords = stickerRecords.filter((entry) => {
+                if (record.id && entry.id === record.id) return false;
+                if (record.svg && entry.svg === record.svg) return false;
+                return true;
+            });
+            saveStickerRecords(stickerRecords);
+            removeDiaryHandMadeMatching(record);
+
+            // 캔버스에 찍어 둔 같은 스티커도 제거
+            if (imgEl) {
+                placedStickers = placedStickers.filter((s) => s.img !== imgEl);
+            }
+            if (selectedSticker === imgEl) selectedSticker = null;
+
+            // 미리보기에 같은 그림이 떠 있으면 안내로 되돌리기
+            const previewSvg = svgOutput.querySelector('svg');
+            if (previewSvg && record.svg) {
+                const current = new XMLSerializer().serializeToString(previewSvg);
+                if (current === record.svg || current.includes(record.svg.slice(0, 80))) {
+                    svgOutput.innerHTML = `
+                        <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
+                            1. 허공에 그림을 먼저 그리세요.<br>
+                            2. <b>✨ AI 도트 변환</b>을 누르면 스케치가 픽셀 아트로 변환됩니다.<br>
+                            3. 보관함 스티커의 <b>✏️</b>로 불러오거나, 변환된 그림에 수정 사항을 적고 <b>💬 수정하기</b>를 누르세요!
+                        </p>`;
+                }
+            }
+
+            wrapper.remove();
+            ensureInventoryPlaceholder();
+            statusText.innerText = '🗑️ 보관함에서 스티커를 삭제했어요.';
+        }
+
         // 📌 1. 스티커를 화면(보관함)에 추가해주는 전용 함수 (썸네일 클릭=도장용 선택, ✏️ 클릭=수정하기용 불러오기)
         function createStickerElement(record) {
+            if (!record?.svg) return;
             const svgBlob = new Blob([record.svg], {type: 'image/svg+xml;charset=utf-8'});
             const url = URL.createObjectURL(svgBlob);
 
@@ -1208,6 +1197,7 @@
 
             const wrapper = document.createElement('div');
             wrapper.className = 'inventory-item-wrapper';
+            wrapper.dataset.stickerId = record.id || '';
 
             const img = new Image();
             img.src = url;
@@ -1222,6 +1212,16 @@
                 statusText.innerText = "✅ 스티커 준비 완료! 마우스로 화면을 클릭해 붙이거나, 손가락으로 집어 옮겨보세요.";
             });
 
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'inventory-delete-btn';
+            deleteBtn.innerText = '🗑️';
+            deleteBtn.title = '보관함에서 삭제';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteStickerRecord(record, wrapper, img);
+            });
+
             const editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'inventory-edit-btn';
@@ -1230,17 +1230,16 @@
             editBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 svgOutput.innerHTML = record.svg;
-                lastAiProvider = record.provider === 'copilot' ? 'copilot' : 'gemini';
-                updateAiProviderUi();
-                statusText.innerText = `✏️ 보관함 그림을 불러왔어요! ${lastAiProvider === 'copilot' ? 'Copilot 수정' : 'Gemini 수정'} 버튼으로 다듬어보세요.`;
+                statusText.innerText = '✏️ 보관함 그림을 불러왔어요! 💬 수정하기로 다듬어보세요.';
                 window.scrollTo({ top: svgOutput.offsetTop - 20, behavior: 'smooth' });
             });
 
             const tag = document.createElement('span');
             tag.className = 'inventory-provider-tag';
-            tag.innerText = record.provider === 'copilot' ? '🤖' : '✨';
+            tag.innerText = '✨';
 
             wrapper.appendChild(img);
+            wrapper.appendChild(deleteBtn);
             wrapper.appendChild(editBtn);
             wrapper.appendChild(tag);
             inventory.appendChild(wrapper);
@@ -1250,6 +1249,9 @@
         stickerRecords.forEach((record) => {
             createStickerElement(record);
         });
+        if (stickerRecords.length > 0) {
+            statusText.innerText = `🎒 보관함에서 스티커 ${stickerRecords.length}개를 불러왔어요.`;
+        }
 
         // 📌 3. AI 그림을 보관함에 넣는 기능 (+ 새로고침/페이지 이동 후에도 남아있도록 영구 저장까지!)
         document.getElementById('addToInventoryBtn').addEventListener('click', () => {
@@ -1263,7 +1265,6 @@
             const record = {
                 id: 'sticker-' + Date.now(),
                 svg: svgData,
-                provider: lastAiProvider === 'copilot' ? 'copilot' : 'gemini',
                 createdAt: new Date().toISOString(),
             };
 
@@ -1271,7 +1272,7 @@
             createStickerElement(record);
 
             // 브라우저 저장소에 기록해서 나갔다 들어와도(새로고침해도) 안 날아가게 만들기
-            stickerRecords.push(record);
+            stickerRecords = [record, ...stickerRecords.filter((r) => r.svg !== svgData)];
             const saved = saveStickerRecords(stickerRecords);
 
             const syncedToDiary = persistDiaryHandMadeItem(svgData);

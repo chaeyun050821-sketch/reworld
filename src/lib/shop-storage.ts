@@ -6,6 +6,9 @@ import {
 } from "./image-content-bounds";
 import heartBalloonImg from "../assets/shop-heart-balloon.png";
 import miniroomCatImg from "../assets/miniroom-cat.png";
+import pinkDressImg from "../assets/shop-pink-dress.png";
+import brownPigtailHairImg from "../assets/shop-brown-pigtail-hair.png";
+import brownLongHairImg from "../assets/shop-brown-long-hair.png";
 import {
   getItemById,
   NEIGHBORS,
@@ -386,6 +389,57 @@ export const GLOBAL_SHOP_LISTINGS: ShopListingWithItem[] = [
       createdAt: "2026-07-24",
     },
   },
+  {
+    id: "global-listing-pink-dress",
+    itemId: "shop-item-pink-dress",
+    sellerId: "reworld-shop",
+    sellerNickname: "Re:world",
+    price: 40,
+    listedAt: "2026-07-27",
+    item: {
+      id: "shop-item-pink-dress",
+      type: "avatar",
+      label: "핑크 리본 원피스",
+      cat: "의상",
+      color: "#f080b0",
+      imageDataUrl: pinkDressImg,
+      createdAt: "2026-07-27",
+    },
+  },
+  {
+    id: "global-listing-brown-pigtail-hair",
+    itemId: "shop-item-brown-pigtail-hair",
+    sellerId: "reworld-shop",
+    sellerNickname: "Re:world",
+    price: 30,
+    listedAt: "2026-07-27",
+    item: {
+      id: "shop-item-brown-pigtail-hair",
+      type: "avatar",
+      label: "갈색 양갈래 머리",
+      cat: "헤어",
+      color: "#8a5a3a",
+      imageDataUrl: brownPigtailHairImg,
+      createdAt: "2026-07-27",
+    },
+  },
+  {
+    id: "global-listing-brown-long-hair",
+    itemId: "shop-item-brown-long-hair",
+    sellerId: "reworld-shop",
+    sellerNickname: "Re:world",
+    price: 30,
+    listedAt: "2026-07-27",
+    item: {
+      id: "shop-item-brown-long-hair",
+      type: "avatar",
+      label: "갈색 긴생머리",
+      cat: "헤어",
+      color: "#7a4a2a",
+      imageDataUrl: brownLongHairImg,
+      createdAt: "2026-07-27",
+    },
+  },
 ];
 
 const FRIEND_SHOP_SEED: Record<string, ShopListingWithItem[]> = {
@@ -622,7 +676,7 @@ export function markListingOwned(userId: string, listingId: string) {
   saveOwnedListingIds(userId, owned);
 }
 
-/** True when this buyer already owns the listing or a purchased copy of the same item. */
+/** True when this buyer already owns the listing or a purchased copy of the same item (1 purchase per user per item). */
 export function hasPurchasedShopListing(
   userId: string,
   listing: { id: string; itemId: string; item: { id: string } },
@@ -632,12 +686,55 @@ export function hasPurchasedShopListing(
   if (owned.has(listing.id)) return true;
 
   const inventory = loadHandMadeItems(userId);
-  return inventory.some(item =>
-    item.id === listing.item.id
-    || item.id === listing.itemId
-    || item.id.startsWith(`purchased-${listing.itemId}-`)
-    || item.id.startsWith(`purchased-${listing.item.id}-`),
+  const originalIds = new Set(
+    [listing.itemId, listing.item.id].filter((id): id is string => typeof id === "string" && id.length > 0),
   );
+
+  return inventory.some(item => {
+    if (originalIds.has(item.id)) return true;
+    for (const originalId of originalIds) {
+      if (item.id.startsWith(`purchased-${originalId}-`)) return true;
+    }
+    return false;
+  });
+}
+
+/** Official listings granted free in local/dev so you can test without buying. Production users must purchase. */
+export const DEV_PREOWNED_GLOBAL_LISTING_IDS = [
+  "global-listing-pink-dress",
+  "global-listing-brown-pigtail-hair",
+  "global-listing-brown-long-hair",
+] as const;
+
+/** Grant an official shop listing copy to this user (inventory + owned flag). Returns true if newly granted. */
+export function grantOfficialShopListing(userId: string, listingId: string): boolean {
+  const listing = GLOBAL_SHOP_LISTINGS.find(entry => entry.id === listingId);
+  if (!listing) return false;
+  if (hasPurchasedShopListing(userId, listing)) {
+    // Ensure owned flag stays aligned even if item already exists
+    if (!loadOwnedListingIds(userId).has(listing.id)) {
+      markListingOwned(userId, listing.id);
+    }
+    return false;
+  }
+
+  markListingOwned(userId, listing.id);
+  addHandMadeItem(userId, {
+    ...listing.item,
+    source: "purchased",
+    createdAt: new Date().toISOString(),
+  });
+  return true;
+}
+
+/** Local/dev only: give tester accounts free copies of selected official items. */
+export function ensureDevPreownedOfficialShopItems(userId: string): boolean {
+  if (!import.meta.env.DEV) return false;
+  let changed = false;
+  for (const listingId of DEV_PREOWNED_GLOBAL_LISTING_IDS) {
+    if (grantOfficialShopListing(userId, listingId)) changed = true;
+  }
+  return changed;
 }
 
 /** Re-add global shop purchases that were owned but missing from inventory. */

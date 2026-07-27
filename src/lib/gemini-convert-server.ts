@@ -1,16 +1,20 @@
 const BASE_SVG_PROMPT =
-  "첨부 스케치를 레트로 8비트 픽셀 아트 SVG로 변환하세요. 형태·비율 유지. 설명 없이 <svg>...</svg>만. width='100%' height='100%'. 배경 투명.";
+  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, 전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. 선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. 완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. 응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. 배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
 
 const GEMINI_MODELS = [
-  "gemini-2.5-flash-lite",
-  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
   "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-2.5-flash-lite",
   "gemini-2.0-flash-lite",
 ];
 const GEMINI_REQUEST_TIMEOUT_MS = 45_000;
 
 function formatGeminiError(message: string): string {
   const lower = message.toLowerCase();
+  if (lower.includes("high demand") || lower.includes("overloaded") || lower.includes("unavailable")) {
+    return "Gemini 서버가 잠시 붐벼요. 다른 모델로도 실패했어요. 1~2분 뒤 다시 시도해 주세요.";
+  }
   if (lower.includes("quota") || lower.includes("rate limit") || lower.includes("resource_exhausted")) {
     const retryMatch = message.match(/retry in ([\d.]+)s/i);
     const waitSec = retryMatch ? Math.ceil(Number(retryMatch[1])) : 60;
@@ -28,6 +32,7 @@ function formatGeminiError(message: string): string {
 function shouldTryNextModel(error: Error & { status?: number }): boolean {
   if (error.status === 404) return true;
   if (error.status === 429) return true;
+  if (error.status === 503) return true;
   const lower = error.message.toLowerCase();
   return (
     lower.includes("quota")
@@ -35,6 +40,9 @@ function shouldTryNextModel(error: Error & { status?: number }): boolean {
     || lower.includes("resource_exhausted")
     || lower.includes("no longer available")
     || lower.includes("not found")
+    || lower.includes("high demand")
+    || lower.includes("overloaded")
+    || lower.includes("unavailable")
   );
 }
 
@@ -49,14 +57,19 @@ function cleanSvgResponse(text: string): string {
 }
 
 function buildPrompt(customPrompt?: string, isCustomRefine?: boolean): string {
-  let finalPrompt = BASE_SVG_PROMPT;
-  const userText = customPrompt?.trim() ?? "";
-
-  if (isCustomRefine && userText !== "") {
-    finalPrompt += `\n\n[사용자 추가 요청사항]: "${userText}"\n위 추가 요청사항을 '반드시' 최우선으로 반영해서 스타일이나 색상 등을 조정해 줘.`;
+  if (isCustomRefine && (customPrompt?.trim() ?? "") !== "") {
+    const userText = customPrompt!.trim();
+    return (
+      "첨부된 이미지는 이미 완성된 레트로 8비트 픽셀 아트입니다. "
+      + "원본의 전체적인 형태·구도·픽셀 스타일은 최대한 유지하면서, 사용자의 수정 요청만 반영해 주세요. "
+      + "완전히 새로운 그림으로 다시 만들지 마세요. "
+      + "응답에는 설명이나 마크다운 없이 오직 <svg>...</svg>만 반환하세요. "
+      + "크기는 width='100%' height='100%', 배경은 투명하게 유지하세요.\n\n"
+      + `[사용자 수정 요청사항]: "${userText}"\n`
+      + "위 요청사항을 반드시 최우선으로 반영해 주세요."
+    );
   }
-
-  return finalPrompt;
+  return BASE_SVG_PROMPT;
 }
 
 function getGeminiApiKey(): string {
@@ -146,7 +159,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       {
         parts: [
           { text: finalPrompt },
-          { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+          { inline_data: { mime_type: "image/png", data: imageBase64 } },
         ],
       },
     ],
