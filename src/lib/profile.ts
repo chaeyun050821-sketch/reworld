@@ -14,6 +14,37 @@ export type UserProfile = {
   updatedAt?: string;
 };
 
+export const DEFAULT_BGM_TITLE = "기본 BGM";
+/** public/bgm — Vite base `./` 기준 상대 경로 */
+export const DEFAULT_BGM_SRC = "./bgm/Sunbeams_on_the_Porch.mp3";
+
+export type ResolvedBgm = {
+  title: string;
+  src: string;
+  isDefault: boolean;
+};
+
+/** 프로필 뮤직이 없으면 기본 BGM으로 재생 */
+export function resolveBgm(profile: Pick<UserProfile, "bgmTitle" | "bgmPreviewUrl"> | {
+  bgmTitle?: string | null;
+  bgmPreviewUrl?: string | null;
+}): ResolvedBgm {
+  const customUrl =
+    typeof profile.bgmPreviewUrl === "string" && profile.bgmPreviewUrl.trim()
+      ? profile.bgmPreviewUrl.trim()
+      : null;
+
+  if (customUrl) {
+    const customTitle =
+      typeof profile.bgmTitle === "string" && profile.bgmTitle.trim()
+        ? profile.bgmTitle.trim()
+        : DEFAULT_BGM_TITLE;
+    return { title: customTitle, src: customUrl, isDefault: false };
+  }
+
+  return { title: DEFAULT_BGM_TITLE, src: DEFAULT_BGM_SRC, isDefault: true };
+}
+
 const PROFILE_KEY_PREFIX = "reworld_profile_";
 
 /** 프로필 필드 — 닉네임·이름은 계정/별도 UI와 분리 */
@@ -30,7 +61,7 @@ export function defaultProfile(nickname: string): UserProfile {
     ],
     status: "일상 기록중 🌸",
     tags: ["#daily", "#y2k", "#diary"],
-    bgmTitle: "♬ Lovefool - The Cardigans",
+    bgmTitle: DEFAULT_BGM_TITLE,
   };
 }
 

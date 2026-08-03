@@ -1,8 +1,11 @@
+import { normalizePhotoDecorations, type PhotoDecoration } from "./photo-decorations";
+
 export type StoredPhoto = {
   id: string;
   src: string;
   kind: "upload" | "gradient";
   createdAt: string;
+  decorations?: PhotoDecoration[];
 };
 
 const PHOTO_KEY_PREFIX = "reworld_photos_";
@@ -12,11 +15,13 @@ function normalizePhoto(raw: unknown): StoredPhoto | null {
   const photo = raw as Partial<StoredPhoto>;
   if (!photo.id || typeof photo.src !== "string" || !photo.src) return null;
   if (photo.kind !== "upload" && photo.kind !== "gradient") return null;
+  const decorations = normalizePhotoDecorations(photo.decorations);
   return {
     id: String(photo.id),
     src: photo.src,
     kind: photo.kind,
     createdAt: typeof photo.createdAt === "string" ? photo.createdAt : new Date().toISOString(),
+    ...(decorations.length > 0 ? { decorations } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { normalizePhotoDecorations, type PhotoDecoration } from "./photo-decorations";
 import type { StoredPhoto } from "./photo-storage";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
@@ -9,6 +10,7 @@ type PhotoRow = {
   src_value: string;
   storage_path: string | null;
   created_at: string;
+  decorations?: unknown;
 };
 
 const MAX_IMAGE_EDGE = 1280;
@@ -16,11 +18,13 @@ const JPEG_QUALITY = 0.82;
 const MAX_DATA_URL_CHARS = 900_000;
 
 function rowToPhoto(row: PhotoRow): StoredPhoto {
+  const decorations = normalizePhotoDecorations(row.decorations);
   return {
     id: row.id,
     src: row.src_value,
     kind: row.kind === "gradient" ? "gradient" : "upload",
     createdAt: row.created_at,
+    ...(decorations.length > 0 ? { decorations } : {}),
   };
 }
 
@@ -29,16 +33,59 @@ export async function fetchUserPhotos(userId: string): Promise<StoredPhoto[]> {
 
   const { data, error } = await supabase
     .from("user_photos")
-    .select("id, user_id, kind, src_value, storage_path, created_at")
+    .select("id, user_id, kind, src_value, storage_path, created_at, decorations")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
+    // decorations 컬럼이 아직 없으면 기존 스키마로 재시도
+    if (error.message.toLowerCase().includes("decorations") || error.code === "PGRST204") {
+      const fallback = await supabase
+        .from("user_photos")
+        .select("id, user_id, kind, src_value, storage_path, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (fallback.error || !fallback.data) {
+        console.error("[photos] fetch failed:", error.message, error.code);
+        return [];
+      }
+      return (fallback.data as PhotoRow[]).map(rowToPhoto);
+    }
     console.error("[photos] fetch failed:", error.message, error.code);
     return [];
   }
   if (!data) return [];
   return (data as PhotoRow[]).map(rowToPhoto);
+}
+
+export async function updatePhotoDecorations(
+  userId: string,
+  photoId: string,
+  decorations: PhotoDecoration[],
+): Promise<SyncResult> {
+  if (!isSupabaseConfigured()) return { ok: true };
+
+  const { error } = await supabase
+    .from("user_photos")
+    .update({
+      decorations,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", photoId)
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("[photos] decorations update failed:", error.message, error.code);
+    if (error.message.toLowerCase().includes("decorations") || error.code === "PGRST204") {
+      return {
+        ok: false,
+        error: "사진 꾸미기 저장 컬럼이 없어요. Supabase에서 photo-decorations.sql을 실행해 주세요.",
+      };
+    }
+    return { ok: false, error: mapSupabaseError(error.message, error.code) };
+  }
+
+  return { ok: true };
 }
 
 async function fileToJpegBlob(file: File): Promise<Blob> {
@@ -210,22 +257,31 @@ export async function upsertLocalPhoto(
 ): Promise<SyncResult> {
   if (!isSupabaseConfigured()) return { ok: true };
 
-  const { error } = await supabase.from("user_photos").upsert(
-    {
-      id: photo.id,
-      user_id: userId,
-      kind: photo.kind,
-      src_value: photo.src,
-      storage_path: photo.kind === "upload" && !photo.src.startsWith("data:")
-        ? `${userId}/${photo.id}.jpg`
-        : null,
-      created_at: photo.createdAt,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
+  const payload: Record<string, unknown> = {
+    id: photo.id,
+    user_id: userId,
+    kind: photo.kind,
+    src_value: photo.src,
+    storage_path: photo.kind === "upload" && !photo.src.startsWith("data:")
+      ? `${userId}/${photo.id}.jpg`
+      : null,
+    created_at: photo.createdAt,
+    updated_at: new Date().toISOString(),
+    decorations: photo.decorations ?? [],
+  };
+
+  const { error } = await supabase.from("user_photos").upsert(payload, { onConflict: "id" });
 
   if (error) {
+    // decorations 컬럼 없으면 없이 재시도
+    if (error.message.toLowerCase().includes("decorations") || error.code === "PGRST204") {
+      const { decorations: _decorations, ...withoutDecor } = payload;
+      const retry = await supabase.from("user_photos").upsert(withoutDecor, { onConflict: "id" });
+      if (retry.error) {
+        return { ok: false, error: mapSupabaseError(retry.error.message, retry.error.code) };
+      }
+      return { ok: true };
+    }
     return { ok: false, error: mapSupabaseError(error.message, error.code) };
   }
   return { ok: true };
@@ -256,7 +312,17 @@ export function mergePhotoLists(local: StoredPhoto[], remote: StoredPhoto[]): St
   const byId = new Map<string, StoredPhoto>();
   for (const photo of remote) byId.set(photo.id, photo);
   for (const photo of local) {
-    if (!byId.has(photo.id)) byId.set(photo.id, photo);
+    const existing = byId.get(photo.id);
+    if (!existing) {
+      byId.set(photo.id, photo);
+      continue;
+    }
+    // 로컬에만 있는 꾸미기가 있으면 유지 (원격이 비어 있을 때)
+    const localDecor = photo.decorations ?? [];
+    const remoteDecor = existing.decorations ?? [];
+    if (localDecor.length > 0 && remoteDecor.length === 0) {
+      byId.set(photo.id, { ...existing, decorations: localDecor });
+    }
   }
   return Array.from(byId.values()).sort(
     (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),

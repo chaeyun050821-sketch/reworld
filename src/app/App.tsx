@@ -1,5 +1,11 @@
-import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction, type CSSProperties, type ReactNode, type RefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, type Dispatch, type SetStateAction, type CSSProperties, type ReactNode, type RefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  createDecorationId,
+  type PhotoDecoration,
+  type PhotoDecorationMap,
+} from "../lib/photo-decorations";
 import AuthPage from "./AuthPage";
 import NicknameSetupPage from "./NicknameSetupPage";
 import { FONT_KR, FONT_PIXEL, FONT_UI } from "./ui-fonts";
@@ -26,10 +32,12 @@ import {
 import { fetchOnlineUserIds, startPresenceHeartbeat } from "../lib/presence";
 import { isSupabaseConfigured } from "../lib/supabase";
 import {
+  DEFAULT_BGM_TITLE,
   getUserProfile,
   mergeUserProfiles,
   profileDetailFields,
   profileTimestamp,
+  resolveBgm,
   saveUserProfile,
   withProfileTimestamp,
 } from "../lib/profile";
@@ -101,6 +109,7 @@ import { fetchDiaryEntries, upsertDiaryEntry, deleteDiaryEntry } from "../lib/di
 import { searchBgmTracks, type BgmSearchResult } from "../lib/bgm-search";
 import { uploadProfileBgm } from "../lib/bgm-sync";
 import { DiaryThemeProvider, useDiaryTheme } from "../lib/diary-theme-context";
+import { DiaryBgmProvider, useDiaryBgm } from "../lib/diary-bgm-context";
 import { isDiaryThemeId } from "../lib/diary-theme";
 import DiaryColorPicker from "./components/DiaryColorPicker";
 import {
@@ -115,6 +124,7 @@ import {
 import { BOARD_RULES_TEXT } from "../lib/content-moderation";
 import {
   fetchVisitorStatsRemote,
+  kstDateKey,
   recordDiaryVisit,
   refreshVisitorStats,
   subscribeVisitorStats,
@@ -126,6 +136,20 @@ import {
   toVisitorDigits,
   type VisitorStats,
 } from "../lib/visitors";
+import {
+  claimAttendanceReward,
+  claimDiaryReward,
+  claimGuestbookWriteReward,
+  claimNewGuestbookReceiveRewards,
+  claimPhotoUploadReward,
+  CLOVER_REWARD,
+  getAttendanceDates,
+  getCloverBalance,
+  hasCheckedInToday,
+  hydrateCloverFromServer,
+  PHOTO_UPLOAD_DAILY_MAX,
+  subscribeCloverRewards,
+} from "../lib/clover-rewards";
 import {
   applyInventorySnapshot,
   getInventorySnapshot,
@@ -605,6 +629,7 @@ const Corner = ({ flip }: { flip?: boolean }) => (
 
 function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string }) {
   const { theme, setViewThemeTarget } = useDiaryTheme();
+  const bgm = useDiaryBgm();
 
   useEffect(() => {
     setViewThemeTarget(null);
@@ -627,6 +652,43 @@ function CoverPage({ onOpen, nickname }: { onOpen: () => void; nickname?: string
     <div className="size-full flex items-center justify-center relative" style={{
       background: "var(--diary-outer-bg)",
     }}>
+      <div className="absolute bottom-4 left-4 z-20 pointer-events-auto">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            bgm.toggle();
+          }}
+          className="flex items-center gap-2 px-3 py-2 rounded-2xl"
+          style={{
+            background: "rgba(255,255,255,0.82)",
+            border: "1px solid rgba(var(--diary-mid-rgb), 0.28)",
+            boxShadow: "0 4px 20px rgba(var(--diary-dark-rgb), 0.12)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <span
+            className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", boxShadow: "0 2px 8px rgba(255,71,87,0.35)" }}
+          >
+            <BgmPlayPauseIcon isPlaying={bgm.isPlaying} size="sm" />
+          </span>
+          <span
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.52rem",
+              fontWeight: 700,
+              color: "var(--diary-dark)",
+              maxWidth: 120,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            ♬ {bgm.title}
+          </span>
+        </button>
+      </div>
       <div className="absolute bottom-4 right-4 z-20">
         <DiaryColorPicker />
       </div>
@@ -902,7 +964,7 @@ const DEFAULT_DIARY_PROFILE: DiaryProfile = {
   status: "일상 기록중 🌸",
   tags: ["#daily", "#y2k", "#diary"],
   fields: INIT_FIELDS,
-  bgmTitle: "Lovefool - The Cardigans",
+  bgmTitle: DEFAULT_BGM_TITLE,
 };
 
 const AVATAR_ITEM_CATEGORIES = ["전체", "내 아이템", "헤어", "얼굴", "의상", "악세사리", "기타"] as const;
@@ -2320,7 +2382,7 @@ function MiniRoom({
 /* ═══════════════════════════════════════════
    VISITOR COUNT
 ═══════════════════════════════════════════ */
-function VisitorCountBar({ userId, compact = false }: { userId: string; compact?: boolean }) {
+function useVisitorStats(userId: string) {
   const [stats, setStats] = useState<VisitorStats>(() => getVisitorStats(userId));
 
   useEffect(() => {
@@ -2352,6 +2414,11 @@ function VisitorCountBar({ userId, compact = false }: { userId: string; compact?
     };
   }, [userId]);
 
+  return stats;
+}
+
+function VisitorCountBar({ userId, compact = false }: { userId: string; compact?: boolean }) {
+  const stats = useVisitorStats(userId);
   const digits = toVisitorDigits(stats.today, 4);
 
   return (
@@ -2401,6 +2468,261 @@ function VisitorCountBar({ userId, compact = false }: { userId: string; compact?
   );
 }
 
+/** Friend profile: narrower visitors + clover balance */
+function FriendVisitorCloverBar({ userId, coins }: { userId: string; coins: number | null }) {
+  const stats = useVisitorStats(userId);
+  const digits = toVisitorDigits(stats.today, 4);
+
+  return (
+    <div
+      className="rounded-xl flex flex-shrink-0 overflow-hidden"
+      style={{
+        background: "linear-gradient(90deg, rgba(var(--diary-main-rgb),0.25) 0%, rgba(var(--diary-mid-rgb),0.1) 100%)",
+        border: "1px solid rgba(var(--diary-mid-rgb),0.25)",
+      }}
+    >
+      <div
+        className="flex-[1.15] min-w-0 px-1.5 py-2 flex items-center"
+        style={{ borderRight: "1px solid rgba(var(--diary-mid-rgb),0.22)" }}
+      >
+        <span style={{ fontSize: 11, lineHeight: 1, flexShrink: 0 }}>👣</span>
+        <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "var(--diary-mid)", flexShrink: 0, marginLeft: 4 }}>TODAY</span>
+        <div className="flex-1 flex items-center justify-center gap-0.5 min-w-0 px-0.5">
+          {digits.map((d, i) => (
+            <div
+              key={i}
+              className="rounded flex items-center justify-center flex-shrink-0"
+              style={{ width: 13, height: 16, background: ACCENT_BTN_BG_135, boxShadow: ACCENT_BTN_SHADOW }}
+            >
+              <span
+                style={{
+                  fontFamily: "ui-monospace, Consolas, monospace",
+                  fontSize: "0.48rem",
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "white",
+                  lineHeight: 1,
+                }}
+              >
+                {d}
+              </span>
+            </div>
+          ))}
+        </div>
+        <span
+          className="flex-shrink-0"
+          style={{ fontFamily: FONT_UI, fontSize: "0.36rem", color: "var(--diary-mid)", whiteSpace: "nowrap" }}
+        >
+          전체 <b style={{ color: "#ff4757" }}>{formatVisitorCount(stats.total)}</b>
+        </span>
+      </div>
+      <div className="flex-[0.85] min-w-0 px-2 py-2 flex flex-col items-center justify-center gap-0.5">
+        <div className="flex items-center gap-1">
+          <img
+            src={shopCoinImage}
+            alt=""
+            width={12}
+            height={12}
+            className="inline-block flex-shrink-0"
+            style={{ imageRendering: "pixelated", objectFit: "contain" }}
+            aria-hidden
+          />
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "#a06010" }}>
+            {coins === null ? "···" : coins.toLocaleString("en-US")}
+          </span>
+        </div>
+        <span style={{ fontFamily: FONT_UI, fontSize: "0.32rem", fontWeight: 700, color: "var(--diary-mid)" }}>
+          네잎클로버
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Current week (Mon–Sun) date keys in KST */
+function kstWeekDateKeys(today = kstDateKey()): string[] {
+  const [y, m, d] = today.split("-").map(Number);
+  const utcNoon = new Date(Date.UTC(y, m - 1, d, 12));
+  // en-CA weekday: 0=Sun … 6=Sat; convert to Mon=0 … Sun=6
+  const sun0 = new Date(utcNoon).getUTCDay();
+  const mondayOffset = sun0 === 0 ? -6 : 1 - sun0;
+  const keys: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(utcNoon);
+    day.setUTCDate(day.getUTCDate() + mondayOffset + i);
+    keys.push(
+      `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, "0")}-${String(day.getUTCDate()).padStart(2, "0")}`,
+    );
+  }
+  return keys;
+}
+
+/** My Profile: visitors | attendance + clover balance */
+function ProfileVisitorAttendanceBar({ userId }: { userId: string }) {
+  const stats = useVisitorStats(userId);
+  const digits = toVisitorDigits(stats.today, 4);
+  const [coins, setCoins] = useState(() => getCloverBalance(userId));
+  const [checkedIn, setCheckedIn] = useState(() => hasCheckedInToday(userId));
+  const [attendanceDates, setAttendanceDates] = useState(() => getAttendanceDates(userId));
+  const [stampFlash, setStampFlash] = useState(false);
+  const weekKeys = useMemo(() => kstWeekDateKeys(), [checkedIn, attendanceDates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void hydrateCloverFromServer(userId).then((balance) => {
+      if (!cancelled) setCoins(balance);
+    });
+
+    const refresh = () => {
+      setCoins(getCloverBalance(userId));
+      setCheckedIn(hasCheckedInToday(userId));
+      setAttendanceDates(getAttendanceDates(userId));
+    };
+    refresh();
+    const unsubscribe = subscribeCloverRewards(userId, refresh);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [userId]);
+
+  const handleAttendance = () => {
+    const result = claimAttendanceReward(userId);
+    if (!result.ok) return;
+    setCheckedIn(true);
+    setCoins(result.balance);
+    setAttendanceDates(getAttendanceDates(userId));
+    setStampFlash(true);
+    window.setTimeout(() => setStampFlash(false), 900);
+  };
+
+  return (
+    <div
+      className="rounded-xl flex flex-shrink-0 overflow-hidden"
+      style={{
+        background: "linear-gradient(90deg, rgba(var(--diary-main-rgb),0.25) 0%, rgba(var(--diary-mid-rgb),0.1) 100%)",
+        border: "1px solid rgba(var(--diary-mid-rgb),0.25)",
+      }}
+    >
+      {/* visitors half — one row */}
+      <div
+        className="flex-1 min-w-0 px-2 py-2 flex items-center"
+        style={{ borderRight: "1px solid rgba(var(--diary-mid-rgb),0.22)" }}
+      >
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span style={{ fontSize: 12, lineHeight: 1 }}>👣</span>
+          <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.3rem", color: "var(--diary-mid)" }}>TODAY</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center gap-0.5 min-w-0 px-1">
+          {digits.map((d, i) => (
+            <div
+              key={i}
+              className="rounded flex items-center justify-center flex-shrink-0"
+              style={{ width: 14, height: 18, background: ACCENT_BTN_BG_135, boxShadow: ACCENT_BTN_SHADOW }}
+            >
+              <span
+                style={{
+                  fontFamily: "ui-monospace, Consolas, monospace",
+                  fontSize: "0.52rem",
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "white",
+                  lineHeight: 1,
+                }}
+              >
+                {d}
+              </span>
+            </div>
+          ))}
+        </div>
+        <span
+          className="flex-shrink-0"
+          style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "var(--diary-mid)", whiteSpace: "nowrap" }}
+        >
+          전체 <b style={{ color: "#ff4757" }}>{formatVisitorCount(stats.total)}</b>
+        </span>
+      </div>
+
+      {/* attendance + clover half */}
+      <div className="flex-1 min-w-0 px-2 py-2.5 flex flex-col gap-1.5 justify-center">
+        <div className="flex items-center gap-1">
+          <CloverCoinIcon size={12} />
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "#a06010" }}>
+            {coins.toLocaleString("en-US")}
+          </span>
+          <div className="flex items-center gap-0.5 ml-auto">
+            {weekKeys.map((key) => {
+              const stamped = attendanceDates.includes(key);
+              const isToday = key === kstDateKey();
+              return (
+                <div
+                  key={key}
+                  className="rounded-full flex items-center justify-center"
+                  style={{
+                    width: 13,
+                    height: 13,
+                    background: stamped
+                      ? "linear-gradient(135deg,#5bbf7a,#2f9e57)"
+                      : "rgba(255,255,255,0.45)",
+                    border: isToday ? "1.5px solid rgba(47,158,87,0.75)" : "1px solid rgba(var(--diary-mid-rgb),0.2)",
+                    boxShadow: stamped && stampFlash && isToday ? "0 0 0 2px rgba(91,191,122,0.35)" : undefined,
+                    fontFamily: FONT_UI,
+                    fontSize: "0.3rem",
+                    fontWeight: 900,
+                    color: stamped ? "white" : "transparent",
+                  }}
+                  title={key}
+                >
+                  {stamped ? "✓" : ""}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleAttendance}
+          disabled={checkedIn}
+          className="w-full rounded-full"
+          style={{
+            fontFamily: FONT_UI,
+            fontSize: "0.48rem",
+            fontWeight: 900,
+            color: "white",
+            padding: "5px 0",
+            minHeight: 22,
+            background: checkedIn
+              ? "linear-gradient(90deg,#8aaa7a,#6f9470)"
+              : "linear-gradient(90deg,#5bbf7a,#2f9e57)",
+            opacity: checkedIn ? 0.85 : 1,
+            boxShadow: checkedIn ? "none" : "0 2px 6px rgba(47,158,87,0.32)",
+            cursor: checkedIn ? "default" : "pointer",
+          }}
+        >
+          {checkedIn ? `출석완료 +${CLOVER_REWARD.attendance}` : `출석체크 +${CLOVER_REWARD.attendance}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CloverRewardHint({ children }: { children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-1 flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 600, color: "#9a7030", lineHeight: 1.35 }}>
+      <img
+        src={shopCoinImage}
+        alt=""
+        width={10}
+        height={10}
+        className="inline-block flex-shrink-0"
+        style={{ imageRendering: "pixelated", objectFit: "contain" }}
+        aria-hidden
+      />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 /* ═══════════════════════════════════════════
    LEFT PAGE — PROFILE (merged)
 ═══════════════════════════════════════════ */
@@ -2417,21 +2739,27 @@ function LeftPage({
   onVisitFriend: (nb: FriendNeighbor) => void;
   inventoryRevision?: number;
 }) {
-  const [isPlaying, setIsPlaying] = useState(false);
+  const {
+    isPlaying,
+    toggle: toggleBgm,
+    setTrack: setBgmTrack,
+    title: activeBgmTitle,
+    isDefault: isDefaultBgm,
+  } = useDiaryBgm();
   const [editing, setEditing] = useState(false);
   const initialProfile = getUserProfile(user.id, user.nickname);
+  const initialBgm = resolveBgm(initialProfile);
   const [status, setStatus] = useState(() => initialProfile.status);
   const [tags, setTags] = useState<string[]>(() => initialProfile.tags);
   const [tagDraft, setTagDraft] = useState(() => initialProfile.tags.join(" "));
   const [fields, setFields] = useState<ProfileField[]>(() => initialProfile.fields);
   const [draft, setDraft] = useState<ProfileField[]>(fields);
-  const [bgmTitle, setBgmTitle] = useState(() => initialProfile.bgmTitle ?? "♬ Lovefool - The Cardigans");
+  const [bgmTitle, setBgmTitle] = useState(() => initialBgm.title);
   const [bgmPreviewUrl, setBgmPreviewUrl] = useState<string | null>(() => initialProfile.bgmPreviewUrl ?? null);
   const [bgmSrc, setBgmSrc] = useState<string | null>(() => initialProfile.bgmPreviewUrl ?? null);
   const [showBgmSearch, setShowBgmSearch] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [nicknameDraft, setNicknameDraft] = useState(user.nickname);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const editingRef = useRef(false);
   const profileSaveSeq = useRef(0);
   const pendingBgmFileRef = useRef<File | null>(null);
@@ -2443,9 +2771,11 @@ function LeftPage({
     setStatus(profile.status);
     setTags(profile.tags);
     setTagDraft(profile.tags.join(" "));
-    setBgmTitle(profile.bgmTitle ?? "♬ Lovefool - The Cardigans");
+    const resolved = resolveBgm(profile);
+    setBgmTitle(resolved.title);
     setBgmPreviewUrl(profile.bgmPreviewUrl ?? null);
     setBgmSrc(profile.bgmPreviewUrl ?? null);
+    setBgmTrack({ title: resolved.title, previewUrl: profile.bgmPreviewUrl ?? null });
     if (isDiaryThemeId(profile.diaryThemeId)) {
       applyOwnThemeFromProfile(profile.diaryThemeId);
     }
@@ -2507,17 +2837,8 @@ function LeftPage({
     };
   }, [bgmSrc]);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    const src = bgmSrc ?? bgmPreviewUrl;
-    if (!audio || !src) return;
-
-    if (isPlaying) {
-      void audio.play().catch(() => setIsPlaying(false));
-    } else {
-      audio.pause();
-    }
-  }, [bgmSrc, bgmPreviewUrl, isPlaying]);
+  const customBgmSrc = bgmSrc?.startsWith("blob:") ? bgmSrc : (bgmSrc ?? bgmPreviewUrl);
+  const resolvedBgm = resolveBgm({ bgmTitle, bgmPreviewUrl: customBgmSrc });
 
   const displayName = user.nickname;
   const normalizeTags = (value: string) =>
@@ -2598,6 +2919,7 @@ function LeftPage({
       }
     }
 
+    setBgmTrack({ title: bgmTitle, previewUrl: nextBgmPreviewUrl ?? null });
     setProfileError("");
     setEditing(false);
   };
@@ -2612,10 +2934,12 @@ function LeftPage({
     if (!file) return;
     if (bgmSrc?.startsWith("blob:")) URL.revokeObjectURL(bgmSrc);
     pendingBgmFileRef.current = file;
-    setBgmSrc(URL.createObjectURL(file));
+    const objectUrl = URL.createObjectURL(file);
+    const title = "♬ " + file.name.replace(/\.mp3$/i, "");
+    setBgmSrc(objectUrl);
     setBgmPreviewUrl(null);
-    setBgmTitle("♬ " + file.name.replace(/\.mp3$/i, ""));
-    setIsPlaying(false);
+    setBgmTitle(title);
+    setBgmTrack({ title, previewUrl: objectUrl });
   };
 
   const handleBgmSearchSelect = (track: BgmSearchResult) => {
@@ -2624,7 +2948,7 @@ function LeftPage({
     setBgmTitle(title);
     setBgmSrc(track.previewUrl);
     setBgmPreviewUrl(track.previewUrl);
-    setIsPlaying(false);
+    setBgmTrack({ title, previewUrl: track.previewUrl });
     setShowBgmSearch(false);
     if (!editing) {
       const nextProfile = withProfileTimestamp({
@@ -2643,143 +2967,208 @@ function LeftPage({
     }
   };
 
-  const activeBgmSrc = bgmSrc ?? bgmPreviewUrl;
+  const handleResetBgmToDefault = () => {
+    if (bgmSrc?.startsWith("blob:")) URL.revokeObjectURL(bgmSrc);
+    pendingBgmFileRef.current = null;
+    setBgmTitle(DEFAULT_BGM_TITLE);
+    setBgmSrc(null);
+    setBgmPreviewUrl(null);
+    setBgmTrack({ title: DEFAULT_BGM_TITLE, previewUrl: null }, { autoplay: true });
+    setShowBgmSearch(false);
+
+    const nextProfile = withProfileTimestamp({
+      fields: editing ? draft : fields,
+      status,
+      tags: editing ? normalizeTags(tagDraft) : tags,
+      bgmTitle: DEFAULT_BGM_TITLE,
+      bgmPreviewUrl: undefined,
+      diaryThemeId: themeId,
+    });
+    saveUserProfile(user.id, nextProfile);
+    profileSaveSeq.current += 1;
+    if (isSupabaseConfigured()) {
+      void upsertUserProfileDetails(user.id, user.nickname, nextProfile);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative" style={{ background: DIARY_PAPER_BG }}>
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 p-3 pb-1" style={{ scrollbarWidth: "thin" }}>
-      <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(var(--diary-mid-rgb),0.35)" }}>
-        <div className="flex items-center gap-1.5">
-          <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.45rem", color: "var(--diary-mid)" }}>◆</span>
-          <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.7rem", color: "var(--diary-dark)", letterSpacing: "0.12em" }}>MY PROFILE</span>
-        </div>
-        {!editing ? (
-          <button onClick={startEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white", boxShadow: "0 1px 6px rgba(255,71,87,0.35)" }}>✎ 수정하기</button>
-        ) : (
-          <div className="flex gap-1">
-            <button onClick={saveEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white" }}>저장</button>
-            <button onClick={cancelEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 600, background: "rgba(var(--diary-mid-rgb),0.2)", color: "var(--diary-dark)" }}>취소</button>
+      <div
+        className={`flex-1 min-h-0 flex flex-col gap-2 p-3 pb-1 ${editing ? "overflow-y-auto" : "overflow-hidden"}`}
+        style={editing ? { scrollbarWidth: "thin" } : undefined}
+      >
+        <div className="flex items-center justify-between pb-1 border-b flex-shrink-0" style={{ borderColor: "rgba(var(--diary-mid-rgb),0.35)" }}>
+          <div className="flex items-center gap-1.5">
+            <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.45rem", color: "var(--diary-mid)" }}>◆</span>
+            <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.7rem", color: "var(--diary-dark)", letterSpacing: "0.12em" }}>MY PROFILE</span>
           </div>
-        )}
-      </div>
-      <div className="rounded-xl p-2.5 flex gap-3 items-start flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(var(--diary-main-rgb),0.45) 0%, rgba(var(--diary-mid-rgb),0.15) 100%)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}>
-        <div className="relative flex-shrink-0">
-          <div className="rounded-lg overflow-hidden" style={{ width: 72, height: 80, background: "linear-gradient(135deg, var(--diary-card) 0%, var(--diary-main) 100%)", border: "2px solid rgba(var(--diary-mid-rgb),0.35)", boxShadow: "0 2px 8px rgba(var(--diary-mid-rgb),0.2)" }}>
-            <PixelAvatarBust avatar={avatar} width={72} height={80} userId={user.id} inventoryRevision={inventoryRevision} />
-          </div>
-          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
-        </div>
-        <div className="flex flex-col gap-1 min-w-0">
-          <p style={{ fontFamily: "Comic Sans MS, Malgun Gothic, sans-serif", fontSize: "1.3rem", color: "var(--diary-dark)", lineHeight: "1.1", fontWeight: "bold" }}>{displayName}</p>
-          {editing ? (
-            <input value={status} onChange={(e) => setStatus(e.target.value)} className="px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: FONT_UI, fontSize: "0.56rem", color: "var(--diary-dark)", background: "rgba(255,255,255,0.78)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }} />
+          {!editing ? (
+            <button onClick={startEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white", boxShadow: "0 1px 6px rgba(255,71,87,0.35)" }}>✎ 수정하기</button>
           ) : (
-            <p style={{ fontFamily: FONT_UI, fontSize: "0.6rem", color: "var(--diary-mid)", fontWeight: 500 }}>{status}</p>
-          )}
-          {editing ? (
-            <input
-              value={tagDraft}
-              onChange={(e) => setTagDraft(e.target.value)}
-              placeholder="#daily #y2k #diary"
-              className="mt-0.5 px-2 py-0.5 rounded-lg outline-none"
-              style={{
-                fontFamily: FONT_UI,
-                fontSize: "0.5rem",
-                color: "var(--diary-dark)",
-                background: "rgba(255,255,255,0.78)",
-                border: "1px solid rgba(var(--diary-mid-rgb),0.3)",
-              }}
-            />
-          ) : (
-            <div className="flex gap-1 mt-0.5 flex-wrap">
-              {tags.map((tag) => (
-                <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 600, background: "rgba(var(--diary-mid-rgb),0.12)", color: "var(--diary-dark)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }}>{tag}</span>
-              ))}
+            <div className="flex gap-1">
+              <button onClick={saveEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)", color: "white" }}>저장</button>
+              <button onClick={cancelEdit} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 600, background: "rgba(var(--diary-mid-rgb),0.2)", color: "var(--diary-dark)" }}>취소</button>
             </div>
           )}
         </div>
-      </div>
-      <div className="rounded-xl p-2.5 flex flex-col gap-1.5 flex-shrink-0" style={{ background: "rgba(255,255,255,0.7)", border: editing ? "1px solid rgba(255,71,87,0.4)" : "1px solid rgba(var(--diary-mid-rgb),0.2)" }}>
-        <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.38rem", color: "var(--diary-mid)", marginBottom: 4 }}>PROFILE</p>
-        <div className="flex gap-2 items-center">
-          <span className="flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)", width: 36 }}>닉네임</span>
-          {editing ? (
-            <input
-              value={nicknameDraft}
-              onChange={(e) => {
-                setNicknameDraft(filterNicknameInput(e.target.value));
-                if (profileError) setProfileError("");
-              }}
-              maxLength={NICKNAME_MAX_LENGTH}
-              placeholder="친구 검색용 · 중복 불가"
-              className="flex-1 px-1.5 py-0.5 rounded-lg outline-none"
-              style={{ fontFamily: FONT_UI, fontSize: "0.55rem", color: "var(--diary-dark)", background: "rgba(var(--diary-main-rgb), 0.12)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}
-            />
-          ) : (
-            <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{user.nickname}</span>
-          )}
-        </div>
-        {profileDetailFields(editing ? draft : fields).map(({ label, value }) => (
-          <div key={label} className="flex gap-2 items-center">
-            <span className="flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)", width: 36 }}>{label}</span>
+
+        <div className="rounded-xl p-2.5 flex gap-3 items-center flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(var(--diary-main-rgb),0.45) 0%, rgba(var(--diary-mid-rgb),0.15) 100%)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}>
+          <div className="relative flex-shrink-0">
+            <div className="rounded-lg overflow-hidden" style={{ width: 72, height: 80, background: "linear-gradient(135deg, var(--diary-card) 0%, var(--diary-main) 100%)", border: "2px solid rgba(var(--diary-mid-rgb),0.35)", boxShadow: "0 2px 8px rgba(var(--diary-mid-rgb),0.2)" }}>
+              <PixelAvatarBust avatar={avatar} width={72} height={80} userId={user.id} inventoryRevision={inventoryRevision} />
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={{ background: "#4cda64" }} />
+          </div>
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <p style={{ fontFamily: "Comic Sans MS, Malgun Gothic, sans-serif", fontSize: "1.3rem", color: "var(--diary-dark)", lineHeight: "1.1", fontWeight: "bold" }}>{displayName}</p>
+            {editing ? (
+              <input value={status} onChange={(e) => setStatus(e.target.value)} className="px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: FONT_UI, fontSize: "0.56rem", color: "var(--diary-dark)", background: "rgba(255,255,255,0.78)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }} />
+            ) : (
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.6rem", color: "var(--diary-mid)", fontWeight: 500 }}>{status}</p>
+            )}
             {editing ? (
               <input
-                value={draft.find((f) => f.label === label)?.value ?? value}
-                onChange={(e) => {
-                  setDraft((prev) =>
-                    prev.map((f) => (f.label === label ? { ...f, value: e.target.value } : f)),
-                  );
-                  if (profileError) setProfileError("");
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                placeholder="#daily #y2k #diary"
+                className="mt-0.5 px-2 py-0.5 rounded-lg outline-none"
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: "0.5rem",
+                  color: "var(--diary-dark)",
+                  background: "rgba(255,255,255,0.78)",
+                  border: "1px solid rgba(var(--diary-mid-rgb),0.3)",
                 }}
-                className="flex-1 px-1.5 py-0.5 rounded-lg outline-none"
-                style={{ fontFamily: FONT_UI, fontSize: "0.55rem", color: "var(--diary-dark)", background: "rgba(var(--diary-main-rgb), 0.12)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}
               />
             ) : (
-              <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{value}</span>
-            )}
-          </div>
-        ))}
-        {profileError && (
-          <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 600, color: "#ff4757", marginTop: 4 }}>
-            {profileError}
-          </p>
-        )}
-      </div>
-      <div className="rounded-xl p-2.5 flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(var(--diary-main-rgb),0.15) 0%, rgba(var(--diary-mid-rgb),0.1) 100%)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }}>
-        <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.38rem", color: "var(--diary-mid)", marginBottom: 6 }}>♬ BGM</p>
-        <div className="flex items-center gap-2">
-          {activeBgmSrc && <audio ref={audioRef} src={activeBgmSrc} loop />}
-          <button onClick={() => setIsPlaying(!isPlaying)} className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", boxShadow: "0 2px 8px rgba(255,71,87,0.35)" }}>
-            <BgmPlayPauseIcon isPlaying={isPlaying} />
-          </button>
-          <div className="flex-1 min-w-0">
-            {editing ? (
-              <div className="flex items-center gap-1">
-                <input value={bgmTitle} onChange={(e) => setBgmTitle(e.target.value)} className="flex-1 min-w-0 px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: FONT_UI, fontSize: "0.56rem", fontWeight: 700, color: "var(--diary-dark)", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }} />
-                <BgmSearchButton onClick={() => setShowBgmSearch(true)} />
-                <label className="flex-shrink-0 px-2 py-0.5 rounded-full cursor-pointer" style={{ fontFamily: FONT_UI, fontSize: "0.45rem", fontWeight: 800, color: "white", background: "linear-gradient(90deg,var(--diary-mid),var(--diary-dark))" }}>
-                  MP3
-                  <input type="file" accept=".mp3,audio/mpeg" className="hidden" onChange={(e) => handleBgmFileChange(e.target.files?.[0] ?? null)} />
-                </label>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 min-w-0">
-                <p style={{ fontFamily: FONT_UI, fontSize: "0.58rem", fontWeight: 700, color: "var(--diary-dark)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{bgmTitle}</p>
-                <BgmSearchButton onClick={() => setShowBgmSearch(true)} />
+              <div className="flex gap-1 mt-0.5 flex-wrap">
+                {tags.map((tag) => (
+                  <span key={tag} className="px-1.5 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 600, background: "rgba(var(--diary-mid-rgb),0.12)", color: "var(--diary-dark)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }}>{tag}</span>
+                ))}
               </div>
             )}
           </div>
         </div>
-      </div>
-      <AnimatePresence>
-        {showBgmSearch && (
-          <BgmSearchModal
-            onClose={() => setShowBgmSearch(false)}
-            onSelect={handleBgmSearchSelect}
-          />
-        )}
-      </AnimatePresence>
-      <VisitorCountBar userId={user.id} />
+
+        {/* PROFILE — grows to fill leftover space */}
+        <div
+          className="rounded-xl px-2.5 py-2 flex flex-col flex-1 min-h-0"
+          style={{
+            background: "rgba(255,255,255,0.7)",
+            border: editing ? "1px solid rgba(255,71,87,0.4)" : "1px solid rgba(var(--diary-mid-rgb),0.2)",
+          }}
+        >
+          <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.36rem", color: "var(--diary-mid)", marginBottom: 2, flexShrink: 0 }}>PROFILE</p>
+          <div className="flex-1 min-h-0 flex flex-col justify-evenly gap-1">
+            <div className="flex gap-2 items-center">
+              <span className="flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)", width: 36 }}>닉네임</span>
+              {editing ? (
+                <input
+                  value={nicknameDraft}
+                  onChange={(e) => {
+                    setNicknameDraft(filterNicknameInput(e.target.value));
+                    if (profileError) setProfileError("");
+                  }}
+                  maxLength={NICKNAME_MAX_LENGTH}
+                  placeholder="친구 검색용 · 중복 불가"
+                  className="flex-1 px-1.5 py-0.5 rounded-lg outline-none"
+                  style={{ fontFamily: FONT_UI, fontSize: "0.55rem", color: "var(--diary-dark)", background: "rgba(var(--diary-main-rgb), 0.12)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}
+                />
+              ) : (
+                <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{user.nickname}</span>
+              )}
+            </div>
+            {profileDetailFields(editing ? draft : fields).map(({ label, value }) => (
+              <div key={label} className="flex gap-2 items-center">
+                <span className="flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)", width: 36 }}>{label}</span>
+                {editing ? (
+                  <input
+                    value={draft.find((f) => f.label === label)?.value ?? value}
+                    onChange={(e) => {
+                      setDraft((prev) =>
+                        prev.map((f) => (f.label === label ? { ...f, value: e.target.value } : f)),
+                      );
+                      if (profileError) setProfileError("");
+                    }}
+                    className="flex-1 px-1.5 py-0.5 rounded-lg outline-none"
+                    style={{ fontFamily: FONT_UI, fontSize: "0.55rem", color: "var(--diary-dark)", background: "rgba(var(--diary-main-rgb), 0.12)", border: "1px solid rgba(var(--diary-mid-rgb),0.3)" }}
+                  />
+                ) : (
+                  <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{value}</span>
+                )}
+              </div>
+            ))}
+            {profileError && (
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 600, color: "#ff4757" }}>
+                {profileError}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl px-2.5 py-2 flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(var(--diary-main-rgb),0.15) 0%, rgba(var(--diary-mid-rgb),0.1) 100%)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }}>
+          <div className="flex items-center gap-2">
+            <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.34rem", color: "var(--diary-mid)", flexShrink: 0 }}>♬ BGM</span>
+            <button
+              type="button"
+              onClick={toggleBgm}
+              className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", boxShadow: "0 2px 6px rgba(255,71,87,0.32)" }}
+            >
+              <BgmPlayPauseIcon isPlaying={isPlaying} size="sm" />
+            </button>
+            <div className="flex-1 min-w-0">
+              {editing ? (
+                <div className="flex items-center gap-1">
+                  <input value={bgmTitle} onChange={(e) => setBgmTitle(e.target.value)} className="flex-1 min-w-0 px-2 py-0.5 rounded-lg outline-none" style={{ fontFamily: FONT_UI, fontSize: "0.54rem", fontWeight: 700, color: "var(--diary-dark)", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }} />
+                  <BgmSearchButton onClick={() => setShowBgmSearch(true)} />
+                  <label className="flex-shrink-0 px-2 py-0.5 rounded-full cursor-pointer" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 800, color: "white", background: "linear-gradient(90deg,var(--diary-mid),var(--diary-dark))" }}>
+                    MP3
+                    <input type="file" accept=".mp3,audio/mpeg" className="hidden" onChange={(e) => handleBgmFileChange(e.target.files?.[0] ?? null)} />
+                  </label>
+                  {!resolvedBgm.isDefault && (
+                    <button
+                      type="button"
+                      onClick={handleResetBgmToDefault}
+                      className="flex-shrink-0 px-2 py-0.5 rounded-full"
+                      style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 800, color: "var(--diary-dark)", background: "rgba(var(--diary-mid-rgb),0.18)", border: "1px solid rgba(var(--diary-mid-rgb),0.28)" }}
+                    >
+                      기본
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 min-w-0">
+                  <p style={{ fontFamily: FONT_UI, fontSize: "0.56rem", fontWeight: 700, color: "var(--diary-dark)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{activeBgmTitle}</p>
+                  <BgmSearchButton onClick={() => setShowBgmSearch(true)} />
+                  {!isDefaultBgm && (
+                    <button
+                      type="button"
+                      onClick={handleResetBgmToDefault}
+                      className="flex-shrink-0 px-2 py-0.5 rounded-full"
+                      style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 800, color: "var(--diary-dark)", background: "rgba(var(--diary-mid-rgb),0.18)", border: "1px solid rgba(var(--diary-mid-rgb),0.28)" }}
+                    >
+                      기본
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {showBgmSearch && (
+            <BgmSearchModal
+              onClose={() => setShowBgmSearch(false)}
+              onSelect={handleBgmSearchSelect}
+            />
+          )}
+        </AnimatePresence>
+
+        <div className="flex-shrink-0">
+          <ProfileVisitorAttendanceBar userId={user.id} />
+        </div>
       </div>
       <div className="flex-shrink-0 px-3 pb-3 pt-1">
         <ProfileActionButtons user={user} onVisitFriend={onVisitFriend} />
@@ -3009,20 +3398,23 @@ function FriendProfileLeftPage({
 }) {
   const [avatar, setAvatar] = useState<AvatarProfile | null>(nb.avatarProfile ?? null);
   const [inventory, setInventory] = useState<HandMadeItem[]>(nb.inventory ?? []);
+  const [friendCoins, setFriendCoins] = useState<number | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const initialProfile = getUserProfile(nb.friendUserId ?? String(nb.id), nb.name);
+  const initialBgm = resolveBgm(initialProfile);
   const [status, setStatus] = useState(initialProfile.status);
   const [tags, setTags] = useState(initialProfile.tags);
   const [fields, setFields] = useState(initialProfile.fields);
-  const [bgmTitle, setBgmTitle] = useState(initialProfile.bgmTitle ?? "♬ Lovefool - The Cardigans");
+  const [bgmTitle, setBgmTitle] = useState(initialBgm.title);
   const [bgmPreviewUrl, setBgmPreviewUrl] = useState<string | null>(initialProfile.bgmPreviewUrl ?? null);
   const [bgmSrc, setBgmSrc] = useState<string | null>(initialProfile.bgmPreviewUrl ?? null);
   const [bgmError, setBgmError] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const displayName = nb.name;
   const accent = nb.color;
-  const activeBgmSrc = bgmSrc ?? bgmPreviewUrl;
+  const resolvedBgm = resolveBgm({ bgmTitle, bgmPreviewUrl: bgmSrc ?? bgmPreviewUrl });
+  const activeBgmSrc = resolvedBgm.src;
 
   useEffect(() => {
     let cancelled = false;
@@ -3036,7 +3428,10 @@ function FriendProfileLeftPage({
         ]);
         if (cancelled) return;
         if (remoteAvatar) setAvatar(storedToAvatarProfile(remoteAvatar));
-        if (remoteInventory) setInventory(remoteInventory.items);
+        if (remoteInventory) {
+          setInventory(remoteInventory.items);
+          setFriendCoins(remoteInventory.coins);
+        }
         setIsOnline(online.has(nb.friendUserId));
         if (remoteProfile) {
           const profile = remoteProfile.profile;
@@ -3045,11 +3440,10 @@ function FriendProfileLeftPage({
             setTags(profile.tags);
             setFields(profile.fields);
           }
-          if (profile.bgmPreviewUrl) {
-            setBgmPreviewUrl(profile.bgmPreviewUrl);
-            setBgmSrc(profile.bgmPreviewUrl);
-            if (profile.bgmTitle) setBgmTitle(profile.bgmTitle);
-          }
+          const resolved = resolveBgm(profile);
+          setBgmTitle(resolved.title);
+          setBgmPreviewUrl(profile.bgmPreviewUrl ?? null);
+          setBgmSrc(profile.bgmPreviewUrl ?? null);
         }
       } else {
         setAvatar(nb.avatarProfile ?? null);
@@ -3071,7 +3465,10 @@ function FriendProfileLeftPage({
           fetchUserInventory(nb.friendUserId!),
         ]);
         if (remoteAvatar) setAvatar(storedToAvatarProfile(remoteAvatar));
-        if (remoteInventory) setInventory(remoteInventory.items);
+        if (remoteInventory) {
+          setInventory(remoteInventory.items);
+          setFriendCoins(remoteInventory.coins);
+        }
       })();
     }, 8000);
 
@@ -3162,14 +3559,10 @@ function FriendProfileLeftPage({
       <div className="rounded-xl p-2.5 flex-shrink-0" style={{ background: "linear-gradient(135deg, rgba(var(--diary-main-rgb),0.15) 0%, rgba(var(--diary-mid-rgb),0.1) 100%)", border: "1px solid rgba(var(--diary-mid-rgb),0.25)" }}>
         <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.38rem", color: "var(--diary-mid)", marginBottom: 6 }}>♬ BGM</p>
         <div className="flex items-center gap-2">
-          {activeBgmSrc && <audio ref={audioRef} key={activeBgmSrc} src={activeBgmSrc} loop preload="metadata" />}
+          <audio ref={audioRef} key={activeBgmSrc} src={activeBgmSrc} loop preload="metadata" />
           <button
             type="button"
             onClick={() => {
-              if (!activeBgmSrc) {
-                setBgmError("친구가 설정한 재생 가능한 BGM이 없어요.");
-                return;
-              }
               setBgmError("");
               setIsPlaying((v) => !v);
             }}
@@ -3177,12 +3570,11 @@ function FriendProfileLeftPage({
             style={{
               background: "linear-gradient(135deg, #ff4757, #ff6b81)",
               boxShadow: "0 2px 8px rgba(255,71,87,0.35)",
-              opacity: activeBgmSrc ? 1 : 0.55,
             }}
           >
             <BgmPlayPauseIcon isPlaying={isPlaying} />
           </button>
-          <p style={{ fontFamily: FONT_UI, fontSize: "0.58rem", fontWeight: 700, color: "var(--diary-dark)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{bgmTitle}</p>
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.58rem", fontWeight: 700, color: "var(--diary-dark)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{resolvedBgm.title}</p>
         </div>
         {bgmError && (
           <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 600, color: "#ff4757", marginTop: 4 }}>
@@ -3191,7 +3583,7 @@ function FriendProfileLeftPage({
         )}
       </div>
 
-      {nb.friendUserId && <VisitorCountBar userId={nb.friendUserId} />}
+      {nb.friendUserId && <FriendVisitorCloverBar userId={nb.friendUserId} coins={friendCoins} />}
 
       {nb.friendUserId ? (
         <div className="flex-1 flex flex-col min-h-0 gap-2">
@@ -3225,29 +3617,13 @@ function FriendProfileLeftPage({
 /* ═══════════════════════════════════════════
    RIGHT PAGE — PHOTO ALBUM
 ═══════════════════════════════════════════ */
-type PhotoDecoration =
-  | {
-      id: string;
-      type: "emoticon";
-      emoticonId: number;
-      x: number;
-      y: number;
-    }
-  | {
-      id: string;
-      type: "text";
-      text: string;
-      color: string;
-      size: number;
-      x: number;
-      y: number;
-    };
-
-type PhotoEditTool = "emoticon" | null;
-type PhotoDecorationMap = Record<string, PhotoDecoration[]>;
+type PhotoEditTool = "emoticon" | "item" | null;
 
 const PHOTO_TEXT_COLORS = ["#5b4b2d", "#ffffff", "#ff4757", "#3b82f6", "#22c55e", "#f59e0b", "#d946ef", "#111827"];
 const DEFAULT_PHOTO_TEXT_SIZE = 1;
+const DEFAULT_PHOTO_AVATAR_SIZE = 1;
+const DEFAULT_PHOTO_ITEM_SIZE = 1;
+const clampPhotoStickerSize = (value: number) => Math.max(0.4, Math.min(2.8, value));
 
 function resolveWeatherKind(weather: string): string {
   const w = weather.trim();
@@ -3426,12 +3802,201 @@ function getPhotoPointerPercent(surface: HTMLDivElement | null, event: ReactPoin
   };
 }
 
-function AlbumPhoto({ src }: { src: string }) {
-  if (src.startsWith("linear-gradient(")) {
-    return <div className="w-full h-full" style={{ background: src }} />;
-  }
+function useNaturalImageRatio(src: string | null): number | null {
+  const [ratio, setRatio] = useState<number | null>(null);
 
-  return <img src={src} alt="" className="w-full h-full object-cover" />;
+  useEffect(() => {
+    if (!src || src.startsWith("linear-gradient(")) {
+      setRatio(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+      setRatio(img.naturalWidth / img.naturalHeight);
+    };
+    img.onerror = () => {
+      if (!cancelled) setRatio(null);
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  return ratio;
+}
+
+function useContainedImageBox(
+  containerRef: RefObject<HTMLElement | null>,
+  ratio: number | null,
+): { w: number; h: number } {
+  const [box, setBox] = useState({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      if (cw <= 0 || ch <= 0) return;
+      if (!ratio || !Number.isFinite(ratio) || ratio <= 0) {
+        setBox({ w: cw, h: ch });
+        return;
+      }
+      let w = cw;
+      let h = w / ratio;
+      if (h > ch) {
+        h = ch;
+        w = h * ratio;
+      }
+      setBox({ w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) });
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [containerRef, ratio]);
+
+  return box;
+}
+
+/**
+ * 사진 원본 비율 박스에 장식 좌표계를 맞춤.
+ * 전체화면/썸네일 모두 같은 이미지 박스 기준(%)으로 위치·크기가 유지됨.
+ */
+function AlbumPhotoDetailSurface({
+  src,
+  surfaceRef,
+  children,
+  className,
+  style,
+  border = true,
+  rounded = true,
+}: {
+  src: string;
+  surfaceRef?: RefObject<HTMLDivElement | null>;
+  children?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+  border?: boolean;
+  rounded?: boolean;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const isGradient = src.startsWith("linear-gradient(");
+  const ratio = useNaturalImageRatio(isGradient ? null : src);
+  const box = useContainedImageBox(outerRef, isGradient ? null : ratio);
+
+  return (
+    <div
+      ref={outerRef}
+      className={`relative w-full h-full min-h-0 flex items-center justify-center overflow-hidden ${className ?? ""}`}
+      style={{
+        background: isGradient ? undefined : "#120e0a",
+        ...style,
+      }}
+    >
+      <div
+        ref={surfaceRef}
+        className="relative overflow-hidden"
+        style={{
+          width: box.w > 0 ? box.w : "100%",
+          height: box.h > 0 ? box.h : "100%",
+          borderRadius: rounded ? 12 : 0,
+          background: isGradient ? src : "transparent",
+          border: border ? "1.5px solid rgba(255,255,255,0.22)" : "none",
+        }}
+      >
+        {!isGradient && (
+          <img
+            src={src}
+            alt=""
+            className="absolute inset-0 w-full h-full select-none"
+            style={{ objectFit: "fill" }}
+            draggable={false}
+          />
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PhotoStickerResizeHandle({
+  decoration,
+  surfaceRef,
+  onResize,
+  scaleDivisor,
+}: {
+  decoration: Extract<PhotoDecoration, { size: number }>;
+  surfaceRef?: RefObject<HTMLDivElement | null>;
+  onResize?: (id: string, size: number) => void;
+  scaleDivisor: number;
+}) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const point = getPhotoPointerPercent(surfaceRef?.current ?? null, event);
+        if (!point) return;
+        const distance = Math.hypot(point.x - decoration.x, point.y - decoration.y);
+        const nextSize =
+          decoration.type === "text"
+            ? clampPhotoTextSize(distance / scaleDivisor)
+            : clampPhotoStickerSize(distance / scaleDivisor);
+        onResize?.(decoration.id, nextSize);
+      }}
+      onPointerUp={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      className="absolute"
+      style={{
+        right: -13,
+        bottom: -13,
+        width: 18,
+        height: 18,
+        borderRadius: 5,
+        background: "rgba(255,248,232,0.96)",
+        border: "1.5px solid rgba(176,138,74,0.9)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.22)",
+        cursor: "nwse-resize",
+        touchAction: "none",
+      }}
+      aria-label="크기 조절"
+    >
+      <span
+        className="absolute"
+        style={{
+          right: 3,
+          bottom: 3,
+          width: 8,
+          height: 8,
+          borderRight: "2px solid #8a6334",
+          borderBottom: "2px solid #8a6334",
+        }}
+      />
+    </button>
+  );
 }
 
 function PhotoDecorationsOverlay({
@@ -3441,8 +4006,10 @@ function PhotoDecorationsOverlay({
   onMove,
   onResize,
   onDelete,
-  emoticonSize = 56,
-  textSize = "0.86rem",
+  avatar,
+  userId,
+  inventoryRevision = 0,
+  inventoryItems = [],
 }: {
   decorations: PhotoDecoration[];
   editable?: boolean;
@@ -3450,13 +4017,39 @@ function PhotoDecorationsOverlay({
   onMove?: (id: string, x: number, y: number) => void;
   onResize?: (id: string, size: number) => void;
   onDelete?: (id: string) => void;
-  emoticonSize?: number;
-  textSize?: string;
+  avatar?: AvatarProfile;
+  userId?: string;
+  inventoryRevision?: number;
+  inventoryItems?: HandMadeItem[];
 }) {
+  const layerRef = useRef<HTMLDivElement>(null);
+  const [surfaceWidth, setSurfaceWidth] = useState(0);
+
+  const inventoryById = useMemo(() => {
+    const map = new Map<string, HandMadeItem>();
+    for (const item of inventoryItems) map.set(item.id, item);
+    return map;
+  }, [inventoryItems]);
+
+  useLayoutEffect(() => {
+    const el = surfaceRef?.current ?? layerRef.current?.parentElement;
+    if (!el) return;
+    const update = () => setSurfaceWidth(el.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [surfaceRef, decorations.length]);
+
   if (decorations.length === 0) return null;
 
+  // size=1 기준: 상세(~400px)에서 기존 px에 가깝게, 썸네일에서는 비율 유지
+  const w = surfaceWidth > 0 ? surfaceWidth : 400;
+  const emoticonPx = Math.max(10, Math.round(w * 0.155));
+  const textFontPx = Math.max(8, w * 0.036);
+
   return (
-    <div className="absolute inset-0 pointer-events-none">
+    <div ref={layerRef} className="absolute inset-0 pointer-events-none">
       {decorations.map((decoration) => {
         const deleteButton = editable ? (
           <button
@@ -3520,11 +4113,121 @@ function PhotoDecorationsOverlay({
             }
           : {};
 
+        let content: ReactNode = null;
+        if (decoration.type === "emoticon") {
+          content = (
+            <div className="relative">
+              <PixelEmoticonIcon
+                icon={SAMPLE_EMOTICONS.find((e) => e.id === decoration.emoticonId)?.icon ?? "sparkle-face"}
+                color={SAMPLE_EMOTICONS.find((e) => e.id === decoration.emoticonId)?.color ?? "#d8c49b"}
+                size={emoticonPx}
+                glow
+              />
+              {deleteButton}
+            </div>
+          );
+        } else if (decoration.type === "text") {
+          content = (
+            <div className="relative">
+              <span
+                style={{
+                  display: "block",
+                  maxWidth: Math.round(w * 0.42),
+                  padding: editable ? "0.18em 0.3em" : 0,
+                  color: decoration.color,
+                  fontFamily: FONT_UI,
+                  fontSize: textFontPx * decoration.size,
+                  fontWeight: 900,
+                  lineHeight: 1.22,
+                  textShadow: decoration.color === "#ffffff" ? "0 1px 4px rgba(0,0,0,0.82)" : "0 1px 3px rgba(255,255,255,0.86), 0 2px 4px rgba(0,0,0,0.32)",
+                  overflowWrap: "anywhere",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {decoration.text}
+              </span>
+              {editable && (
+                <>
+                  {deleteButton}
+                  <PhotoStickerResizeHandle
+                    decoration={decoration}
+                    surfaceRef={surfaceRef}
+                    onResize={onResize}
+                    scaleDivisor={11}
+                  />
+                </>
+              )}
+            </div>
+          );
+        } else if (decoration.type === "avatar" && avatar) {
+          const width = Math.max(12, Math.round(w * 0.18 * decoration.size));
+          const height = Math.max(16, Math.round(avatarPreviewHeightForWidth(width)));
+          content = (
+            <div className="relative" style={{ width, height }}>
+              <AvatarWithCompanions
+                avatar={avatar}
+                userId={userId}
+                inventory={inventoryItems.length > 0 ? inventoryItems : undefined}
+                width={width}
+                height={height}
+                viewBox={AVATAR_STUDIO_PREVIEW_VIEWBOX}
+                inventoryRevision={inventoryRevision}
+              />
+              {editable && (
+                <>
+                  {deleteButton}
+                  <PhotoStickerResizeHandle
+                    decoration={decoration}
+                    surfaceRef={surfaceRef}
+                    onResize={onResize}
+                    scaleDivisor={14}
+                  />
+                </>
+              )}
+            </div>
+          );
+        } else if (decoration.type === "item") {
+          const liveItem = inventoryById.get(decoration.itemId);
+          const sizePx = Math.max(10, Math.round(w * 0.18 * decoration.size));
+          content = (
+            <div className="relative" style={{ width: sizePx, height: sizePx }}>
+              {liveItem ? (
+                <HandMadeItemPreview item={liveItem} size={sizePx} />
+              ) : decoration.imageSrc ? (
+                <img
+                  src={decoration.imageSrc}
+                  alt={decoration.label}
+                  width={sizePx}
+                  height={sizePx}
+                  style={{ objectFit: "contain", imageRendering: "pixelated" }}
+                />
+              ) : decoration.icon ? (
+                <PixelEmoticonIcon icon={decoration.icon} color={decoration.color ?? "#d8c49b"} size={sizePx} />
+              ) : (
+                <span style={{ fontFamily: FONT_UI, fontSize: Math.max(8, w * 0.04), color: "#f7efd9" }}>{decoration.label}</span>
+              )}
+              {editable && (
+                <>
+                  {deleteButton}
+                  <PhotoStickerResizeHandle
+                    decoration={decoration}
+                    surfaceRef={surfaceRef}
+                    onResize={onResize}
+                    scaleDivisor={14}
+                  />
+                </>
+              )}
+            </div>
+          );
+        }
+
+        if (!content) return null;
+
         return (
           <div
             key={decoration.id}
             aria-label="사진 장식"
-            className="absolute flex items-center justify-center pointer-events-auto"
+            className={`absolute flex items-center justify-center ${editable ? "pointer-events-auto" : "pointer-events-none"}`}
             style={{
               left: `${decoration.x}%`,
               top: `${decoration.y}%`,
@@ -3539,97 +4242,7 @@ function PhotoDecorationsOverlay({
             }}
             {...dragProps}
           >
-            {decoration.type === "emoticon" ? (
-              <div className="relative">
-                <PixelEmoticonIcon
-                  icon={SAMPLE_EMOTICONS.find((e) => e.id === decoration.emoticonId)?.icon ?? "sparkle-face"}
-                  color={SAMPLE_EMOTICONS.find((e) => e.id === decoration.emoticonId)?.color ?? "#d8c49b"}
-                  size={emoticonSize}
-                  glow
-                />
-                {deleteButton}
-              </div>
-            ) : (
-              <div className="relative">
-                <span
-                  style={{
-                    display: "block",
-                    maxWidth: "11em",
-                    padding: editable ? "0.18em 0.3em" : 0,
-                    color: decoration.color,
-                    fontFamily: FONT_UI,
-                    fontSize: `calc(${textSize} * ${decoration.size})`,
-                    fontWeight: 900,
-                    lineHeight: 1.22,
-                    textShadow: decoration.color === "#ffffff" ? "0 1px 4px rgba(0,0,0,0.82)" : "0 1px 3px rgba(255,255,255,0.86), 0 2px 4px rgba(0,0,0,0.32)",
-                    overflowWrap: "anywhere",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {decoration.text}
-                </span>
-                {editable && (
-                  <>
-                    {deleteButton}
-                    <button
-                      type="button"
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                      }}
-                      onPointerMove={(event) => {
-                        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const point = getPhotoPointerPercent(surfaceRef?.current ?? null, event);
-                        if (!point) return;
-                        const distance = Math.hypot(point.x - decoration.x, point.y - decoration.y);
-                        onResize?.(decoration.id, clampPhotoTextSize(distance / 11));
-                      }}
-                      onPointerUp={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                          event.currentTarget.releasePointerCapture(event.pointerId);
-                        }
-                      }}
-                      onPointerCancel={(event) => {
-                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                          event.currentTarget.releasePointerCapture(event.pointerId);
-                        }
-                      }}
-                      className="absolute"
-                      style={{
-                        right: -13,
-                        bottom: -13,
-                        width: 18,
-                        height: 18,
-                        borderRadius: 5,
-                        background: "rgba(255,248,232,0.96)",
-                        border: "1.5px solid rgba(176,138,74,0.9)",
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.22)",
-                        cursor: "nwse-resize",
-                        touchAction: "none",
-                      }}
-                      aria-label="텍스트 크기 조절"
-                    >
-                      <span
-                        className="absolute"
-                        style={{
-                          right: 3,
-                          bottom: 3,
-                          width: 8,
-                          height: 8,
-                          borderRight: "2px solid #8a6334",
-                          borderBottom: "2px solid #8a6334",
-                        }}
-                      />
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+            {content}
           </div>
         );
       })}
@@ -3844,10 +4457,22 @@ function PhotoPage({
   onDeleteItem: (itemId: string) => void;
 }) {
   const [subView, setSubView] = useState<"album" | "emoticon" | "photo">("album");
-  const { photos, loading: photosLoading, uploading, error: photoError, addUpload, removePhoto } = usePhotoAlbum(user.id);
+  const {
+    photos,
+    loading: photosLoading,
+    uploading,
+    error: photoError,
+    addUpload,
+    removePhoto,
+    saveDecorations,
+  } = usePhotoAlbum(user.id);
   const albumOwnerId = user.id;
   const isPhotoOwner = albumOwnerId === user.id;
   const photoIds = useMemo(() => photos.map((p) => p.id), [photos]);
+  const inventoryItems = useMemo(
+    () => loadMyInventory(user.id).filter((item) => !!resolveHandMadeItemImageUrl(item) || (item.type === "emoticon" && !!item.icon)),
+    [user.id, inventoryRevision],
+  );
   const {
     views,
     likeCounts,
@@ -3869,14 +4494,55 @@ function PhotoPage({
   const [textDraftColor, setTextDraftColor] = useState(PHOTO_TEXT_COLORS[0]);
   const [confirmDeletePhoto, setConfirmDeletePhoto] = useState<StoredPhoto | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
+  const [decorSaveError, setDecorSaveError] = useState("");
   const selectedPhotoSurfaceRef = useRef<HTMLDivElement>(null);
+  const decorSaveTimerRef = useRef<number | null>(null);
+  const selectedPhoto = selectedIndex === null ? null : photos[selectedIndex];
+  const selectedPhotoId = selectedPhoto?.id ?? null;
+
+  useEffect(() => {
+    setPhotoDecorations((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const photo of photos) {
+        const incoming = photo.decorations ?? [];
+        if (!(photo.id in next)) {
+          next[photo.id] = incoming;
+          changed = true;
+          continue;
+        }
+        // 로컬이 비어 있고 원격에만 있으면 반영
+        if ((next[photo.id]?.length ?? 0) === 0 && incoming.length > 0) {
+          next[photo.id] = incoming;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [photos]);
 
   useEffect(() => {
     setIsEditingPhoto(false);
     setPhotoEditTool(null);
     setShowReactionFriends(false);
     setShowTextPopup(false);
+    setDecorSaveError("");
   }, [selectedIndex]);
+
+  useEffect(() => {
+    if (!selectedPhotoId || !isPhotoOwner || !isEditingPhoto) return;
+    const decorations = photoDecorations[selectedPhotoId] ?? [];
+    if (decorSaveTimerRef.current) window.clearTimeout(decorSaveTimerRef.current);
+    decorSaveTimerRef.current = window.setTimeout(() => {
+      void saveDecorations(selectedPhotoId, decorations).then((result) => {
+        if (!result.ok) setDecorSaveError(result.error ?? "꾸미기 저장에 실패했어요.");
+        else setDecorSaveError("");
+      });
+    }, 450);
+    return () => {
+      if (decorSaveTimerRef.current) window.clearTimeout(decorSaveTimerRef.current);
+    };
+  }, [photoDecorations, selectedPhotoId, isPhotoOwner, isEditingPhoto, saveDecorations]);
 
   if (subView === "emoticon") {
     return (
@@ -3893,10 +4559,8 @@ function PhotoPage({
     return <PhotoBoothPage onBack={() => setSubView("album")} avatar={avatar} userId={user.id} />;
   }
 
-  const selectedPhoto = selectedIndex === null ? null : photos[selectedIndex];
-  const selectedPhotoId = selectedPhoto?.id ?? null;
   const selectedReactions = selectedPhotoId ? reactions[selectedPhotoId] ?? [] : [];
-  const selectedDecorations = selectedPhoto ? photoDecorations[selectedPhoto.src] ?? [] : [];
+  const selectedDecorations = selectedPhotoId ? photoDecorations[selectedPhotoId] ?? [] : [];
 
   const handleAddComment = async (photoId: string, content: string) => {
     const result = await addComment(photoId, user.nickname, content);
@@ -3913,7 +4577,8 @@ function PhotoPage({
       const files = Array.from((e.target as HTMLInputElement).files ?? []);
       void (async () => {
         for (const file of files) {
-          await addUpload(file);
+          const ok = await addUpload(file);
+          if (ok) claimPhotoUploadReward(user.id);
         }
       })();
     };
@@ -3927,48 +4592,84 @@ function PhotoPage({
     void addView(photo.id);
   };
 
-  const updatePhotoDecorationPosition = (src: string, id: string, x: number, y: number) => {
+  const updateSelectedDecorations = (updater: (prev: PhotoDecoration[]) => PhotoDecoration[]) => {
+    if (!selectedPhotoId) return;
     setPhotoDecorations((prev) => ({
       ...prev,
-      [src]: (prev[src] ?? []).map((decoration) =>
-        decoration.id === id ? { ...decoration, x, y } : decoration,
-      ),
+      [selectedPhotoId]: updater(prev[selectedPhotoId] ?? []),
     }));
   };
 
-  const updatePhotoTextSize = (src: string, id: string, size: number) => {
-    setPhotoDecorations((prev) => ({
-      ...prev,
-      [src]: (prev[src] ?? []).map((decoration) =>
-        decoration.id === id && decoration.type === "text"
-          ? { ...decoration, size }
-          : decoration,
-      ),
-    }));
+  const updatePhotoDecorationPosition = (_key: string, id: string, x: number, y: number) => {
+    updateSelectedDecorations((list) =>
+      list.map((decoration) => (decoration.id === id ? { ...decoration, x, y } : decoration)),
+    );
   };
 
-  const deletePhotoDecoration = (src: string, id: string) => {
-    setPhotoDecorations((prev) => ({
-      ...prev,
-      [src]: (prev[src] ?? []).filter((decoration) => decoration.id !== id),
-    }));
+  const updatePhotoDecorationSize = (_key: string, id: string, size: number) => {
+    updateSelectedDecorations((list) =>
+      list.map((decoration) => {
+        if (decoration.id !== id) return decoration;
+        if (decoration.type === "text") return { ...decoration, size: clampPhotoTextSize(size) };
+        if (decoration.type === "avatar" || decoration.type === "item") {
+          return { ...decoration, size: clampPhotoStickerSize(size) };
+        }
+        return decoration;
+      }),
+    );
+  };
+
+  const deletePhotoDecoration = (_key: string, id: string) => {
+    updateSelectedDecorations((list) => list.filter((decoration) => decoration.id !== id));
   };
 
   const addEmoticonToSelectedPhoto = (emoticonId: number) => {
-    if (!selectedPhoto) return;
-    setPhotoDecorations((prev) => ({
-      ...prev,
-      [selectedPhoto.src]: [
-        ...(prev[selectedPhoto.src] ?? []),
-        {
-          id: "emoticon-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-          type: "emoticon",
-          emoticonId,
-          x: 50,
-          y: 50,
-        },
-      ],
-    }));
+    if (!selectedPhotoId) return;
+    updateSelectedDecorations((list) => [
+      ...list,
+      {
+        id: createDecorationId("emoticon"),
+        type: "emoticon",
+        emoticonId,
+        x: 50,
+        y: 50,
+      },
+    ]);
+    setPhotoEditTool(null);
+  };
+
+  const addAvatarToSelectedPhoto = () => {
+    if (!selectedPhotoId) return;
+    updateSelectedDecorations((list) => [
+      ...list,
+      {
+        id: createDecorationId("avatar"),
+        type: "avatar",
+        size: DEFAULT_PHOTO_AVATAR_SIZE,
+        x: 50,
+        y: 58,
+      },
+    ]);
+    setPhotoEditTool(null);
+  };
+
+  const addItemToSelectedPhoto = (item: HandMadeItem) => {
+    if (!selectedPhotoId) return;
+    updateSelectedDecorations((list) => [
+      ...list,
+      {
+        id: createDecorationId("item"),
+        type: "item",
+        itemId: item.id,
+        label: item.label,
+        imageSrc: resolveHandMadeItemImageUrl(item),
+        color: item.color,
+        icon: item.icon,
+        size: DEFAULT_PHOTO_ITEM_SIZE,
+        x: 50,
+        y: 50,
+      },
+    ]);
     setPhotoEditTool(null);
   };
 
@@ -3984,38 +4685,36 @@ function PhotoPage({
   };
 
   const addTextToSelectedPhoto = () => {
-    if (!selectedPhoto) return;
+    if (!selectedPhotoId) return;
     const trimmed = textDraft.trim();
     if (!trimmed) return;
 
-    setPhotoDecorations((prev) => ({
-      ...prev,
-      [selectedPhoto.src]: [
-        ...(prev[selectedPhoto.src] ?? []),
-        {
-          id: "text-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-          type: "text",
-          text: trimmed,
-          color: textDraftColor,
-          size: DEFAULT_PHOTO_TEXT_SIZE,
-          x: 50,
-          y: 50,
-        },
-      ],
-    }));
+    updateSelectedDecorations((list) => [
+      ...list,
+      {
+        id: createDecorationId("text"),
+        type: "text",
+        text: trimmed,
+        color: textDraftColor,
+        size: DEFAULT_PHOTO_TEXT_SIZE,
+        x: 50,
+        y: 50,
+      },
+    ]);
     resetTextPopup();
   };
 
   const handleConfirmDeletePhoto = async () => {
-    if (!confirmDeletePhoto || deletingPhoto) return;
+    const target = confirmDeletePhoto;
+    if (!target || deletingPhoto) return;
     setDeletingPhoto(true);
-    const result = await removePhoto(confirmDeletePhoto);
+    const result = await removePhoto(target);
     setDeletingPhoto(false);
     if (!result.ok) return;
 
     setPhotoDecorations((prev) => {
       const next = { ...prev };
-      delete next[confirmDeletePhoto.src];
+      delete next[target.id];
       return next;
     });
     setConfirmDeletePhoto(null);
@@ -4051,6 +4750,10 @@ function PhotoPage({
         </button>
       </div>
 
+      <CloverRewardHint>
+        사진 1장당 {CLOVER_REWARD.photoUpload}네잎클로버 · 하루 최대 {PHOTO_UPLOAD_DAILY_MAX}장
+      </CloverRewardHint>
+
       {photoError && (
         <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "#c04040", flexShrink: 0 }}>
           {photoError} (Supabase에서 user-photos.sql 실행이 필요할 수 있어요)
@@ -4083,14 +4786,17 @@ function PhotoPage({
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: i * 0.05 }}
                 >
-                  <AlbumPhoto src={photo.src} />
-                  <PhotoDecorationsOverlay
-                    decorations={photoDecorations[photo.src] ?? []}
-                    emoticonSize={26}
-                    textSize="0.36rem"
-                  />
+                  <AlbumPhotoDetailSurface src={photo.src} border={false} rounded={false}>
+                    <PhotoDecorationsOverlay
+                      decorations={photoDecorations[photo.id] ?? photo.decorations ?? []}
+                      avatar={avatar}
+                      userId={user.id}
+                      inventoryRevision={inventoryRevision}
+                      inventoryItems={inventoryItems}
+                    />
+                  </AlbumPhotoDetailSurface>
                   <span
-                    className="absolute right-1 bottom-1 rounded-full px-1.5 py-0.5"
+                    className="absolute right-1 bottom-1 z-10 rounded-full px-1.5 py-0.5"
                     style={{
                       fontFamily: FONT_UI,
                       fontSize: "0.38rem",
@@ -4151,18 +4857,19 @@ function PhotoPage({
         </motion.button>
       </div>
 
+      {typeof document !== "undefined" && createPortal(
       <AnimatePresence>
         {selectedPhoto && selectedIndex !== null && (
           <motion.div
-            className="absolute inset-0 z-50 flex flex-col p-3"
-            style={{ background: "rgba(42,33,20,0.92)" }}
+            className="fixed inset-0 z-[300] flex flex-col p-3 sm:p-5"
+            style={{ background: "rgba(18,12,8,0.94)" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <div className="relative flex items-center justify-between mb-2 flex-shrink-0">
               {isEditingPhoto ? (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
                     onClick={() => setPhotoEditTool((tool) => tool === "emoticon" ? null : "emoticon")}
@@ -4193,6 +4900,36 @@ function PhotoPage({
                   >
                     T 텍스트
                   </button>
+                  <button
+                    type="button"
+                    onClick={addAvatarToSelectedPhoto}
+                    className="px-2.5 py-1 rounded-full"
+                    style={{
+                      fontFamily: FONT_UI,
+                      fontSize: "0.5rem",
+                      fontWeight: 800,
+                      background: "rgba(255,255,255,0.12)",
+                      color: "#f7efd9",
+                      border: "1px solid rgba(247,239,217,0.18)",
+                    }}
+                  >
+                    아바타 불러오기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPhotoEditTool((tool) => tool === "item" ? null : "item")}
+                    className="px-2.5 py-1 rounded-full"
+                    style={{
+                      fontFamily: FONT_UI,
+                      fontSize: "0.5rem",
+                      fontWeight: 800,
+                      background: photoEditTool === "item" ? "linear-gradient(90deg,#b08a4a,#8b9a72)" : "rgba(255,255,255,0.12)",
+                      color: "#f7efd9",
+                      border: "1px solid rgba(247,239,217,0.18)",
+                    }}
+                  >
+                    아이템 불러오기
+                  </button>
                 </div>
               ) : (
                 <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.36rem", color: "#f7efd9" }}>PHOTO</span>
@@ -4202,6 +4939,12 @@ function PhotoPage({
                   <button
                     type="button"
                     onClick={() => {
+                      if (selectedPhotoId) {
+                        void saveDecorations(selectedPhotoId, photoDecorations[selectedPhotoId] ?? []).then((result) => {
+                          if (!result.ok) setDecorSaveError(result.error ?? "꾸미기 저장에 실패했어요.");
+                          else setDecorSaveError("");
+                        });
+                      }
                       setIsEditingPhoto(false);
                       setPhotoEditTool(null);
                       resetTextPopup();
@@ -4339,25 +5082,28 @@ function PhotoPage({
               </AnimatePresence>
             </div>
 
-            <div
-              ref={selectedPhotoSurfaceRef}
-              className="relative flex-1 rounded-xl overflow-hidden"
-              style={{
-                minHeight: 0,
-                border: "1.5px solid rgba(255,255,255,0.22)",
-                background: "#fff8e8",
-              }}
-            >
-              <AlbumPhoto src={selectedPhoto.src} />
+            {decorSaveError && (
+              <p
+                className="mb-2 flex-shrink-0"
+                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 700, color: "#ff8fa3", textAlign: "center" }}
+              >
+                {decorSaveError}
+              </p>
+            )}
+
+            <div className="relative flex-1 min-h-0">
+              <AlbumPhotoDetailSurface src={selectedPhoto.src} surfaceRef={selectedPhotoSurfaceRef}>
               <PhotoDecorationsOverlay
                 decorations={selectedDecorations}
                 editable={isEditingPhoto}
                 surfaceRef={selectedPhotoSurfaceRef}
-                onMove={(id, x, y) => updatePhotoDecorationPosition(selectedPhoto.src, id, x, y)}
-                onResize={(id, size) => updatePhotoTextSize(selectedPhoto.src, id, size)}
-                onDelete={(id) => deletePhotoDecoration(selectedPhoto.src, id)}
-                emoticonSize={62}
-                textSize="0.9rem"
+                onMove={(id, x, y) => updatePhotoDecorationPosition(selectedPhoto.id, id, x, y)}
+                onResize={(id, size) => updatePhotoDecorationSize(selectedPhoto.id, id, size)}
+                onDelete={(id) => deletePhotoDecoration(selectedPhoto.id, id)}
+                avatar={avatar}
+                userId={user.id}
+                inventoryRevision={inventoryRevision}
+                inventoryItems={inventoryItems}
               />
               <AnimatePresence>
                 {isEditingPhoto && photoEditTool === "emoticon" && (
@@ -4393,6 +5139,54 @@ function PhotoPage({
                         </button>
                       ))}
                     </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <AnimatePresence>
+                {isEditingPhoto && photoEditTool === "item" && (
+                  <motion.div
+                    className="absolute top-2 left-2 z-20 rounded-xl p-2"
+                    style={{
+                      width: 240,
+                      maxWidth: "calc(100% - 16px)",
+                      maxHeight: "60%",
+                      overflowY: "auto",
+                      background: "rgba(42,33,20,0.9)",
+                      border: "1px solid rgba(247,239,217,0.24)",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+                      backdropFilter: "blur(8px)",
+                    }}
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  >
+                    <p style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 800, color: "#f7efd9", marginBottom: 8 }}>
+                      아이템 선택
+                    </p>
+                    {inventoryItems.length === 0 ? (
+                      <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "rgba(247,239,217,0.75)", lineHeight: 1.45 }}>
+                        불러올 아이템이 없어요. 아이템 제작/상점에서 먼저 모아 주세요.
+                      </p>
+                    ) : (
+                      <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                        {inventoryItems.map((item) => (
+                          <button
+                            key={"photo-edit-item-" + item.id}
+                            type="button"
+                            onClick={() => addItemToSelectedPhoto(item)}
+                            title={item.label}
+                            className="rounded-lg flex items-center justify-center"
+                            style={{
+                              height: 46,
+                              background: "rgba(255,255,255,0.12)",
+                              border: "1px solid rgba(247,239,217,0.14)",
+                            }}
+                          >
+                            <HandMadeItemPreview item={item} size={34} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -4517,6 +5311,7 @@ function PhotoPage({
                   </motion.div>
                 )}
               </AnimatePresence>
+              </AlbumPhotoDetailSurface>
             </div>
 
             {!isEditingPhoto && selectedPhotoId && (
@@ -4535,7 +5330,9 @@ function PhotoPage({
             )}
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
 
       <AlertDialog open={!!confirmDeletePhoto} onOpenChange={(open) => !open && !deletingPhoto && setConfirmDeletePhoto(null)}>
         <AlertDialogContent
@@ -4547,7 +5344,7 @@ function PhotoPage({
         >
           <AlertDialogHeader>
             <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.78rem", fontWeight: 900, color: "#8a4b1f" }}>
-              사진을 삭제할까요?
+              사진을 정말 삭제하시겠습니까?
             </AlertDialogTitle>
             <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.5rem", color: "#b06a3f", lineHeight: 1.55 }}>
               삭제한 사진은 복구할 수 없어요.
@@ -4559,10 +5356,13 @@ function PhotoPage({
               style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900 }}
               disabled={deletingPhoto}
             >
-              아니오
+              취소
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => void handleConfirmDeletePhoto()}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleConfirmDeletePhoto();
+              }}
               className="rounded-full px-4 py-2"
               disabled={deletingPhoto}
               style={{
@@ -4574,7 +5374,7 @@ function PhotoPage({
                 opacity: deletingPhoto ? 0.6 : 1,
               }}
             >
-              {deletingPhoto ? "삭제 중..." : "네"}
+              {deletingPhoto ? "삭제 중..." : "확인"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -7081,6 +7881,11 @@ function GuestbookPage({
     setLoading(true);
     const next = await loadGuestbookView(user.id);
     setEntries(next);
+    // 방명록 수신 보상 (첫 로드는 기존 글 baseline, 이후 새 글만 +3)
+    claimNewGuestbookReceiveRewards(
+      user.id,
+      next.map((entry) => entry.id),
+    );
     setLoading(false);
   };
 
@@ -7778,8 +8583,7 @@ function DiaryPage({ user }: { user: User }) {
 
   const saveEntry = async () => {
     if (!content.trim() || saving) return;
-    const now = new Date();
-    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const date = kstDateKey();
     const entry: DiaryEntry = {
       id: crypto.randomUUID(),
       date,
@@ -7792,6 +8596,9 @@ function DiaryPage({ user }: { user: User }) {
     persistEntries(next);
     setContent("");
     setSyncError(null);
+
+    // 하루 첫 일기 작성 시 네잎클로버 적립
+    claimDiaryReward(user.id);
 
     if (isSupabaseConfigured()) {
       setSaving(true);
@@ -7913,6 +8720,7 @@ function DiaryPage({ user }: { user: User }) {
           border: "1.5px solid rgba(255,160,80,0.3)",
           boxShadow: "0 2px 12px rgba(255,130,60,0.08)",
         }}>
+          <CloverRewardHint>하루 첫 일기 작성 시 {CLOVER_REWARD.diary}네잎클로버 적립!</CloverRewardHint>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.35rem", color: "#e08040" }}>📅</span>
@@ -8892,9 +9700,15 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.04 }}
               >
-                <AlbumPhoto src={photo.src} />
+                <AlbumPhotoDetailSurface src={photo.src} border={false} rounded={false}>
+                  <PhotoDecorationsOverlay
+                    decorations={photo.decorations ?? []}
+                    avatar={nb.avatarProfile ?? undefined}
+                    userId={nb.friendUserId}
+                  />
+                </AlbumPhotoDetailSurface>
                 <span
-                  className="absolute right-1 bottom-1 rounded-full px-1.5 py-0.5"
+                  className="absolute right-1 bottom-1 z-10 rounded-full px-1.5 py-0.5"
                   style={{
                     fontFamily: FONT_UI,
                     fontSize: "0.38rem",
@@ -8913,11 +9727,12 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
         )}
       </div>
 
+      {typeof document !== "undefined" && createPortal(
       <AnimatePresence>
         {selectedPhoto && selectedIndex !== null && (
           <motion.div
-            className="absolute inset-0 z-50 flex flex-col p-3"
-            style={{ background: "rgba(42,33,20,0.92)" }}
+            className="fixed inset-0 z-[300] flex flex-col p-3 sm:p-5"
+            style={{ background: "rgba(18,12,8,0.94)" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -9072,11 +9887,14 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
                 )}
               </AnimatePresence>
             </div>
-            <div
-              className="relative flex-1 rounded-xl overflow-hidden"
-              style={{ minHeight: 0, border: "1.5px solid rgba(255,255,255,0.22)", background: "#fff8e8" }}
-            >
-              <AlbumPhoto src={selectedPhoto.src} />
+            <div className="relative flex-1 min-h-0">
+              <AlbumPhotoDetailSurface src={selectedPhoto.src}>
+                <PhotoDecorationsOverlay
+                  decorations={selectedPhoto.decorations ?? []}
+                  avatar={nb.avatarProfile ?? undefined}
+                  userId={nb.friendUserId}
+                />
+              </AlbumPhotoDetailSurface>
             </div>
 
             {selectedPhotoId && (
@@ -9095,7 +9913,9 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
             )}
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
     </div>
   );
 }
@@ -9494,6 +10314,9 @@ function FriendVisitPage({
       return;
     }
 
+    // 다른 사람 방명록 작성 보상
+    claimGuestbookWriteReward(user.id, result.entry.id);
+
     setGuestMsg("");
     setShowGuestForm(false);
     await refreshGuestbook();
@@ -9723,6 +10546,7 @@ function FriendVisitPage({
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                 >
+                  <CloverRewardHint>방명록 작성 시 {CLOVER_REWARD.guestbookWrite}네잎클로버 적립!</CloverRewardHint>
                   <textarea
                     value={guestMsg}
                     onChange={(e) => {
@@ -11732,6 +12556,19 @@ function BoardExpandPage({ user, onBack }: { user: User; onBack: () => void }) {
 ═══════════════════════════════════════════ */
 function HomeLeftPage({ user, onOpenBoard }: { user: User; onOpenBoard: () => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const profile = getUserProfile(user.id, user.nickname);
+  const resolvedBgm = resolveBgm(profile);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      void audio.play().catch(() => setIsPlaying(false));
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying, resolvedBgm.src]);
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 overflow-hidden" style={{ background: DIARY_PAPER_BG }}>
@@ -11774,6 +12611,7 @@ function HomeLeftPage({ user, onOpenBoard }: { user: User; onOpenBoard: () => vo
         background: "linear-gradient(90deg,rgba(var(--diary-main-rgb),0.15),rgba(var(--diary-mid-rgb),0.08))",
         border: "1px solid rgba(255,80,180,0.18)",
       }}>
+        <audio ref={audioRef} key={resolvedBgm.src} src={resolvedBgm.src} loop preload="metadata" />
         <button onClick={() => setIsPlaying(!isPlaying)}
           className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ background: "linear-gradient(135deg,#ff4757,#ff6b81)", boxShadow: "0 1px 6px rgba(255,45,120,0.35)" }}>
@@ -11781,7 +12619,7 @@ function HomeLeftPage({ user, onOpenBoard }: { user: User; onOpenBoard: () => vo
         </button>
         <div className="flex-1 min-w-0">
           <p style={{ fontFamily: FONT_UI, fontSize: "0.52rem", fontWeight: 700, color: "var(--diary-dark)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            ♬ Lovefool - The Cardigans
+            ♬ {resolvedBgm.title}
           </p>
           <div className="mt-0.5 h-1 rounded-full overflow-hidden" style={{ background: "rgba(var(--diary-mid-rgb),0.15)" }}>
             <motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg,#ff4757,#ff6b81)" }}
@@ -11894,6 +12732,8 @@ function ShopPage({
   useEffect(() => {
     saveCoins(user.id, coins);
   }, [user.id, coins]);
+
+  useEffect(() => subscribeCloverRewards(user.id, () => setCoins(getCloverBalance(user.id))), [user.id]);
 
   const refreshPublicListings = async () => {
     const next = await fetchActiveShopListings();
@@ -13055,7 +13895,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           ? mergeInventoryItems(localRecoverable, mergedItems)
           : mergedItems;
         const mergedOwned = Array.from(new Set([...localInventory.ownedListingIds, ...remoteInventory.ownedListingIds]));
-        applyInventorySnapshot(user.id, finalItems, mergedOwned, remoteInventory.coins);
+        applyInventorySnapshot(user.id, finalItems, mergedOwned);
+        await hydrateCloverFromServer(user.id, {
+          coins: remoteInventory.coins,
+          cloverRewards: remoteInventory.cloverRewards,
+        });
         // 로컬/개발 테스트용: 핑크 원피스를 현재 계정에 보유 처리 (다른 계정은 상점 구매 필요)
         const grantedTesterItem = ensureDevPreownedOfficialShopItems(user.id);
         if (
@@ -13065,12 +13909,17 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             item => !remoteInventory.items.some(remoteItem => remoteItem.id === item.id),
           )
         ) {
-          void upsertUserInventory(user.id, getInventorySnapshot(user.id));
+          void upsertUserInventory(user.id, {
+            ...getInventorySnapshot(user.id),
+            cloverRewards: undefined,
+          });
         }
       } else if (localInventory.items.length > 0 || localInventory.coins !== DEFAULT_SHOP_COINS) {
         ensureDevPreownedOfficialShopItems(user.id);
+        await hydrateCloverFromServer(user.id, null);
         void upsertUserInventory(user.id, getInventorySnapshot(user.id));
       } else {
+        await hydrateCloverFromServer(user.id, null);
         if (ensureDevPreownedOfficialShopItems(user.id)) {
           void upsertUserInventory(user.id, getInventorySnapshot(user.id));
         }
@@ -13415,18 +14264,30 @@ export default function App() {
   const [page, setPage] = useState<AppPage>("auth");
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     const unsubscribe = bootstrapAuth(
       (result) => {
         if (!result) {
           setUser(null);
+          setPasswordRecovery(false);
           setPage("auth");
           setAuthLoading(false);
           return;
         }
 
         setAuthError(null);
+
+        if (result.isPasswordRecovery) {
+          setUser(result.user);
+          setPasswordRecovery(true);
+          setPage("auth");
+          setAuthLoading(false);
+          return;
+        }
+
+        setPasswordRecovery(false);
         setUser(result.user);
         try {
           const restore = sessionStorage.getItem(DIARY_RESTORE_SPREAD_KEY);
@@ -13444,6 +14305,7 @@ export default function App() {
       (message) => {
         setAuthError(message);
         setUser(null);
+        setPasswordRecovery(false);
         setPage("auth");
         setAuthLoading(false);
       },
@@ -13454,7 +14316,17 @@ export default function App() {
 
   const handleAuthSuccess = (loggedIn: User) => {
     setUser(loggedIn);
+    setPasswordRecovery(false);
     setPage("cover");
+  };
+
+  const handlePasswordUpdated = () => {
+    setPasswordRecovery(false);
+    if (user) {
+      setPage(user.nickname ? "cover" : "nickname-setup");
+    } else {
+      setPage("auth");
+    }
   };
 
   const handleNicknameComplete = (loggedIn: User) => {
@@ -13465,8 +14337,11 @@ export default function App() {
   const handleLogout = async () => {
     await signOut();
     setUser(null);
+    setPasswordRecovery(false);
     setPage("auth");
   };
+
+  const bgmActive = page === "cover" || page === "spread";
 
   if (authLoading) {
     return (
@@ -13480,6 +14355,11 @@ export default function App() {
 
   return (
     <DiaryThemeProvider userId={user?.id} userNickname={user?.nickname}>
+    <DiaryBgmProvider
+      userId={user?.id}
+      nickname={user?.nickname}
+      active={bgmActive}
+    >
     <div className="size-full">
       <AnimatePresence mode="wait">
         {page === "auth" && (
@@ -13488,6 +14368,8 @@ export default function App() {
               onSuccess={handleAuthSuccess}
               initialError={authError}
               onClearError={() => setAuthError(null)}
+              passwordRecovery={passwordRecovery}
+              onPasswordUpdated={handlePasswordUpdated}
             />
           </motion.div>
         )}
@@ -13513,6 +14395,7 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </DiaryBgmProvider>
     </DiaryThemeProvider>
   );
 }

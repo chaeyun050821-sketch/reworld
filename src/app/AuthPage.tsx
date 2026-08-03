@@ -1,24 +1,42 @@
 import { useState, useEffect, type FormEvent, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { signIn, signInWithSocial, signUp, type SocialAuthProvider, type User } from "../lib/auth";
+import {
+  requestPasswordReset,
+  signIn,
+  signInWithSocial,
+  signUp,
+  updatePassword,
+  type SocialAuthProvider,
+  type User,
+} from "../lib/auth";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { FONT_UI } from "./ui-fonts";
 
-type AuthMode = "login" | "signup";
+type AuthMode = "login" | "signup" | "forgot" | "reset";
 
 type AuthPageProps = {
   onSuccess: (user: User) => void;
   initialError?: string | null;
   onClearError?: () => void;
+  /** 메일 링크로 들어온 비밀번호 재설정 세션 */
+  passwordRecovery?: boolean;
+  onPasswordUpdated?: () => void;
 };
 
-export default function AuthPage({ onSuccess, initialError, onClearError }: AuthPageProps) {
-  const [mode, setMode] = useState<AuthMode>("login");
+export default function AuthPage({
+  onSuccess,
+  initialError,
+  onClearError,
+  passwordRecovery = false,
+  onPasswordUpdated,
+}: AuthPageProps) {
+  const [mode, setMode] = useState<AuthMode>(passwordRecovery ? "reset" : "login");
   const [email, setEmail] = useState("");
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<SocialAuthProvider | null>(null);
 
@@ -32,9 +50,20 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
     if (initialError) setError(initialError);
   }, [initialError]);
 
+  useEffect(() => {
+    if (passwordRecovery) {
+      setMode("reset");
+      setError("");
+      setInfo("새 비밀번호를 입력해 주세요.");
+      setPassword("");
+      setConfirm("");
+    }
+  }, [passwordRecovery]);
+
   const switchMode = (next: AuthMode) => {
     setMode(next);
     setError("");
+    setInfo("");
     onClearError?.();
     setPassword("");
     setConfirm("");
@@ -43,9 +72,40 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setInfo("");
     setLoading(true);
 
     await new Promise((r) => setTimeout(r, 300));
+
+    if (mode === "forgot") {
+      const result = await requestPasswordReset(email);
+      if (!result.ok) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
+      setInfo("비밀번호 재설정 메일을 보냈어요. 메일함(스팸함 포함)을 확인해 주세요.");
+      setLoading(false);
+      return;
+    }
+
+    if (mode === "reset") {
+      if (password !== confirm) {
+        setError("비밀번호 확인이 일치하지 않아요.");
+        setLoading(false);
+        return;
+      }
+      const result = await updatePassword(password);
+      if (!result.ok) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
+      setInfo("비밀번호가 변경됐어요.");
+      setLoading(false);
+      onPasswordUpdated?.();
+      return;
+    }
 
     if (mode === "login") {
       const result = await signIn(email, password);
@@ -75,6 +135,7 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
 
   const handleSocialLogin = async (provider: SocialAuthProvider) => {
     setError("");
+    setInfo("");
     setSocialLoading(provider);
     const result = await signInWithSocial(provider);
     if (!result.ok) {
@@ -91,6 +152,17 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
     background: "rgba(255,255,255,0.9)",
     border: "1.5px solid rgba(122,143,212,0.26)",
   };
+
+  const showAuthTabs = mode === "login" || mode === "signup";
+  const showSocial = showAuthTabs;
+  const submitLabel =
+    mode === "login"
+      ? "다이어리 열기 →"
+      : mode === "signup"
+        ? "가입하고 시작하기 →"
+        : mode === "forgot"
+          ? "재설정 메일 보내기 →"
+          : "비밀번호 변경하기 →";
 
   return (
     <div
@@ -150,7 +222,11 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                 letterSpacing: "0.06em",
               }}
             >
-              MY PERSONAL DIARY
+              {mode === "forgot"
+                ? "FIND PASSWORD"
+                : mode === "reset"
+                  ? "CHANGE PASSWORD"
+                  : "MY PERSONAL DIARY"}
             </p>
           </div>
 
@@ -172,38 +248,69 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
           )}
 
           {/* mode tabs */}
-          <div
-            className="flex rounded-full p-1"
-            style={{ background: "rgba(122,143,212,0.1)", border: "1px solid rgba(122,143,212,0.18)" }}
-          >
-            {(["login", "signup"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => switchMode(tab)}
-                className="flex-1 py-2.5 rounded-full transition-all"
+          {showAuthTabs && (
+            <div
+              className="flex rounded-full p-1"
+              style={{ background: "rgba(122,143,212,0.1)", border: "1px solid rgba(122,143,212,0.18)" }}
+            >
+              {(["login", "signup"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => switchMode(tab)}
+                  className="flex-1 py-2.5 rounded-full transition-all"
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: mode === tab ? "#fff" : "#5a6db0",
+                    background: mode === tab ? "linear-gradient(90deg, #5a6db0, #7a8fd4)" : "transparent",
+                    boxShadow: mode === tab ? "0 2px 8px rgba(90,109,176,0.28)" : "none",
+                  }}
+                >
+                  {tab === "login" ? "로그인" : "회원가입"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(mode === "forgot" || mode === "reset") && (
+            <div className="flex flex-col items-center gap-1">
+              <p
                 style={{
                   fontFamily: FONT_UI,
-                  fontSize: "0.72rem",
+                  fontSize: "0.78rem",
                   fontWeight: 700,
-                  color: mode === tab ? "#fff" : "#5a6db0",
-                  background: mode === tab ? "linear-gradient(90deg, #5a6db0, #7a8fd4)" : "transparent",
-                  boxShadow: mode === tab ? "0 2px 8px rgba(90,109,176,0.28)" : "none",
+                  color: "#3d4a7a",
                 }}
               >
-                {tab === "login" ? "로그인" : "회원가입"}
-              </button>
-            ))}
-          </div>
+                {mode === "forgot" ? "비밀번호 찾기" : "비밀번호 바꾸기"}
+              </p>
+              <p
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: "0.54rem",
+                  fontWeight: 600,
+                  color: "#7a8fd4",
+                  textAlign: "center",
+                  lineHeight: 1.5,
+                }}
+              >
+                {mode === "forgot"
+                  ? "가입한 이메일로 재설정 링크를 보내드려요."
+                  : "새 비밀번호를 설정한 뒤 다이어리를 이용할 수 있어요."}
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <AnimatePresence mode="wait">
               <motion.div
                 key={mode}
                 className="flex flex-col gap-3.5"
-                initial={{ opacity: 0, x: mode === "login" ? -12 : 12 }}
+                initial={{ opacity: 0, x: mode === "login" || mode === "forgot" ? -12 : 12 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: mode === "login" ? 12 : -12 }}
+                exit={{ opacity: 0, x: mode === "login" || mode === "forgot" ? 12 : -12 }}
                 transition={{ duration: 0.2 }}
               >
                 {mode === "signup" && (
@@ -230,51 +337,7 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                   </div>
                 )}
 
-                <div className="flex flex-col gap-1">
-                  <label
-                    style={{
-                      fontFamily: FONT_UI,
-                      fontSize: "0.6rem",
-                      fontWeight: 700,
-                      color: "#5a6db0",
-                    }}
-                  >
-                    이메일
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="hello@example.com"
-                    autoComplete="email"
-                    className="w-full px-3.5 py-3 rounded-xl outline-none"
-                    style={inputStyle}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label
-                    style={{
-                      fontFamily: FONT_UI,
-                      fontSize: "0.6rem",
-                      fontWeight: 700,
-                      color: "#5a6db0",
-                    }}
-                  >
-                    비밀번호
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === "signup" ? "6자 이상" : "비밀번호 입력"}
-                    autoComplete={mode === "login" ? "current-password" : "new-password"}
-                    className="w-full px-3.5 py-3 rounded-xl outline-none"
-                    style={inputStyle}
-                  />
-                </div>
-
-                {mode === "signup" && (
+                {(mode === "login" || mode === "signup" || mode === "forgot") && (
                   <div className="flex flex-col gap-1">
                     <label
                       style={{
@@ -284,7 +347,55 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                         color: "#5a6db0",
                       }}
                     >
-                      비밀번호 확인
+                      이메일
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="hello@example.com"
+                      autoComplete="email"
+                      className="w-full px-3.5 py-3 rounded-xl outline-none"
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
+
+                {(mode === "login" || mode === "signup" || mode === "reset") && (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: "0.6rem",
+                        fontWeight: 700,
+                        color: "#5a6db0",
+                      }}
+                    >
+                      {mode === "reset" ? "새 비밀번호" : "비밀번호"}
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={mode === "login" ? "비밀번호 입력" : "6자 이상"}
+                      autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      className="w-full px-3.5 py-3 rounded-xl outline-none"
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
+
+                {(mode === "signup" || mode === "reset") && (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: "0.6rem",
+                        fontWeight: 700,
+                        color: "#5a6db0",
+                      }}
+                    >
+                      {mode === "reset" ? "새 비밀번호 확인" : "비밀번호 확인"}
                     </label>
                     <input
                       type="password"
@@ -299,6 +410,23 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                 )}
               </motion.div>
             </AnimatePresence>
+
+            {mode === "login" && (
+              <div className="flex justify-end -mt-1">
+                <button
+                  type="button"
+                  onClick={() => switchMode("forgot")}
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: "0.54rem",
+                    fontWeight: 700,
+                    color: "#7a8fd4",
+                  }}
+                >
+                  비밀번호를 잊었나요?
+                </button>
+              </div>
+            )}
 
             <AnimatePresence>
               {error && (
@@ -315,6 +443,26 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                   }}
                 >
                   {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {info && !error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: "0.58rem",
+                    fontWeight: 600,
+                    color: "#5a6db0",
+                    textAlign: "center",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {info}
                 </motion.p>
               )}
             </AnimatePresence>
@@ -337,54 +485,58 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
               whileHover={loading ? {} : { scale: 1.02 }}
               whileTap={loading ? {} : { scale: 0.98 }}
             >
-              {loading ? "잠시만요..." : mode === "login" ? "다이어리 열기 →" : "가입하고 시작하기 →"}
+              {loading ? "잠시만요..." : submitLabel}
             </motion.button>
           </form>
 
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px" style={{ background: "rgba(122,143,212,0.22)" }} />
-            <span style={{ fontFamily: FONT_UI, fontSize: "0.52rem", fontWeight: 600, color: "#9aa8d8" }}>
-              또는
-            </span>
-            <div className="flex-1 h-px" style={{ background: "rgba(122,143,212,0.22)" }} />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            {SOCIAL_PROVIDERS.map((provider) => (
-              <button
-                key={provider.id}
-                type="button"
-                disabled={!!socialLoading || loading}
-                onClick={() => void handleSocialLogin(provider.id)}
-                className="w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-opacity"
-                style={{
-                  fontFamily: FONT_UI,
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  color: "#3d4a7a",
-                  background: "rgba(255,255,255,0.92)",
-                  border: "1.5px solid rgba(122,143,212,0.22)",
-                  opacity: socialLoading && socialLoading !== provider.id ? 0.55 : 1,
-                }}
-              >
-                <span
-                  className="flex items-center justify-center rounded-full"
-                  style={{
-                    width: 22,
-                    height: 22,
-                    fontSize: provider.id === "google" ? "0.72rem" : "0.85rem",
-                    fontWeight: 800,
-                    background: provider.id === "kakao" ? "#FEE500" : "rgba(122,143,212,0.12)",
-                  }}
-                >
-                  {provider.emoji}
+          {showSocial && (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px" style={{ background: "rgba(122,143,212,0.22)" }} />
+                <span style={{ fontFamily: FONT_UI, fontSize: "0.52rem", fontWeight: 600, color: "#9aa8d8" }}>
+                  또는
                 </span>
-                {socialLoading === provider.id
-                  ? "연결 중..."
-                  : `${provider.label}로 ${mode === "login" ? "로그인" : "시작하기"}`}
-              </button>
-            ))}
-          </div>
+                <div className="flex-1 h-px" style={{ background: "rgba(122,143,212,0.22)" }} />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {SOCIAL_PROVIDERS.map((provider) => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    disabled={!!socialLoading || loading}
+                    onClick={() => void handleSocialLogin(provider.id)}
+                    className="w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-opacity"
+                    style={{
+                      fontFamily: FONT_UI,
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: "#3d4a7a",
+                      background: "rgba(255,255,255,0.92)",
+                      border: "1.5px solid rgba(122,143,212,0.22)",
+                      opacity: socialLoading && socialLoading !== provider.id ? 0.55 : 1,
+                    }}
+                  >
+                    <span
+                      className="flex items-center justify-center rounded-full"
+                      style={{
+                        width: 22,
+                        height: 22,
+                        fontSize: provider.id === "google" ? "0.72rem" : "0.85rem",
+                        fontWeight: 800,
+                        background: provider.id === "kakao" ? "#FEE500" : "rgba(122,143,212,0.12)",
+                      }}
+                    >
+                      {provider.emoji}
+                    </span>
+                    {socialLoading === provider.id
+                      ? "연결 중..."
+                      : `${provider.label}로 ${mode === "login" ? "로그인" : "시작하기"}`}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           <p
             className="text-center"
@@ -406,7 +558,7 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                   회원가입
                 </button>
               </>
-            ) : (
+            ) : mode === "signup" ? (
               <>
                 이미 계정이 있나요?{" "}
                 <button
@@ -415,6 +567,28 @@ export default function AuthPage({ onSuccess, initialError, onClearError }: Auth
                   style={{ color: "#ff4757", fontWeight: 700 }}
                 >
                   로그인
+                </button>
+              </>
+            ) : mode === "forgot" ? (
+              <>
+                비밀번호가 기억났나요?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("login")}
+                  style={{ color: "#ff4757", fontWeight: 700 }}
+                >
+                  로그인
+                </button>
+              </>
+            ) : (
+              <>
+                메일 링크가 만료됐나요?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("forgot")}
+                  style={{ color: "#ff4757", fontWeight: 700 }}
+                >
+                  다시 받기
                 </button>
               </>
             )}

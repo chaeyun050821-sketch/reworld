@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { PhotoDecoration } from "../../lib/photo-decorations";
 import { loadPhotos, savePhotos, type StoredPhoto } from "../../lib/photo-storage";
 import {
   addGradientPhoto,
@@ -6,6 +7,7 @@ import {
   deleteUserPhoto,
   fetchUserPhotos,
   mergePhotoLists,
+  updatePhotoDecorations,
   upsertLocalPhoto,
 } from "../../lib/photo-sync";
 import { isSupabaseConfigured } from "../../lib/supabase";
@@ -130,6 +132,29 @@ export function usePhotoAlbum(userId: string) {
     [userId],
   );
 
+  const saveDecorations = useCallback(
+    async (photoId: string, decorations: PhotoDecoration[]) => {
+      const current = getStorePhotos(userId);
+      const next = current.map((photo) =>
+        photo.id === photoId
+          ? {
+              ...photo,
+              decorations: decorations.length > 0 ? decorations : undefined,
+            }
+          : photo,
+      );
+      setStorePhotos(userId, next);
+
+      const result = await updatePhotoDecorations(userId, photoId, decorations);
+      if (!result.ok) {
+        setError(result.error);
+        return result;
+      }
+      return { ok: true as const };
+    },
+    [userId],
+  );
+
   return {
     photos,
     urls: photos.map((photo) => photo.src),
@@ -139,6 +164,7 @@ export function usePhotoAlbum(userId: string) {
     addUpload,
     addGradient,
     removePhoto,
+    saveDecorations,
     setError,
   };
 }

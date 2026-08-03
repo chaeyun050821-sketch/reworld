@@ -24,7 +24,12 @@ export type AuthResult =
 export type AuthSessionResult = {
   user: User;
   needsNicknameSetup: boolean;
+  isPasswordRecovery?: boolean;
 };
+
+export type AuthActionResult =
+  | { ok: true }
+  | { ok: false; error: string };
 
 function mapAuthError(message: string): string {
   const lower = message.toLowerCase();
@@ -49,6 +54,15 @@ function mapAuthError(message: string): string {
   }
   if (lower.includes("unable to exchange external code")) {
     return "소셜 Provider Client ID/Secret이 맞지 않아요. Supabase 대시보드에서 다시 확인해 주세요.";
+  }
+  if (lower.includes("same password") || lower.includes("should be different")) {
+    return "이전과 다른 비밀번호로 설정해 주세요.";
+  }
+  if (lower.includes("for security purposes") || lower.includes("only request this once")) {
+    return "잠시 후에 다시 시도해 주세요.";
+  }
+  if (lower.includes("user not found") || lower.includes("unable to find user")) {
+    return "가입된 이메일을 찾을 수 없어요.";
   }
 
   return message;
@@ -125,6 +139,19 @@ function clearOAuthCallbackUrl(): void {
   clearAuthCallbackUrl();
 }
 
+function detectPasswordRecovery(event: AuthChangeEvent): boolean {
+  if (event === "PASSWORD_RECOVERY") return true;
+  if (typeof window === "undefined") return false;
+
+  const fromQuery = new URLSearchParams(window.location.search);
+  const hashRaw = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  const fromHash = new URLSearchParams(hashRaw);
+
+  return fromQuery.get("type") === "recovery" || fromHash.get("type") === "recovery";
+}
+
 /** OAuth 콜백 URL에 남은 에러 메시지 (있으면 URL 정리 후 반환) */
 export function readOAuthCallbackError(): string | null {
   return consumeAuthCallbackError();
@@ -164,9 +191,14 @@ export function bootstrapAuth(
 
           try {
             const result = await mapUserFromSession(session.user);
-            onChange(result);
+            const isPasswordRecovery = detectPasswordRecovery(event);
+            onChange(isPasswordRecovery ? { ...result, isPasswordRecovery: true } : result);
 
-            if (event === "SIGNED_IN" || (event === "INITIAL_SESSION" && !initialHandled)) {
+            if (
+              event === "SIGNED_IN"
+              || event === "PASSWORD_RECOVERY"
+              || (event === "INITIAL_SESSION" && !initialHandled)
+            ) {
               clearOAuthCallbackUrl();
             }
           } catch (err) {
@@ -285,6 +317,61 @@ export async function signIn(email: string, password: string): Promise<AuthResul
 export async function signOut(): Promise<void> {
   if (!isSupabaseConfigured()) return;
   await supabase.auth.signOut();
+}
+
+export async function requestPasswordReset(email: string): Promise<AuthActionResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      ok: false,
+      error: "Supabase 설정이 필요해요. 프로젝트 루트에 .env 파일을 만들어 주세요.",
+    };
+  }
+
+  const trimmedEmail = email.trim().toLowerCase();
+  if (!trimmedEmail) {
+    return { ok: false, error: "이메일을 입력해 주세요." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    return { ok: false, error: "올바른 이메일 형식이 아니에요." };
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+    redirectTo: getAuthCallbackUrl(),
+  });
+
+  if (error) {
+    return { ok: false, error: mapAuthError(error.message) };
+  }
+
+  return { ok: true };
+}
+
+export async function updatePassword(newPassword: string): Promise<AuthActionResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      ok: false,
+      error: "Supabase 설정이 필요해요. 프로젝트 루트에 .env 파일을 만들어 주세요.",
+    };
+  }
+
+  if (!newPassword) {
+    return { ok: false, error: "새 비밀번호를 입력해 주세요." };
+  }
+  if (newPassword.length < 6) {
+    return { ok: false, error: "비밀번호는 6자 이상이어야 해요." };
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) {
+    return { ok: false, error: "비밀번호 변경 세션이 없어요. 메일 링크를 다시 열어 주세요." };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) {
+    return { ok: false, error: mapAuthError(error.message) };
+  }
+
+  return { ok: true };
 }
 
 export async function signInWithSocial(

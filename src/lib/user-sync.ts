@@ -176,6 +176,7 @@ export type StoredUserInventory = {
   ownedListingIds: string[];
   coins: number;
   updatedAt?: string;
+  cloverRewards?: unknown;
 };
 
 type InventoryRow = {
@@ -184,7 +185,88 @@ type InventoryRow = {
   owned_listing_ids: string[] | null;
   coins: number | null;
   updated_at: string | null;
+  clover_rewards?: unknown;
 };
+
+function isMissingColumnError(message: string, code?: string): boolean {
+  const lower = message.toLowerCase();
+  return code === "PGRST204" || lower.includes("clover_rewards");
+}
+
+export async function fetchUserInventory(userId: string): Promise<StoredUserInventory | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  let data: InventoryRow | null = null;
+  let error: { message: string; code?: string } | null = null;
+
+  const withRewards = await supabase
+    .from("user_inventory")
+    .select("user_id, items, owned_listing_ids, coins, updated_at, clover_rewards")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (withRewards.error && isMissingColumnError(withRewards.error.message, withRewards.error.code)) {
+    const fallback = await supabase
+      .from("user_inventory")
+      .select("user_id, items, owned_listing_ids, coins, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    data = fallback.data as InventoryRow | null;
+    error = fallback.error;
+  } else {
+    data = withRewards.data as InventoryRow | null;
+    error = withRewards.error;
+  }
+
+  if (error) {
+    console.error("[user-sync] inventory fetch failed:", error.message, error.code);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data;
+  return {
+    items: Array.isArray(row.items) ? row.items : [],
+    ownedListingIds: Array.isArray(row.owned_listing_ids) ? row.owned_listing_ids : [],
+    coins: typeof row.coins === "number" && row.coins >= 0 ? Math.floor(row.coins) : 500,
+    updatedAt: row.updated_at ?? undefined,
+    cloverRewards: row.clover_rewards ?? undefined,
+  };
+}
+
+export async function upsertUserInventory(
+  userId: string,
+  inventory: StoredUserInventory,
+): Promise<SyncResult> {
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: "Supabase 연결이 필요해요." };
+  }
+
+  const basePayload = {
+    user_id: userId,
+    items: inventory.items,
+    owned_listing_ids: inventory.ownedListingIds,
+    coins: inventory.coins,
+    updated_at: new Date().toISOString(),
+  };
+
+  const withRewards =
+    inventory.cloverRewards !== undefined
+      ? { ...basePayload, clover_rewards: inventory.cloverRewards }
+      : basePayload;
+
+  let { error } = await supabase.from("user_inventory").upsert(withRewards, { onConflict: "user_id" });
+
+  if (error && inventory.cloverRewards !== undefined && isMissingColumnError(error.message, error.code)) {
+    ({ error } = await supabase.from("user_inventory").upsert(basePayload, { onConflict: "user_id" }));
+  }
+
+  if (error) {
+    console.error("[user-sync] inventory upsert failed:", error.message, error.code);
+    return { ok: false, error: mapSupabaseError(error.message, error.code) };
+  }
+  return { ok: true };
+}
 
 export async function fetchUserInventories(userIds: string[]): Promise<Map<string, HandMadeItem[]>> {
   const result = new Map<string, HandMadeItem[]>();
@@ -205,54 +287,4 @@ export async function fetchUserInventories(userIds: string[]): Promise<Map<strin
     result.set(row.user_id, Array.isArray(row.items) ? row.items : []);
   }
   return result;
-}
-
-export async function fetchUserInventory(userId: string): Promise<StoredUserInventory | null> {
-  if (!isSupabaseConfigured()) return null;
-
-  const { data, error } = await supabase
-    .from("user_inventory")
-    .select("user_id, items, owned_listing_ids, coins, updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[user-sync] inventory fetch failed:", error.message, error.code);
-    return null;
-  }
-  if (!data) return null;
-
-  const row = data as InventoryRow;
-  return {
-    items: Array.isArray(row.items) ? row.items : [],
-    ownedListingIds: Array.isArray(row.owned_listing_ids) ? row.owned_listing_ids : [],
-    coins: typeof row.coins === "number" && row.coins >= 0 ? Math.floor(row.coins) : 500,
-    updatedAt: row.updated_at ?? undefined,
-  };
-}
-
-export async function upsertUserInventory(
-  userId: string,
-  inventory: StoredUserInventory,
-): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
-  }
-
-  const { error } = await supabase.from("user_inventory").upsert(
-    {
-      user_id: userId,
-      items: inventory.items,
-      owned_listing_ids: inventory.ownedListingIds,
-      coins: inventory.coins,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-
-  if (error) {
-    console.error("[user-sync] inventory upsert failed:", error.message, error.code);
-    return { ok: false, error: mapSupabaseError(error.message, error.code) };
-  }
-  return { ok: true };
 }

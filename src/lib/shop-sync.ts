@@ -6,6 +6,7 @@ import {
   loadShopSourceItems,
   saveMyListings,
 } from "./shop-storage";
+import { hydrateCloverFromServer } from "./clover-rewards";
 import { fetchUserInventory, upsertUserInventory } from "./user-sync";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
@@ -170,8 +171,11 @@ export async function purchaseShopListing(
 export async function syncBuyerInventoryFromServer(userId: string): Promise<number | null> {
   const remote = await fetchUserInventory(userId);
   if (!remote) return null;
-  applyInventorySnapshot(userId, remote.items, remote.ownedListingIds, remote.coins);
-  return remote.coins;
+  applyInventorySnapshot(userId, remote.items, remote.ownedListingIds);
+  return hydrateCloverFromServer(userId, {
+    coins: remote.coins,
+    cloverRewards: remote.cloverRewards,
+  });
 }
 
 function listingRowFromRemote(entry: ShopListingWithItem): ShopListing {
