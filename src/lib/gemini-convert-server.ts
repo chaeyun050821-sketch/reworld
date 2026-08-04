@@ -1,14 +1,26 @@
-const BASE_SVG_PROMPT =
-  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, 전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. 선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. 완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. 응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. 크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. 배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
+const SVG_OUTPUT_RULES =
+  "응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. "
+  + "크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. "
+  + "배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
 
+const BASE_SVG_PROMPT =
+  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 당신의 역할은 재창작이 아니라 '픽셀 격자 변환'입니다. "
+  + "윤곽선·비율·위치·각도·개수·연결 관계·전체 실루엣을 절대 바꾸지 마세요. "
+  + "선을 매끄럽게 다듬거나, 대칭화하거나, 디테일을 추가·삭제·단순화하지 마세요. "
+  + "기성 이모지·아이콘·새 캐릭터처럼 다시 그리지 마세요. "
+  + "원본과 동일한 형태 위에 레트로 8비트 픽셀 아트(Pixelated) 질감만 입히세요. "
+  + "작은 사각형 픽셀들이 모여 만든 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 나도록 SVG 코드를 구성해 주세요. "
+  + SVG_OUTPUT_RULES;
+
+// 빠른 모델 우선. Vercel Edge는 30초 한도라 2~3개만 시도합니다.
 const GEMINI_MODELS = [
-  "gemini-3.5-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
 ];
-const GEMINI_REQUEST_TIMEOUT_MS = 45_000;
+const PRIMARY_TIMEOUT_MS = 18_000;
+const FALLBACK_TIMEOUT_MS = 10_000;
+const MAX_MODEL_ATTEMPTS = 3;
 
 function formatGeminiError(message: string): string {
   const lower = message.toLowerCase();
@@ -30,15 +42,14 @@ function formatGeminiError(message: string): string {
 }
 
 function shouldTryNextModel(error: Error & { status?: number }): boolean {
+  if (error.status === 429) return false;
+  if (error.status === 408) return true;
   if (error.status === 404) return true;
-  if (error.status === 429) return true;
   if (error.status === 503) return true;
   const lower = error.message.toLowerCase();
+  if (lower.includes("응답 시간이 초과")) return true;
   return (
-    lower.includes("quota")
-    || lower.includes("rate limit")
-    || lower.includes("resource_exhausted")
-    || lower.includes("no longer available")
+    lower.includes("no longer available")
     || lower.includes("not found")
     || lower.includes("high demand")
     || lower.includes("overloaded")
@@ -50,23 +61,33 @@ export type GeminiConvertRequest = {
   imageBase64: string;
   customPrompt?: string;
   isCustomRefine?: boolean;
+  refineFromSketch?: boolean;
 };
 
 function cleanSvgResponse(text: string): string {
   return text.replace(/```xml/g, "").replace(/```svg/g, "").replace(/```/g, "").trim();
 }
 
-function buildPrompt(customPrompt?: string, isCustomRefine?: boolean): string {
-  if (isCustomRefine && (customPrompt?.trim() ?? "") !== "") {
-    const userText = customPrompt!.trim();
+function buildPrompt(customPrompt?: string, isCustomRefine?: boolean, refineFromSketch?: boolean): string {
+  const userText = customPrompt?.trim() ?? "";
+  if (isCustomRefine && userText !== "") {
+    if (refineFromSketch) {
+      return (
+        "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 재창작 금지. "
+        + "윤곽·비율·위치·각도·선 개수·연결 관계를 바꾸지 말고, 원본 실루엣 그대로 레트로 8비트 픽셀(계단형 도트) SVG로 변환하세요. "
+        + "선을 매끄럽게 하거나 대칭화·이모지화하지 마세요.\n\n"
+        + `[사용자 수정 요청]: "${userText}"\n`
+        + "요청과 직접 관련된 부분만 최소 반영하고, 나머지는 원본 형태를 유지하세요.\n\n"
+        + SVG_OUTPUT_RULES
+      );
+    }
     return (
-      "첨부된 이미지는 이미 완성된 레트로 8비트 픽셀 아트입니다. "
-      + "원본의 전체적인 형태·구도·픽셀 스타일은 최대한 유지하면서, 사용자의 수정 요청만 반영해 주세요. "
-      + "완전히 새로운 그림으로 다시 만들지 마세요. "
-      + "응답에는 설명이나 마크다운 없이 오직 <svg>...</svg>만 반환하세요. "
-      + "크기는 width='100%' height='100%', 배경은 투명하게 유지하세요.\n\n"
-      + `[사용자 수정 요청사항]: "${userText}"\n`
-      + "위 요청사항을 반드시 최우선으로 반영해 주세요."
+      "첨부된 이미지는 레트로 8비트 픽셀 아트입니다. "
+      + "형태·구도·픽셀 배치는 최대한 유지하고, 아래 사용자 수정 요청만 반영하세요. "
+      + "완전히 새로운 그림으로 다시 만들지 마세요.\n\n"
+      + `[사용자 수정 요청]: "${userText}"\n`
+      + "요청과 직접 관련된 부분만 최소 반영하세요.\n\n"
+      + SVG_OUTPUT_RULES
     );
   }
   return BASE_SVG_PROMPT;
@@ -94,10 +115,11 @@ async function requestGeminiModel(
   apiKey: string,
   model: string,
   requestBody: Record<string, unknown>,
+  timeoutMs: number,
   retry = 0,
 ): Promise<string> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -112,7 +134,9 @@ async function requestGeminiModel(
     );
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Gemini 응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.");
+      const err = new Error("Gemini 응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.") as Error & { status?: number };
+      err.status = 408;
+      throw err;
     }
     throw error;
   } finally {
@@ -126,8 +150,8 @@ async function requestGeminiModel(
   };
 
   if (response.status === 503 && retry < 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    return requestGeminiModel(apiKey, model, requestBody, retry + 1);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
 
   if (!response.ok) {
@@ -153,28 +177,39 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   }
 
   const apiKey = getGeminiApiKey();
-  const finalPrompt = buildPrompt(payload.customPrompt, payload.isCustomRefine);
+  const finalPrompt = buildPrompt(payload.customPrompt, payload.isCustomRefine, payload.refineFromSketch);
   const requestBody = {
     contents: [
       {
         parts: [
           { text: finalPrompt },
-          { inline_data: { mime_type: "image/png", data: imageBase64 } },
+          { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
         ],
       },
     ],
+    generationConfig: {
+      temperature: 0.15,
+      maxOutputTokens: 8192,
+    },
   };
 
   let lastError: (Error & { status?: number }) | null = null;
-  for (const model of GEMINI_MODELS) {
+  const models = GEMINI_MODELS.slice(0, MAX_MODEL_ATTEMPTS);
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const timeoutMs = i === 0 ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS;
     try {
-      return await requestGeminiModel(apiKey, model, requestBody);
+      return await requestGeminiModel(apiKey, model, requestBody, timeoutMs);
     } catch (error) {
       lastError = error instanceof Error ? (error as Error & { status?: number }) : new Error("변환에 실패했어요.");
-      if (!shouldTryNextModel(lastError)) {
+      if (i >= models.length - 1 || !shouldTryNextModel(lastError)) {
         break;
       }
     }
+  }
+
+  if (lastError?.status === 408) {
+    throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요. (동시 사용자가 많으면 조금 기다려야 할 수 있어요)");
   }
 
   throw lastError ?? new Error("변환에 실패했어요.");
