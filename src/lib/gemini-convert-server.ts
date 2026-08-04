@@ -8,8 +8,9 @@ const BASE_SVG_PROMPT =
   + "viewBox는 내용에 맞게 잡되 너무 뭉개지지 않게 하세요(대략 64~128 격자). "
   + SVG_OUTPUT_RULES;
 
-// refine은 Node 60초 한도에서 flash-lite로 자유 수정. 단순 편집은 로컬 격자 연산.
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+// 현재 배포 기본 모델 (Vercel GEMINI_MODEL로 덮어쓸 수 있음)
+export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = ACTIVE_GEMINI_MODEL_DEFAULT;
 const GEMINI_REQUEST_TIMEOUT_MS = 26_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
 
@@ -23,6 +24,7 @@ type RefineOp =
   | { type: "recolor"; color: string }
   | { type: "fill"; color: string }
   | { type: "gradient"; style?: "shine" | "vertical" | "radial" }
+  | { type: "cleanup" }
   | { type: "dilate"; radius?: number }
   | { type: "erode"; radius?: number }
   | { type: "outline"; color?: string }
@@ -333,6 +335,67 @@ function pickColorFromText(text: string): string | null {
   return null;
 }
 
+function countNeighbors(grid: PixelGrid, x: number, y: number): number {
+  let n = 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    if (grid.cells.has(cellKey(x + dx, y + dy))) n += 1;
+  }
+  return n;
+}
+
+function dilateGrid(grid: PixelGrid, radius = 1): PixelGrid {
+  const next = cloneGrid(grid);
+  for (const [key, color] of grid.cells) {
+    const [x0, y0] = key.split(",").map(Number);
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy > radius * radius) continue;
+        const x = x0 + dx;
+        const y = y0 + dy;
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+        if (!next.cells.has(cellKey(x, y))) next.cells.set(cellKey(x, y), color);
+      }
+    }
+  }
+  return next;
+}
+
+function erodeGrid(grid: PixelGrid): PixelGrid {
+  const next: PixelGrid = { width: grid.width, height: grid.height, cells: new Map() };
+  for (const [key, color] of grid.cells) {
+    const [x0, y0] = key.split(",").map(Number);
+    const neighbors = [
+      cellKey(x0 + 1, y0),
+      cellKey(x0 - 1, y0),
+      cellKey(x0, y0 + 1),
+      cellKey(x0, y0 - 1),
+    ];
+    if (neighbors.every((n) => grid.cells.has(n))) next.cells.set(key, color);
+  }
+  return next.cells.size > 0 ? next : grid;
+}
+
+/** 튀어나온 점·구멍만 정리. 실루엣은 거의 그대로 유지 */
+function applyCleanup(grid: PixelGrid): PixelGrid {
+  // 고립 픽셀 제거
+  let current: PixelGrid = { width: grid.width, height: grid.height, cells: new Map() };
+  for (const [key, color] of grid.cells) {
+    const [x, y] = key.split(",").map(Number);
+    if (countNeighbors(grid, x, y) >= 2) current.cells.set(key, color);
+  }
+  if (current.cells.size < grid.cells.size * 0.5) current = cloneGrid(grid);
+
+  // closing: 작은 틈 메우기
+  current = erodeGrid(dilateGrid(current, 1));
+  // 다시 아주 얇은 spur 제거
+  const cleaned: PixelGrid = { width: current.width, height: current.height, cells: new Map() };
+  for (const [key, color] of current.cells) {
+    const [x, y] = key.split(",").map(Number);
+    if (countNeighbors(current, x, y) >= 2) cleaned.cells.set(key, color);
+  }
+  return cleaned.cells.size >= current.cells.size * 0.6 ? cleaned : current;
+}
+
 function fillInterior(grid: PixelGrid, color: string): PixelGrid {
   const exterior = new Set<string>();
   const queue: Array<[number, number]> = [];
@@ -382,6 +445,10 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
     }
     if (op.type === "gradient") {
       current = applyGradientKeepShape(current, op.style || "shine");
+      continue;
+    }
+    if (op.type === "cleanup") {
+      current = applyCleanup(current);
       continue;
     }
     if (op.type === "dilate") {
@@ -466,10 +533,19 @@ function detectLocalOps(userText: string): RefineOp[] {
   const text = userText.trim();
   const ops: RefineOp[] = [];
 
-  // 그라데이션/반짝임: 형태 고정, 색만 변경 (Gemini에 맡기면 별→노란 덩어리로 깨짐)
+  // 그라데이션/반짝임: 형태 고정, 색만 변경
   if (/(그라데이션|그라디언트|gradient|빛나|반짝|샤인|shine|하이라이트)/i.test(text)) {
     const style = /(세로|위아래|vertical)/i.test(text) ? "vertical" : "shine";
     ops.push({ type: "gradient", style });
+    return ops;
+  }
+
+  // 테두리 다듬기/정리: Gemini에 맡기면 형태가 붕괴됨 → 로컬 cleanup
+  if (
+    /(다듬|깔끔|정리|매끄럽)/i.test(text)
+    || (/(테두리|외곽|윤곽|outline)/i.test(text) && /(다듬|깔끔|정리|매끄|고쳐|보정)/i.test(text))
+  ) {
+    ops.push({ type: "cleanup" });
     return ops;
   }
 
@@ -479,7 +555,8 @@ function detectLocalOps(userText: string): RefineOp[] {
   if (/(얇|가늘|thin|erode|침식)/i.test(text)) {
     ops.push({ type: "erode", radius: 1 });
   }
-  if (/(테두리|외곽|outline|윤곽)/i.test(text)) {
+  // 테두리 추가는 "검은 테두리"처럼 색/추가 의미가 있을 때만
+  if (/(테두리|외곽|outline|윤곽)/i.test(text) && /(추가|넣어|그려|검정|검은|black|색)/i.test(text)) {
     ops.push({ type: "outline", color: pickColorFromText(text) || "#111827" });
   }
   if (/(좌우|가로).*(반전|뒤집)|flip\s*x|mirror/i.test(text)) {
@@ -509,16 +586,17 @@ function detectLocalOps(userText: string): RefineOp[] {
   return ops;
 }
 
-function wantsGeometryChange(userText: string): boolean {
-  return /(교정|반듯|추가|그려|만들어|귀|눈|입|다리|팔|지워|삭제|얇|굵|테두리|대칭|똑바|삐뚤)/i.test(userText);
+/** Gemini가 실루엣을 깨도 되는 요청(부위 추가 등)만 true */
+function allowSilhouetteBreak(userText: string): boolean {
+  return /(추가|그려|만들어|귀|눈|입|다리|팔|새로 그려|완전히 다시)/i.test(userText);
 }
 
-/** 단순 편집만이면 로컬, 형태 변경이 필요한 요청만 Gemini */
-function needsGeminiRefine(userText: string, localOps: RefineOp[]): boolean {
-  if (localOps.some((o) => o.type === "gradient")) return false;
+/** 단순 편집만이면 로컬, 그 외만 Gemini */
+function needsGeminiRefine(_userText: string, localOps: RefineOp[]): boolean {
+  if (localOps.some((o) => o.type === "gradient" || o.type === "cleanup")) return false;
   if (localOps.length === 0) return true;
-  return wantsGeometryChange(userText)
-    || /(매끄|다듬|예쁘|깔끔|정리|변형|그림자|디테일|표정|휘어|지그재그|부드럽게|입체)/i.test(userText);
+  // 로컬로 처리 가능한 ops가 있으면 Gemini로 안 보냄
+  return false;
 }
 
 function buildCreativeRefinePrompt(userText: string): string {
@@ -674,16 +752,12 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       );
       const refined = extractSvg(raw);
 
-      // 스타일 요청인데 형태가 깨지면 원본 실루엣에 색만 입혀 복구
-      if (svgMarkup.includes("<svg") && !wantsGeometryChange(userText)) {
+      // 기본: 원본 실루엣 고정 + AI 색/톤만 반영 (똥·오줌 형태 붕괴 방지)
+      if (svgMarkup.includes("<svg") && !allowSilhouetteBreak(userText)) {
         try {
           const originalGrid = parseSvgToGrid(svgMarkup);
           const refinedGrid = parseSvgToGrid(refined);
-          const before = originalGrid.cells.size;
-          const after = refinedGrid.cells.size;
-          if (after < before * 0.55 || after > before * 2.5) {
-            return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
-          }
+          return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
         } catch {
           // 파싱 실패 시 refined 그대로
         }
