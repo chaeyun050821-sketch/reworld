@@ -640,16 +640,17 @@ function needsGeminiRefine(_userText: string, localOps: RefineOp[]): boolean {
 
 function buildCreativeRefinePrompt(userText: string): string {
   return (
-    "첨부 이미지는 사용자가 이미 만든 도트(픽셀) 아트입니다. "
-    + "이 그림을 기준으로 아래 수정 요청을 반영한 새 도트 SVG를 만드세요.\n"
-    + "중요 규칙:\n"
-    + "1) 무엇을 그린 그림인지(별·하트·캐릭터 등)와 전체 실루엣·비율·방향은 유지하세요.\n"
-    + "2) 요청한 수정만 하세요. 예: 내부 색칠, 삐뚤어진 선 교정, 대칭 정리, 디테일 추가.\n"
-    + "3) 다른 물체로 바꾸거나 이모지처럼 완전히 새로 그리지 마세요.\n"
-    + "4) 출력은 알아보기 쉬운 픽셀 아트여야 합니다. 선을 듬성듬성 1px로 흩뿌리지 마세요.\n"
-    + "5) viewBox는 대략 64~96 격자, width/height='100%', 배경 투명, <rect>만 사용.\n"
-    + `[수정 요청]: ${userText}\n`
-    + SVG_OUTPUT_RULES
+    "당신은 픽셀 아트 편집자입니다. 첨부 이미지는 사용자가 도트 변환으로 만든 결과물입니다.\n"
+    + "이 이미지를 보고, 아래 수정 요청을 반영한 개선된 도트 SVG를 만드세요.\n\n"
+    + "반드시 지킬 것:\n"
+    + "- 첨부 그림이 무엇인지(별·하트·캐릭터 등) 먼저 파악하고, 같은 대상으로 남기세요.\n"
+    + "- 전체 실루엣·비율·방향·위치감은 유지하면서 요청만 반영하세요.\n"
+    + "- 그라데이션/빛남/색칠/테두리 다듬기/선 교정 요청이면, 그 효과를 첨부 도형 위에 적용하세요.\n"
+    + "- 다른 물체·똥·얼룩·무작위 덩어리로 바꾸지 마세요.\n"
+    + "- 결과는 한눈에 원래 그림으로 알아볼 수 있어야 합니다.\n"
+    + "- 픽셀은 연결감 있게, viewBox는 약 72~112 격자, width/height='100%', 배경 투명, <rect>만 사용.\n"
+    + "- 설명 없이 <svg>…</svg>만 출력하세요.\n\n"
+    + `[수정 요청]: ${userText}`
   );
 }
 
@@ -739,46 +740,10 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   const svgMarkup = payload.svgMarkup?.trim() ?? "";
   const imageBase64 = payload.imageBase64?.trim() ?? "";
 
+  // 수정하기: 로컬 규칙 없이 Gemini flash가 도트 이미지+요청을 보고 직접 수정
   if (payload.isCustomRefine && userText) {
-    if (!svgMarkup.includes("<svg") && !imageBase64) {
-      throw new Error("수정할 도트 그림이 없어요. 먼저 도트 변환을 해 주세요.");
-    }
-
-    // 1) 단순 편집: 로컬 격자 연산 (빠르고 형태 유지, 변화가 보여야 함)
-    if (svgMarkup.includes("<svg") && svgMarkup.length <= MAX_REFINE_SVG_CHARS) {
-      try {
-        const localOps = detectLocalOps(userText);
-        if (localOps.length > 0 && !needsGeminiRefine(userText, localOps)) {
-          const grid = parseSvgToGrid(svgMarkup);
-          const before = grid.cells.size;
-          let next = applyOps(grid, localOps);
-          const fillFailed = localOps.some((o) => o.type === "fill") && next.cells.size <= before;
-          if (!fillFailed) {
-            if (gridsEqual(grid, next) && localOps.some((o) => o.type === "cleanup")) {
-              next = dilateGrid(grid, 1);
-            }
-            if (gridsEqual(grid, next)) {
-              throw new Error(
-                "요청은 처리됐지만 눈에 띄는 변화가 없었어요. "
-                + "'더 굵게', '파란색으로', '그라데이션 넣어줘'처럼 더 구체적으로 적어 주세요.",
-              );
-            }
-            return gridToSvg(next);
-          }
-          // 선이 안 닫혀 내부 색칠 실패 → Gemini로
-        }
-      } catch (error) {
-        // 의도적으로 던진 "변화 없음" 메시지는 그대로 전달
-        if (error instanceof Error && error.message.includes("눈에 띄는 변화")) {
-          throw error;
-        }
-        // 로컬 실패 시 Gemini로 계속
-      }
-    }
-
-    // 2) 자유 수정: 유료 Gemini(flash)로 도트 이미지를 보고 요청 반영
     if (!imageBase64) {
-      throw new Error("AI 수정을 위해 도트 그림 이미지가 필요해요. 도트 변환 후 다시 시도해 주세요.");
+      throw new Error("AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.");
     }
 
     const prompt = buildCreativeRefinePrompt(userText);
@@ -796,7 +761,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
             },
           ],
           generationConfig: {
-            temperature: 0.25,
+            temperature: 0.35,
             maxOutputTokens: 8192,
           },
         },
@@ -804,19 +769,18 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       );
       const refined = extractSvg(raw);
 
-      // 형태가 심하게 붕괴된 경우에만 원본 실루엣으로 색을 입혀 복구
-      // (항상 덮어쓰면 수정이 '아무 변화 없음'처럼 보였음)
+      // 완전 붕괴(픽셀 수가 비정상)일 때만 원본 실루엣에 색을 입혀 응급 복구
       if (svgMarkup.includes("<svg") && !allowSilhouetteBreak(userText)) {
         try {
           const originalGrid = parseSvgToGrid(svgMarkup);
           const refinedGrid = parseSvgToGrid(refined);
           const before = originalGrid.cells.size;
           const after = refinedGrid.cells.size;
-          if (after < before * 0.45 || after > before * 3) {
+          if (before > 0 && (after < before * 0.35 || after > before * 4)) {
             return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
           }
         } catch {
-          // 파싱 실패 시 refined 그대로
+          // refined 그대로 사용
         }
       }
       return refined;
