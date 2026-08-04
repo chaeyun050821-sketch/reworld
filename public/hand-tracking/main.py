@@ -23,7 +23,7 @@ while cap.isOpened():
 
     image = cv2.flip(image, 1)
     h, w, c = image.shape
-    
+
     # 맨 처음 한 번만 빈 도화지 생성
     if canvas is None:
         canvas = np.zeros_like(image)
@@ -35,21 +35,21 @@ while cap.isOpened():
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
             mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-            
+
             thumb = hand_landmarks.landmark[4]
             index = hand_landmarks.landmark[8]
-            
+
             distance = math.hypot(thumb.x - index.x, thumb.y - index.y)
             ix, iy = int(index.x * w), int(index.y * h)
-            
+
             if distance < 0.05: # 꼬집었을 때 (그리기 모드)
-                if px == 0 and py == 0: 
+                if px == 0 and py == 0:
                     px, py = ix, iy # 처음 그리기 시작한 점 저장
-                
+
                 # '캔버스' 위에 선을 그립니다. (웹캠 영상 위가 아님!)
                 cv2.line(canvas, (px, py), (ix, iy), current_color, brush_size)
                 px, py = ix, iy # 현재 위치를 이전 위치로 업데이트
-                
+
                 # 내 손가락 끝에 현재 펜 색깔 보여주기
                 cv2.circle(image, (ix, iy), int(brush_size/2)+2, current_color, -1)
             else:
@@ -62,7 +62,7 @@ while cap.isOpened():
     canvas_gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(canvas_gray, 1, 255, cv2.THRESH_BINARY)
     mask_inv = cv2.bitwise_not(mask)
-    
+
     # 웹캠 배경에서 그림 들어갈 자리만 파내고, 캔버스의 그림을 끼워 넣습니다.
     image_bg = cv2.bitwise_and(image, image, mask=mask_inv)
     canvas_fg = cv2.bitwise_and(canvas, canvas, mask=mask)
@@ -72,7 +72,7 @@ while cap.isOpened():
 
     # 4. 키보드 입력으로 펜 색상 및 모드 변경 (반드시 영문 키보드 상태!)
     key = cv2.waitKey(1) & 0xFF
-    
+
     if key == ord('r'):
         current_color = (0, 0, 255) # 빨강
         brush_size = 5

@@ -6,7 +6,8 @@ export type NotificationType =
   | "ilchon_request"
   | "photo_like"
   | "photo_comment"
-  | "guestbook";
+  | "guestbook"
+  | "gift";
 
 export type AppNotification = {
   id: string;
@@ -117,6 +118,8 @@ function notificationIcon(type: NotificationType): string {
       return "💬";
     case "guestbook":
       return "📝";
+    case "gift":
+      return "🎁";
   }
 }
 

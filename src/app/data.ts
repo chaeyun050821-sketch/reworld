@@ -57,17 +57,27 @@ export type RoomInteriorItem = {
   preview: string;
   layer: number;
   pixels: PixelRect[];
+  raster?: {
+    src: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   imageSrc?: string;
   imageBounds?: { x: number; y: number; w: number; h: number };
 };
 
 export function roomItemHasVisual(item: RoomInteriorItem): boolean {
-  return item.pixels.length > 0 || !!item.imageSrc;
+  return item.pixels.length > 0 || !!item.imageSrc || !!item.raster;
 }
 
 export function itemVisualBounds(item: RoomInteriorItem): { x: number; y: number; w: number; h: number } | null {
   if (item.imageBounds) return item.imageBounds;
-  return itemPixelBounds(item.pixels);
+  const pixelBounds = itemPixelBounds(item.pixels);
+  if (pixelBounds) return pixelBounds;
+  if (!item.raster) return null;
+  return { x: item.raster.x, y: item.raster.y, w: item.raster.width, h: item.raster.height };
 }
 
 export type RoomCategory = {
@@ -353,6 +363,10 @@ export function getItemById(itemId: string): RoomInteriorItem | undefined {
   return ALL_ROOM_ITEMS.find((i) => i.id === itemId);
 }
 
+export function isRoomItemRenderable(item: RoomInteriorItem): boolean {
+  return roomItemHasVisual(item);
+}
+
 export type RoomItemLookup = (itemId: string) => RoomInteriorItem | undefined;
 
 export function getSelectedItems(
@@ -424,6 +438,10 @@ export function itemPixelBounds(pixels: PixelRect[]): { x: number; y: number; w:
     maxY = Math.max(maxY, p.y + p.h);
   }
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+export function itemRenderBounds(item: RoomInteriorItem): { x: number; y: number; w: number; h: number } | null {
+  return itemVisualBounds(item);
 }
 
 

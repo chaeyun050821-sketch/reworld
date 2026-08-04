@@ -8,6 +8,8 @@ import {
 } from "../lib/photo-decorations";
 import AuthPage from "./AuthPage";
 import NicknameSetupPage from "./NicknameSetupPage";
+import MarketplacePage from "./MarketplacePage";
+import GiftModal from "./GiftModal";
 import { FONT_KR, FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import { bootstrapAuth, signOut, updateUserNickname, type User } from "../lib/auth";
 import {
@@ -26,6 +28,7 @@ import {
   loadIlchonRequests,
   rejectIlchonRequest,
   sendIlchonRequest,
+  updateIlchonDisplayName,
   type IlchonRequest,
   type StoredIlchon,
 } from "../lib/ilchon";
@@ -177,6 +180,7 @@ import {
   loadMyListings,
   loadOwnedListingIds,
   loadShopSourceItems,
+  mergeInventoryItems,
   markAvatarPlacedItems,
   markListingOwned,
   hasPurchasedShopListing,
@@ -218,6 +222,8 @@ import {
   getItemsByCategory,
   getPlacedRoomItems,
   getPlacedRoomItemsByDepth,
+  itemRenderBounds,
+  isRoomItemRenderable,
   itemVisualBounds,
   roomItemHasVisual,
   getItemById,
@@ -251,6 +257,7 @@ import {
   type MiniroomData,
   type InventoryPlacement,
   type PixelRect,
+  type AvatarItem,
   defaultInventoryPlacement,
 } from "./data";
 import { usePhotoAlbum } from "./hooks/useSharedPhotos";
@@ -337,6 +344,26 @@ function hitTestPlacedCategory(
   return null;
 }
 
+function clampRoomItemOffset(
+  itemId: string | null,
+  offset: RoomItemOffset,
+  lookup: RoomItemLookup = getItemById,
+): RoomItemOffset {
+  if (!itemId) return offset;
+  const item = lookup(itemId);
+  const bounds = item ? itemRenderBounds(item) : null;
+  if (!bounds) return offset;
+
+  const minX = -bounds.x;
+  const maxX = ROOM_VIEW_WIDTH - bounds.x - bounds.w;
+  const minY = -bounds.y;
+  const maxY = ROOM_VIEW_HEIGHT - bounds.y - bounds.h;
+  return {
+    x: Math.round(Math.max(minX, Math.min(maxX, offset.x))),
+    y: Math.round(Math.max(minY, Math.min(maxY, offset.y))),
+  };
+}
+
 function hitTestInventoryPlacement(
   point: { x: number; y: number },
   placements: InventoryPlacement[],
@@ -353,6 +380,16 @@ function hitTestInventoryPlacement(
     }
   }
   return null;
+}
+
+function clampInventoryPlacementPosition(
+  placement: InventoryPlacement,
+  position: Pick<InventoryPlacement, "x" | "y">,
+): Pick<InventoryPlacement, "x" | "y"> {
+  return {
+    x: Math.round(Math.max(0, Math.min(ROOM_VIEW_WIDTH - placement.w, position.x))),
+    y: Math.round(Math.max(0, Math.min(ROOM_VIEW_HEIGHT - placement.h, position.y))),
+  };
 }
 
 /** Mini room frame — preserves full viewBox, never crops */
@@ -435,6 +472,23 @@ function RoomCanvas({
   const avatarH = avatarPreviewHeightForWidth(avatarW);
   const avatarTopY = ROOM_LEFT_PROP_FLOOR_Y - avatarH;
   const roomSlice = fillHeight;
+  const boundedOffsets = useMemo(() => {
+    if (!selections) return offsets;
+    const next: Partial<Record<RoomCategoryId, RoomItemOffset>> = {};
+    for (const categoryId of Object.keys(offsets) as RoomCategoryId[]) {
+      const offset = offsets[categoryId];
+      if (!offset) continue;
+      next[categoryId] = clampRoomItemOffset(selections[categoryId], offset, roomItemLookup);
+    }
+    return next;
+  }, [offsets, roomItemLookup, selections]);
+  const boundedInventoryPlacements = useMemo(
+    () => inventoryPlacements.map((placement) => ({
+      ...placement,
+      ...clampInventoryPlacementPosition(placement, placement),
+    })),
+    [inventoryPlacements],
+  );
 
   const finishDrag = () => {
     dragRef.current = null;
@@ -458,9 +512,9 @@ function RoomCanvas({
     }
 
     if (editableItems && selections) {
-      const inventoryItemId = hitTestInventoryPlacement(point, inventoryPlacements);
+      const inventoryItemId = hitTestInventoryPlacement(point, boundedInventoryPlacements);
       if (inventoryItemId && onInventoryPlacementChange) {
-        const placement = inventoryPlacements.find(entry => entry.itemId === inventoryItemId);
+        const placement = boundedInventoryPlacements.find(entry => entry.itemId === inventoryItemId);
         if (placement) {
           dragRef.current = {
             kind: "inventory",
@@ -476,9 +530,9 @@ function RoomCanvas({
         }
       }
 
-      const categoryId = hitTestPlacedCategory(point, selections, offsets, roomItemLookup);
+      const categoryId = hitTestPlacedCategory(point, selections, boundedOffsets, roomItemLookup);
       if (categoryId) {
-        const base = offsets[categoryId] ?? { x: 0, y: 0 };
+        const base = boundedOffsets[categoryId] ?? { x: 0, y: 0 };
         dragRef.current = { kind: "item", categoryId, startX: point.x, startY: point.y, baseX: base.x, baseY: base.y };
         stage.setPointerCapture(event.pointerId);
         event.preventDefault();
@@ -496,17 +550,19 @@ function RoomCanvas({
     if (drag.kind === "item" && onItemOffsetChange) {
       const dx = point.x - drag.startX;
       const dy = point.y - drag.startY;
-      onItemOffsetChange(drag.categoryId, {
+      onItemOffsetChange(drag.categoryId, clampRoomItemOffset(selections?.[drag.categoryId] ?? null, {
         x: Math.round(drag.baseX + dx),
         y: Math.round(drag.baseY + dy),
-      });
+      }, roomItemLookup));
     } else if (drag.kind === "inventory" && onInventoryPlacementChange) {
       const dx = point.x - drag.startX;
       const dy = point.y - drag.startY;
-      onInventoryPlacementChange(drag.itemId, {
+      const placement = boundedInventoryPlacements.find((entry) => entry.itemId === drag.itemId);
+      if (!placement) return;
+      onInventoryPlacementChange(drag.itemId, clampInventoryPlacementPosition(placement, {
         x: Math.round(drag.baseX + dx),
         y: Math.round(drag.baseY + dy),
-      });
+      }));
     } else if (drag.kind === "avatar" && onAvatarPositionChange) {
       const dx = point.x - drag.startX;
       const nextX = Math.round(Math.max(0, Math.min(ROOM_VIEW_WIDTH - avatarW, drag.baseX + dx)));
@@ -542,10 +598,10 @@ function RoomCanvas({
       >
         <MiniRoom
           selections={selections}
-          offsets={offsets}
+          offsets={boundedOffsets}
           highlightCategory={highlightCategory}
           roomItemLookup={roomItemLookup}
-          inventoryPlacements={inventoryPlacements}
+          inventoryPlacements={boundedInventoryPlacements}
           inventoryById={inventoryById}
           fill={fillHeight}
         />
@@ -1134,8 +1190,8 @@ function PixelAvatar({
   viewBox = `0 0 ${PIXEL_COLS} ${PIXEL_ROWS}`,
 }: {
   avatar?: AvatarProfile;
-  width?: number;
-  height?: number;
+  width?: number | string;
+  height?: number | string;
   viewBox?: string;
 }) {
   const { config, equipped } = avatar;
@@ -2346,6 +2402,17 @@ function MiniRoom({
             transform={`translate(${offset.x} ${offset.y})`}
             style={highlighted ? { filter: "drop-shadow(0 0 4px rgba(64,176,128,0.9))" } : undefined}
           >
+            {item.raster && (
+              <image
+                href={item.raster.src}
+                x={item.raster.x}
+                y={item.raster.y}
+                width={item.raster.width}
+                height={item.raster.height}
+                preserveAspectRatio="xMidYMid meet"
+                style={{ imageRendering: "pixelated" }}
+              />
+            )}
             <PixelRects pixels={item.pixels} />
             {item.imageSrc && item.imageBounds && (
               <image
@@ -3177,6 +3244,71 @@ function LeftPage({
   );
 }
 
+function IlchonNameModal({
+  title,
+  description,
+  initialName,
+  submitLabel,
+  busy = false,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  description: string;
+  initialName: string;
+  submitLabel: string;
+  busy?: boolean;
+  error?: string | null;
+  onClose: () => void;
+  onSubmit: (displayName: string) => void;
+}) {
+  const [displayName, setDisplayName] = useState(initialName.slice(0, 12));
+  const suggestions = ["친구", "짝꿍", "선배", "후배", "가족"];
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-3" style={{ background: "rgba(60,30,80,0.5)" }} onClick={onClose}>
+      <motion.div
+        className="w-full max-w-[270px] rounded-2xl p-3 flex flex-col gap-2"
+        style={{ background: DIARY_PAPER_BG, border: "2px solid rgba(255,96,128,0.25)", boxShadow: "0 12px 36px rgba(70,30,80,0.24)" }}
+        initial={{ opacity: 0, scale: 0.92, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-1.5">
+          <span style={{ fontSize: 14 }}>💞</span>
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 900, color: "#6040a0" }}>{title}</span>
+        </div>
+        <p style={{ fontFamily: FONT_UI, fontSize: "0.44rem", color: "#7a8fd4", lineHeight: 1.45 }}>{description}</p>
+        <label className="flex flex-col gap-1">
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 800, color: "#6040a0" }}>내가 부를 일촌명</span>
+          <input
+            autoFocus
+            value={displayName}
+            maxLength={12}
+            onChange={(event) => setDisplayName(event.target.value.replace(/[\r\n\t]/g, " "))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && displayName.trim() && !busy) onSubmit(displayName);
+            }}
+            className="px-2.5 py-1.5 rounded-xl outline-none"
+            style={{ fontFamily: FONT_UI, fontSize: "0.56rem", fontWeight: 700, color: "#4a2060", background: "white", border: "1.5px solid rgba(122,143,212,0.24)" }}
+          />
+        </label>
+        <div className="flex flex-wrap gap-1">
+          {suggestions.map((suggestion) => (
+            <button key={suggestion} type="button" onClick={() => setDisplayName(suggestion)} className="px-2 py-0.5 rounded-full" style={{ fontFamily: FONT_UI, fontSize: "0.4rem", fontWeight: 700, color: "#7a5a9a", background: "rgba(122,143,212,0.1)" }}>{suggestion}</button>
+          ))}
+        </div>
+        {error && <p style={{ fontFamily: FONT_UI, fontSize: "0.43rem", fontWeight: 800, color: "#ff4757" }}>{error}</p>}
+        <div className="grid grid-cols-2 gap-2 mt-1">
+          <button type="button" onClick={onClose} disabled={busy} className="py-1.5 rounded-xl" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700, color: "#5a6db0", background: "rgba(122,143,212,0.08)" }}>취소</button>
+          <button type="button" onClick={() => onSubmit(displayName)} disabled={busy || !displayName.trim()} className="py-1.5 rounded-xl text-white" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900, background: "linear-gradient(90deg,#ff4757,#ff6b81)", opacity: busy || !displayName.trim() ? 0.5 : 1 }}>{busy ? "처리 중..." : submitLabel}</button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 /** 친구/파도타기 방문 시 — 이웃·일촌 관계 액션 */
 function VisitRelationPanel({
   user,
@@ -3195,6 +3327,7 @@ function VisitRelationPanel({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nameMode, setNameMode] = useState<"request" | "accept" | null>(null);
 
   const refreshRelation = async () => {
     if (!targetId || !isSupabaseConfigured()) {
@@ -3240,33 +3373,35 @@ function VisitRelationPanel({
     void refreshRelation();
   };
 
-  const handleIlchonRequest = async () => {
+  const handleIlchonRequest = async (displayName: string) => {
     if (busy || !targetId) return;
     setBusy(true);
     setError(null);
     setFeedback(null);
-    const result = await sendIlchonRequest(targetId);
+    const result = await sendIlchonRequest(targetId, displayName);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
     setOutgoingIlchon(true);
+    setNameMode(null);
     setFeedback(`${target.name}님에게 일촌 신청을 보냈어요.`);
     void refreshRelation();
   };
 
-  const handleAcceptIlchon = async () => {
+  const handleAcceptIlchon = async (displayName: string) => {
     if (busy || !incomingIlchonReq) return;
     setBusy(true);
     setError(null);
-    const result = await acceptIlchonRequest(incomingIlchonReq.id);
+    const result = await acceptIlchonRequest(incomingIlchonReq.id, displayName);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
     setFeedback(`${target.name}님과 일촌이 됐어요!`);
+    setNameMode(null);
     void refreshRelation();
   };
 
@@ -3317,7 +3452,7 @@ function VisitRelationPanel({
             </button>
             <button
               type="button"
-              onClick={() => void handleAcceptIlchon()}
+              onClick={() => setNameMode("accept")}
               disabled={busy}
               className="flex-1 py-2 rounded-xl text-white"
               style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 700, background: "linear-gradient(90deg, #ff4757, #ff6b81)" }}
@@ -3333,7 +3468,7 @@ function VisitRelationPanel({
       ) : isNeighbor ? (
         <motion.button
           type="button"
-          onClick={() => void handleIlchonRequest()}
+          onClick={() => setNameMode("request")}
           disabled={busy}
           className="w-full py-2.5 rounded-xl text-white"
           style={{
@@ -3382,6 +3517,23 @@ function VisitRelationPanel({
           {error}
         </p>
       )}
+      {nameMode && (
+        <IlchonNameModal
+          title={nameMode === "request" ? `${target.accountName ?? target.name}님과 일촌 맺기` : "일촌 신청 수락"}
+          description={nameMode === "request" ? "내 일촌 목록에서 이 친구를 부를 이름을 정해 주세요." : `${target.accountName ?? target.name}님을 내가 부를 일촌명을 정해 주세요.`}
+          initialName={target.name}
+          submitLabel={nameMode === "request" ? "일촌 신청" : "일촌 수락"}
+          busy={busy}
+          error={error}
+          onClose={() => {
+            if (!busy) setNameMode(null);
+          }}
+          onSubmit={(displayName) => {
+            if (nameMode === "request") void handleIlchonRequest(displayName);
+            else void handleAcceptIlchon(displayName);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -3410,6 +3562,7 @@ function FriendProfileLeftPage({
   const [bgmPreviewUrl, setBgmPreviewUrl] = useState<string | null>(initialProfile.bgmPreviewUrl ?? null);
   const [bgmSrc, setBgmSrc] = useState<string | null>(initialProfile.bgmPreviewUrl ?? null);
   const [bgmError, setBgmError] = useState("");
+  const [showGift, setShowGift] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const displayName = nb.name;
   const accent = nb.color;
@@ -3504,12 +3657,24 @@ function FriendProfileLeftPage({
           <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.45rem", color: accent }}>◆</span>
           <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.7rem", color: "var(--diary-dark)", letterSpacing: "0.12em" }}>FRIEND PROFILE</span>
         </div>
-        <span
-          className="px-2 py-0.5 rounded-full"
-          style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, background: `${accent}22`, color: "var(--diary-dark)", border: `1px solid ${accent}44` }}
-        >
-          {nb.name}
-        </span>
+        {nb.friendUserId && (
+          <button
+            type="button"
+            onClick={() => setShowGift(true)}
+            className="px-2 py-1 rounded-full"
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.44rem",
+              fontWeight: 800,
+              color: "white",
+              background: "linear-gradient(135deg,#ff6080,#ff80a0)",
+              border: "1px solid rgba(255,96,128,0.35)",
+              boxShadow: "0 2px 7px rgba(255,96,128,0.22)",
+            }}
+          >
+            🎁 선물하기
+          </button>
+        )}
       </div>
 
       <div className="rounded-xl p-2.5 flex gap-3 items-start flex-shrink-0" style={{ background: `linear-gradient(135deg, ${accent}33 0%, rgba(var(--diary-mid-rgb),0.12) 100%)`, border: `1px solid ${accent}44` }}>
@@ -3544,7 +3709,7 @@ function FriendProfileLeftPage({
         <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.38rem", color: "var(--diary-mid)", marginBottom: 4 }}>PROFILE</p>
         <div className="flex gap-2 items-center">
           <span className="flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)", width: 36 }}>닉네임</span>
-          <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{nb.name}</span>
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.58rem", color: "var(--diary-dark)", borderBottom: "1px dotted rgba(var(--diary-mid-rgb),0.3)", flex: 1, paddingBottom: 1 }}>{nb.accountName ?? nb.name}</span>
         </div>
         {profileDetailFields(fields).map(({ label, value }) => (
           <div key={label} className="flex gap-2 items-center">
@@ -3609,6 +3774,14 @@ function FriendProfileLeftPage({
             {nb.name}님의 프로필을 보고 있어요
           </p>
         </div>
+      )}
+      {showGift && nb.friendUserId && (
+        <GiftModal
+          user={user}
+          recipientId={nb.friendUserId}
+          recipientNickname={nb.accountName ?? nb.name}
+          onClose={() => setShowGift(false)}
+        />
       )}
     </div>
   );
@@ -4493,6 +4666,9 @@ function PhotoPage({
   const [textDraft, setTextDraft] = useState("");
   const [textDraftColor, setTextDraftColor] = useState(PHOTO_TEXT_COLORS[0]);
   const [confirmDeletePhoto, setConfirmDeletePhoto] = useState<StoredPhoto | null>(null);
+  const [photoDeleteMode, setPhotoDeleteMode] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(() => new Set());
+  const [confirmBulkPhotoDelete, setConfirmBulkPhotoDelete] = useState(false);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
   const [decorSaveError, setDecorSaveError] = useState("");
   const selectedPhotoSurfaceRef = useRef<HTMLDivElement>(null);
@@ -4725,6 +4901,50 @@ function PhotoPage({
     resetTextPopup();
   };
 
+  const leavePhotoDeleteMode = () => {
+    setPhotoDeleteMode(false);
+    setSelectedPhotoIds(new Set());
+    setConfirmBulkPhotoDelete(false);
+  };
+
+  const togglePhotoDeleteSelection = (photoId: string) => {
+    setSelectedPhotoIds((current) => {
+      const next = new Set(current);
+      if (next.has(photoId)) next.delete(photoId);
+      else next.add(photoId);
+      return next;
+    });
+  };
+
+  const handleConfirmBulkPhotoDelete = async () => {
+    if (selectedPhotoIds.size === 0 || deletingPhoto) return;
+    const targets = photos.filter((photo) => selectedPhotoIds.has(photo.id));
+    setDeletingPhoto(true);
+    const deletedIds = new Set<string>();
+
+    for (const photo of targets) {
+      const result = await removePhoto(photo);
+      if (!result.ok) continue;
+      deletedIds.add(photo.id);
+    }
+
+    if (deletedIds.size > 0) {
+      setPhotoDecorations((current) => {
+        const next = { ...current };
+        for (const id of deletedIds) delete next[id];
+        return next;
+      });
+    }
+
+    setDeletingPhoto(false);
+    setConfirmBulkPhotoDelete(false);
+    if (deletedIds.size === targets.length) {
+      leavePhotoDeleteMode();
+      return;
+    }
+    setSelectedPhotoIds((current) => new Set([...current].filter((id) => !deletedIds.has(id))));
+  };
+
   return (
     <div className="relative h-full flex flex-col gap-2 p-3 overflow-hidden" style={{
       background: DIARY_PAPER_BG,
@@ -4735,19 +4955,58 @@ function PhotoPage({
           <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.45rem", color: "#e08000" }}>★</span>
           <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.7rem", color: "#e08000", letterSpacing: "0.12em" }}>PHOTO ALBUM</span>
         </div>
-        <button
-          onClick={handleAdd}
-          disabled={uploading}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
-          style={{
-            fontFamily: FONT_UI, fontSize: "0.52rem", fontWeight: 700,
-            background: "linear-gradient(90deg, #c9a878, #c49a64)",
-            boxShadow: "0 2px 8px rgba(255,140,0,0.35)",
-            opacity: uploading ? 0.7 : 1,
-          }}
-        >
-          <span style={{ fontSize: 10 }}>＋</span> {uploading ? "올리는 중..." : "사진 추가하기"}
-        </button>
+        <div className="flex items-center gap-1">
+          {photoDeleteMode ? (
+            <>
+              <button
+                type="button"
+                onClick={leavePhotoDeleteMode}
+                disabled={deletingPhoto}
+                className="px-2 py-1 rounded-full"
+                style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 800, color: "#8a6334", background: "rgba(176,138,74,0.12)" }}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmBulkPhotoDelete(true)}
+                disabled={selectedPhotoIds.size === 0 || deletingPhoto}
+                className="px-2 py-1 rounded-full text-white"
+                style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 900, background: ACCENT_BTN_BG, opacity: selectedPhotoIds.size === 0 || deletingPhoto ? 0.45 : 1 }}
+              >
+                {deletingPhoto ? "삭제 중..." : `선택 삭제 (${selectedPhotoIds.size})`}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleAdd}
+                disabled={uploading}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
+                style={{
+                  fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 700,
+                  background: "linear-gradient(90deg, #c9a878, #c49a64)",
+                  boxShadow: "0 2px 8px rgba(255,140,0,0.35)",
+                  opacity: uploading ? 0.7 : 1,
+                }}
+              >
+                <span style={{ fontSize: 10 }}>＋</span> {uploading ? "올리는 중..." : "사진 추가하기"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhotoDeleteMode(true);
+                  setSelectedPhotoIds(new Set());
+                }}
+                disabled={photos.length === 0}
+                className="px-2 py-1 rounded-full"
+                style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 900, color: "#d64b5f", background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.18)", opacity: photos.length === 0 ? 0.45 : 1 }}
+              >
+                삭제
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <CloverRewardHint>
@@ -4775,13 +5034,16 @@ function PhotoPage({
           </div>
         ) : (
           <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-            {photos.map((photo, i) => (
+            {photos.map((photo, i) => {
+              const selectedForDelete = selectedPhotoIds.has(photo.id);
+              return (
                 <motion.button
                   key={photo.id}
                   type="button"
-                  onClick={() => openPhoto(photo)}
+                  onClick={() => photoDeleteMode ? togglePhotoDeleteSelection(photo.id) : openPhoto(photo)}
+                  aria-pressed={photoDeleteMode ? selectedForDelete : undefined}
                   className="relative rounded-lg overflow-hidden aspect-square"
-                  style={{ border: "1.5px solid rgba(255,160,0,0.25)", padding: 0 }}
+                  style={{ border: selectedForDelete ? "3px solid #ff4757" : "1.5px solid rgba(255,160,0,0.25)", padding: 0 }}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: i * 0.05 }}
@@ -4795,6 +5057,14 @@ function PhotoPage({
                       inventoryItems={inventoryItems}
                     />
                   </AlbumPhotoDetailSurface>
+                  {photoDeleteMode && (
+                    <span
+                      className="absolute left-1 top-1 w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 900, color: "white", background: selectedForDelete ? "#ff4757" : "rgba(42,33,20,0.62)", border: "1.5px solid rgba(255,255,255,0.86)" }}
+                    >
+                      {selectedForDelete ? "✓" : ""}
+                    </span>
+                  )}
                   <span
                     className="absolute right-1 bottom-1 z-10 rounded-full px-1.5 py-0.5"
                     style={{
@@ -4810,18 +5080,21 @@ function PhotoPage({
                     조회 {views[photo.id] ?? 0}
                   </span>
                 </motion.button>
-            ))}
-            <button
-              onClick={handleAdd}
-              className="aspect-square rounded-lg flex flex-col items-center justify-center gap-1"
-              style={{
-                border: "1.5px dashed rgba(255,160,0,0.4)",
-                background: "rgba(255,180,0,0.05)",
-              }}
-            >
-              <span style={{ fontSize: 18, color: "#c9a878" }}>＋</span>
-              <span style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#e09020" }}>추가</span>
-            </button>
+              );
+            })}
+            {!photoDeleteMode && (
+              <button
+                onClick={handleAdd}
+                className="aspect-square rounded-lg flex flex-col items-center justify-center gap-1"
+                style={{
+                  border: "1.5px dashed rgba(255,160,0,0.4)",
+                  background: "rgba(255,180,0,0.05)",
+                }}
+              >
+                <span style={{ fontSize: 18, color: "#c9a878" }}>＋</span>
+                <span style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#e09020" }}>추가</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -5375,6 +5648,35 @@ function PhotoPage({
               }}
             >
               {deletingPhoto ? "삭제 중..." : "확인"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmBulkPhotoDelete} onOpenChange={(open) => !open && !deletingPhoto && setConfirmBulkPhotoDelete(false)}>
+        <AlertDialogContent
+          className="max-w-[calc(100%-2rem)] sm:max-w-sm"
+          style={{ background: "linear-gradient(180deg, #fffaf4, #fff2e6)", border: "1px solid rgba(255,160,80,0.18)" }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.78rem", fontWeight: 900, color: "#8a4b1f" }}>
+              선택한 사진 {selectedPhotoIds.size}장을 삭제할까요?
+            </AlertDialogTitle>
+            <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.5rem", color: "#b06a3f", lineHeight: 1.55 }}>
+              선택한 사진은 한 번에 삭제되며 복구할 수 없어요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-full px-4 py-2" style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900 }} disabled={deletingPhoto}>
+              아니오
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleConfirmBulkPhotoDelete()}
+              className="rounded-full px-4 py-2"
+              disabled={deletingPhoto}
+              style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900, background: ACCENT_BTN_BG, color: "white", opacity: deletingPhoto ? 0.6 : 1 }}
+            >
+              {deletingPhoto ? "삭제 중..." : "삭제"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -8692,20 +8994,11 @@ function DiaryPage({ user }: { user: User }) {
 
   return (
     <div className="relative h-full flex flex-col" style={{ background: DIARY_PAPER_BG }}>
-      <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b flex-shrink-0" style={{ borderColor: "rgba(255,160,80,0.2)" }}>
+      <div className="flex items-center px-3 pt-2.5 pb-1.5 border-b flex-shrink-0" style={{ borderColor: "rgba(255,160,80,0.2)" }}>
         <div className="flex items-center gap-1.5">
           <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.45rem", color: "#e08040" }}>★</span>
           <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.7rem", color: "#e08040", letterSpacing: "0.1em" }}>DIARY</span>
         </div>
-        <button onClick={() => setPrivacy((p) => (p === "public" ? "private" : "public"))}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full"
-          style={{
-            fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 700,
-            background: privacy === "private" ? "linear-gradient(90deg,#555,#333)" : "linear-gradient(90deg,#ff4757,#ff6b81)",
-            color: "white", boxShadow: "0 1px 6px rgba(0,0,0,0.15)",
-          }}>
-          {privacy === "private" ? "🔒 비공개" : "🔓 공개"}
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-2 pb-16 flex flex-col gap-3" style={{ minHeight: 0 }}>
@@ -8755,7 +9048,22 @@ function DiaryPage({ user }: { user: User }) {
             }}
           />
 
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPrivacy((current) => current === "public" ? "private" : "public")}
+              aria-label={privacy === "private" ? "현재 비공개, 공개로 변경" : "현재 공개, 비공개로 변경"}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-white"
+              style={{
+                fontFamily: FONT_UI,
+                fontSize: "0.52rem",
+                fontWeight: 800,
+                background: privacy === "private" ? "linear-gradient(90deg,#555,#333)" : "linear-gradient(90deg,#40b080,#60c890)",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.15)",
+              }}
+            >
+              {privacy === "private" ? "🔒 비공개" : "🔓 공개"}
+            </button>
             <button onClick={() => void saveEntry()}
               className="px-3 py-1 rounded-full text-white"
               style={{
@@ -9118,6 +9426,7 @@ type FriendNeighbor = {
   id: number;
   friendUserId?: string;
   name: string;
+  accountName?: string;
   color: string;
   avatar: LegacyAvatarConfig;
   avatarProfile?: AvatarProfile | null;
@@ -9159,21 +9468,24 @@ function storedFriendToNeighbor(friend: StoredFriend, index: number): FriendNeig
 }
 
 function storedIlchonToNeighbor(ilchon: StoredIlchon, index: number): FriendNeighbor {
-  return storedFriendToNeighbor(
+  const neighbor = storedFriendToNeighbor(
     { friendUserId: ilchon.ilchonUserId, nickname: ilchon.nickname, addedAt: ilchon.addedAt },
     index,
   );
+  return { ...neighbor, name: ilchon.displayName || ilchon.nickname, accountName: ilchon.nickname };
 }
 
 function IlchonAvatarGrid({
   ilchon,
   onlineIds,
   onVisitFriend,
+  onRename,
   compact = false,
 }: {
   ilchon: FriendNeighbor[];
   onlineIds: Set<string>;
   onVisitFriend: (nb: FriendNeighbor) => void;
+  onRename?: (nb: FriendNeighbor) => void;
   compact?: boolean;
 }) {
   if (ilchon.length === 0) return null;
@@ -9184,11 +9496,11 @@ function IlchonAvatarGrid({
       style={{ gridTemplateColumns: compact ? "repeat(4, 1fr)" : "repeat(3, 1fr)", scrollbarWidth: "thin" }}
     >
       {ilchon.map((nb, i) => (
+        <div key={nb.friendUserId ?? String(nb.id)} className="relative min-w-0">
         <motion.button
-          key={nb.friendUserId ?? String(nb.id)}
           type="button"
           onClick={() => onVisitFriend(nb)}
-          className="flex flex-col items-center gap-0.5 rounded-lg py-1.5 px-1"
+          className="w-full flex flex-col items-center gap-0.5 rounded-lg py-1.5 px-1"
           style={{
             background: "rgba(255,255,255,0.78)",
             border: `1px solid ${nb.color}55`,
@@ -9228,7 +9540,27 @@ function IlchonAvatarGrid({
           >
             {nb.name}
           </span>
+          {nb.accountName && nb.accountName !== nb.name && !compact && (
+            <span style={{ fontFamily: FONT_UI, fontSize: "0.31rem", color: "#9aa4c8", maxWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              @{nb.accountName}
+            </span>
+          )}
         </motion.button>
+        {onRename && !compact && nb.friendUserId && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRename(nb);
+            }}
+            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ fontFamily: FONT_UI, fontSize: "0.38rem", fontWeight: 900, color: "#7a5a9a", background: "rgba(122,143,212,0.14)" }}
+            title="일촌명 변경"
+          >
+            ✎
+          </button>
+        )}
+        </div>
       ))}
     </div>
   );
@@ -9251,6 +9583,7 @@ function AddIlchonModal({
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -9292,7 +9625,7 @@ function AddIlchonModal({
     setSubmitting(true);
     setError(null);
     setSuccess(null);
-    const result = await sendIlchonRequest(selectedId);
+    const result = await sendIlchonRequest(selectedId, displayName);
     setSubmitting(false);
     if (!result.ok) {
       setError(result.error);
@@ -9300,6 +9633,7 @@ function AddIlchonModal({
     }
     setSuccess(`${result.nickname}님에게 일촌 신청을 보냈어요.`);
     setSelectedId(null);
+    setDisplayName("");
     onSent?.();
   };
 
@@ -9365,6 +9699,7 @@ function AddIlchonModal({
                   type="button"
                   onClick={() => {
                     setSelectedId(nb.friendUserId ?? null);
+                    setDisplayName(nb.name);
                     setError(null);
                   }}
                   className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left w-full"
@@ -9393,6 +9728,19 @@ function AddIlchonModal({
             })
           )}
         </div>
+        {selectedId && (
+          <label className="flex flex-col gap-1 flex-shrink-0">
+            <span style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 800, color: "#6040a0" }}>내가 부를 일촌명</span>
+            <input
+              value={displayName}
+              maxLength={12}
+              onChange={(event) => setDisplayName(event.target.value.replace(/[\r\n\t]/g, " "))}
+              placeholder="예: 친구, 짝꿍, 별이"
+              className="w-full px-2.5 py-1.5 rounded-xl outline-none"
+              style={{ fontFamily: FONT_UI, fontSize: "0.52rem", fontWeight: 700, color: "#4a2060", background: "rgba(255,255,255,0.92)", border: "1.5px solid rgba(122,143,212,0.22)" }}
+            />
+          </label>
+        )}
         {error && (
           <p style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 700, color: "#ff4757", flexShrink: 0 }}>{error}</p>
         )}
@@ -9412,14 +9760,14 @@ function AddIlchonModal({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!selectedId || submitting}
+            disabled={!selectedId || !displayName.trim() || submitting}
             className="flex-1 py-1.5 rounded-xl text-white"
             style={{
               fontFamily: FONT_UI,
               fontSize: "0.5rem",
               fontWeight: 700,
               background: "linear-gradient(90deg, #ff4757, #ff6b81)",
-              opacity: !selectedId || submitting ? 0.5 : 1,
+              opacity: !selectedId || !displayName.trim() || submitting ? 0.5 : 1,
             }}
           >
             {submitting ? "..." : "일촌 신청"}
@@ -11011,6 +11359,9 @@ function IlchonListModal({
   onRefresh: () => void;
 }) {
   const [showAddIlchon, setShowAddIlchon] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<FriendNeighbor | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const ilchonIdSet = new Set(ilchon.map((n) => n.friendUserId).filter((id): id is string => !!id));
   const pendingTargetIds = new Set(outgoingRequests.map((r) => r.toUserId));
@@ -11060,6 +11411,10 @@ function IlchonListModal({
               <IlchonAvatarGrid
                 ilchon={ilchon}
                 onlineIds={onlineIds}
+                onRename={(nb) => {
+                  setRenameError(null);
+                  setRenameTarget(nb);
+                }}
                 onVisitFriend={(nb) => {
                   onVisitFriend(nb);
                   onClose();
@@ -11100,6 +11455,33 @@ function IlchonListModal({
           onClose={() => setShowAddIlchon(false)}
           onSent={() => {
             onRefresh();
+          }}
+        />
+      )}
+      {renameTarget?.friendUserId && (
+        <IlchonNameModal
+          title="일촌명 변경"
+          description={`${renameTarget.accountName ?? renameTarget.name}님을 내가 부를 이름을 바꿉니다.`}
+          initialName={renameTarget.name}
+          submitLabel="변경하기"
+          busy={renameBusy}
+          error={renameError}
+          onClose={() => {
+            if (!renameBusy) setRenameTarget(null);
+          }}
+          onSubmit={(displayName) => {
+            if (!renameTarget.friendUserId || renameBusy) return;
+            setRenameBusy(true);
+            setRenameError(null);
+            void updateIlchonDisplayName(renameTarget.friendUserId, displayName).then((result) => {
+              setRenameBusy(false);
+              if (!result.ok) {
+                setRenameError(result.error);
+                return;
+              }
+              setRenameTarget(null);
+              onRefresh();
+            });
           }}
         />
       )}
@@ -11874,6 +12256,7 @@ function HomeNotificationsSection({ user }: { user: User }) {
   const [showList, setShowList] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
+  const [pendingIlchonAccept, setPendingIlchonAccept] = useState<AppNotification | null>(null);
   const [lastReadAt, setLastReadAt] = useState<string | null>(() => getLastReadAt(user.id));
 
   const unreadCount = countUnreadNotifications(notifications, user.id, lastReadAt);
@@ -11932,18 +12315,28 @@ function HomeNotificationsSection({ user }: { user: User }) {
   }, [showList, notifications, user.id]);
 
   const handleAccept = async (notification: AppNotification) => {
+    if (notification.type === "ilchon_request") {
+      setPendingIlchonAccept(notification);
+      setActionError(null);
+      return;
+    }
+    await completeAccept(notification, notification.actorNickname);
+  };
+
+  const completeAccept = async (notification: AppNotification, displayName: string) => {
     if (!notification.requestId || busyRequestId) return;
     setBusyRequestId(notification.requestId);
     setActionError(null);
     const result =
       notification.type === "friend_request"
         ? await acceptFriendRequest(notification.requestId)
-        : await acceptIlchonRequest(notification.requestId);
+        : await acceptIlchonRequest(notification.requestId, displayName);
     setBusyRequestId(null);
     if (!result.ok) {
       setActionError(result.error);
       return;
     }
+    setPendingIlchonAccept(null);
     await deleteNotification(notification.id);
     await refresh();
   };
@@ -11952,19 +12345,20 @@ function HomeNotificationsSection({ user }: { user: User }) {
     if (!notification.requestId || busyRequestId) return;
     setBusyRequestId(notification.requestId);
     setActionError(null);
-    const result =
-      notification.type === "friend_request"
-        ? await rejectFriendRequest(notification.requestId)
-        : await rejectIlchonRequest(notification.requestId);
-    setBusyRequestId(null);
     if (notification.type === "friend_request") {
+      const result = await rejectFriendRequest(notification.requestId);
+      setBusyRequestId(null);
       if (!result.ok) {
-        setActionError("error" in result ? result.error : "거절에 실패했어요.");
+        setActionError(result.error);
         return;
       }
-    } else if (!result) {
-      setActionError("거절에 실패했어요.");
-      return;
+    } else {
+      const ok = await rejectIlchonRequest(notification.requestId);
+      setBusyRequestId(null);
+      if (!ok) {
+        setActionError("거절에 실패했어요.");
+        return;
+      }
     }
     await deleteNotification(notification.id);
     await refresh();
@@ -12007,6 +12401,20 @@ function HomeNotificationsSection({ user }: { user: User }) {
           onClose={closeList}
           onAccept={(n) => void handleAccept(n)}
           onReject={(n) => void handleReject(n)}
+        />
+      )}
+      {pendingIlchonAccept && (
+        <IlchonNameModal
+          title="일촌 신청 수락"
+          description={`${pendingIlchonAccept.actorNickname}님을 내가 부를 일촌명을 정해 주세요.`}
+          initialName={pendingIlchonAccept.actorNickname}
+          submitLabel="일촌 수락"
+          busy={busyRequestId === pendingIlchonAccept.requestId}
+          error={actionError}
+          onClose={() => {
+            if (!busyRequestId) setPendingIlchonAccept(null);
+          }}
+          onSubmit={(displayName) => void completeAccept(pendingIlchonAccept, displayName)}
         />
       )}
     </>
@@ -13514,15 +13922,7 @@ function RightPage({
       />
     );
   }
-  if (activeTab === "shop") {
-    return (
-      <ShopPage
-        user={user}
-        inventoryRevision={inventoryRevision}
-        onPurchaseComplete={onShopPurchase}
-      />
-    );
-  }
+  if (activeTab === "shop") return <MarketplacePage user={user} />;
   if (activeTab === "board") {
     return <BoardExpandPage user={user} onBack={() => onNavigateTab("home")} />;
   }

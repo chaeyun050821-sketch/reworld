@@ -801,16 +801,14 @@ export function updateHandMadeItem(
   patch: Partial<HandMadeItem>,
 ): HandMadeItem | null {
   const items = loadHandMadeItems(userId);
-  let updated: HandMadeItem | null = null;
-  const next = items.map(item => {
-    if (item.id !== itemId) return item;
-    updated = { ...item, ...patch };
-    return updated;
-  });
-  if (!updated) return null;
-  if (patch.placement) {
-    updated = { ...updated, placement: normalizeItemPlacement(updated.placement) };
-  }
+  const current = items.find((item) => item.id === itemId);
+  if (!current) return null;
+  const updated: HandMadeItem = {
+    ...current,
+    ...patch,
+    ...(patch.placement ? { placement: normalizeItemPlacement(patch.placement) } : {}),
+  };
+  const next = items.map((item) => item.id === itemId ? updated : item);
   saveHandMadeItems(userId, next);
   return updated;
 }

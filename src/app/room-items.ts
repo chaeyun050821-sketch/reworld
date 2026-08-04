@@ -1,5 +1,7 @@
 import type { PixelRect, RoomCategory, RoomInteriorItem, RoomSlot } from "./data";
 
+const shopAsset = (file: string) => `${import.meta.env.BASE_URL}assets/shop/${file}`;
+
 /* ── Room grid helpers (viewBox 440×440) ── */
 const S = 2;
 const LW = 220;
@@ -493,6 +495,16 @@ const RUG_ITEMS: RoomInteriorItem[] = [
 ═══════════════════════════════════════════ */
 const LARGE_FURNITURE_ITEMS: RoomInteriorItem[] = [
   {
+    id: "lf-aquarium",
+    categoryId: "large-furniture",
+    label: "미니 어항",
+    color: "#5bc0d8",
+    preview: "🐠",
+    layer: 3,
+    pixels: [],
+    raster: { src: shopAsset("aquarium.png"), x: 26, y: 174, width: 146, height: 112 },
+  },
+  {
     id: "lf-bookshelf-oak",
     categoryId: "large-furniture",
     label: "오크 책장",
@@ -683,6 +695,16 @@ const SOFA_ITEMS: RoomInteriorItem[] = [
 ═══════════════════════════════════════════ */
 const SIDE_TABLE_ITEMS: RoomInteriorItem[] = [
   {
+    id: "st-pixel-record-player",
+    categoryId: "side-table",
+    label: "빈티지 턴테이블",
+    color: "#b08050",
+    preview: "🎵",
+    layer: 5,
+    pixels: [],
+    raster: { src: shopAsset("record-player.png"), x: 272, y: 256, width: 96, height: 92 },
+  },
+  {
     id: "st-marble-round",
     categoryId: "side-table",
     label: "마블 라운드",
@@ -853,6 +875,16 @@ const LEFT_WALL_ITEMS: RoomInteriorItem[] = [
 ═══════════════════════════════════════════ */
 const RIGHT_WALL_ITEMS: RoomInteriorItem[] = [
   {
+    id: "rw-heart-balloon",
+    categoryId: "right-wall",
+    label: "하트풍선",
+    color: "#ff6b9a",
+    preview: "🎈",
+    layer: 6,
+    pixels: [],
+    raster: { src: shopAsset("heart-balloon.png"), x: 314, y: 50, width: 92, height: 164 },
+  },
+  {
     id: "rw-window-evening",
     categoryId: "right-wall",
     label: "저녁 창문",
@@ -942,6 +974,16 @@ const RIGHT_WALL_ITEMS: RoomInteriorItem[] = [
 ═══════════════════════════════════════════ */
 const LEFT_PROP_ITEMS: RoomInteriorItem[] = [
   {
+    id: "lp-tricolor-cat",
+    categoryId: "left-prop",
+    label: "삼색고양이",
+    color: "#d99a62",
+    preview: "🐱",
+    layer: 7,
+    pixels: [],
+    raster: { src: shopAsset("tricolor-cat.png"), x: 18, y: 318, width: 96, height: 102 },
+  },
+  {
     id: "lp-monstera",
     categoryId: "left-prop",
     label: "몬스테라",
@@ -998,6 +1040,16 @@ const LEFT_PROP_ITEMS: RoomInteriorItem[] = [
    RIGHT PROP (5)
 ═══════════════════════════════════════════ */
 const RIGHT_PROP_ITEMS: RoomInteriorItem[] = [
+  {
+    id: "rp-mushroom-lamp",
+    categoryId: "right-prop",
+    label: "버섯 조명",
+    color: "#ff8068",
+    preview: "🍄",
+    layer: 7,
+    pixels: [],
+    raster: { src: shopAsset("mushroom-lamp.png"), x: 326, y: 300, width: 92, height: 120 },
+  },
   {
     id: "rp-retro-radio",
     categoryId: "right-prop",
@@ -1132,22 +1184,22 @@ export const ROOM_SLOTS: RoomSlot[] = [
   { id: "large-furniture", label: "대형 가구", x: 24, y: 160, width: 144, height: 88, layer: 3 },
   { id: "sofa", label: "소파", x: 96, y: 278, width: 192, height: 60, layer: 4 },
   { id: "side-table", label: "협탁", x: 272, y: 262, width: 80, height: 84, layer: 5 },
-  { id: "left-wall", label: "좌측 벽", x: 40, y: 16, width: 120, height: 88, layer: 6 },
-  { id: "right-wall", label: "우측 벽", x: 296, y: 16, width: 120, height: 88, layer: 6 },
-  { id: "left-prop", label: "좌측 소품", x: 20, y: 348, width: 80, height: 72, layer: 7 },
-  { id: "right-prop", label: "우측 소품", x: 328, y: 352, width: 88, height: 72, layer: 7 },
+  { id: "left-wall", label: "벽 장식", x: 40, y: 16, width: 120, height: 88, layer: 6 },
+  { id: "right-wall", label: "액자·선반", x: 296, y: 16, width: 120, height: 88, layer: 6 },
+  { id: "left-prop", label: "소품", x: 20, y: 348, width: 80, height: 72, layer: 7 },
+  { id: "right-prop", label: "장식 소품", x: 328, y: 352, width: 88, height: 72, layer: 7 },
   { id: "misc", label: "잡동사니", x: 264, y: 328, width: 96, height: 72, layer: 8 },
 ];
 
 export const ROOM_CATEGORIES: RoomCategory[] = [
-  { id: "left-wall", label: "좌측 벽", slot: ROOM_SLOTS[6], items: LEFT_WALL_ITEMS },
+  { id: "left-wall", label: "벽 장식", slot: ROOM_SLOTS[6], items: LEFT_WALL_ITEMS },
   { id: "large-furniture", label: "대형 가구", slot: ROOM_SLOTS[3], items: LARGE_FURNITURE_ITEMS },
   { id: "sofa", label: "소파", slot: ROOM_SLOTS[4], items: SOFA_ITEMS },
-  { id: "right-wall", label: "우측 벽", slot: ROOM_SLOTS[7], items: RIGHT_WALL_ITEMS },
-  { id: "left-prop", label: "좌측 소품", slot: ROOM_SLOTS[8], items: LEFT_PROP_ITEMS },
+  { id: "right-wall", label: "액자·선반", slot: ROOM_SLOTS[7], items: RIGHT_WALL_ITEMS },
+  { id: "left-prop", label: "소품", slot: ROOM_SLOTS[8], items: LEFT_PROP_ITEMS },
   { id: "side-table", label: "협탁", slot: ROOM_SLOTS[5], items: SIDE_TABLE_ITEMS },
   { id: "misc", label: "잡동사니", slot: ROOM_SLOTS[10], items: MISC_ITEMS },
-  { id: "right-prop", label: "우측 소품", slot: ROOM_SLOTS[9], items: RIGHT_PROP_ITEMS },
+  { id: "right-prop", label: "장식 소품", slot: ROOM_SLOTS[9], items: RIGHT_PROP_ITEMS },
   { id: "wallpaper", label: "벽지", slot: ROOM_SLOTS[0], items: WALL_ITEMS },
   { id: "floor", label: "바닥재", slot: ROOM_SLOTS[1], items: FLOOR_ITEMS },
   { id: "rug", label: "러그", slot: ROOM_SLOTS[2], items: RUG_ITEMS },

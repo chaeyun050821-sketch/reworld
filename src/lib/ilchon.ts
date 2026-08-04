@@ -3,6 +3,7 @@ import { isSupabaseConfigured, supabase } from "./supabase";
 export type StoredIlchon = {
   ilchonUserId: string;
   nickname: string;
+  displayName: string;
   addedAt: string;
 };
 
@@ -11,6 +12,7 @@ export type IlchonRequest = {
   fromUserId: string;
   toUserId: string;
   nickname: string;
+  requesterAlias?: string;
   createdAt: string;
   direction: "incoming" | "outgoing";
 };
@@ -49,8 +51,8 @@ export async function loadIlchonList(ownerUserId: string): Promise<StoredIlchon[
 
   const payload = data as {
     ok?: boolean;
-    ilchons?: Array<{ ilchon_user_id: string; nickname: string; added_at: string }>;
-    friends?: Array<{ friend_user_id: string; nickname: string; added_at: string }>;
+    ilchons?: Array<{ ilchon_user_id: string; nickname: string; display_name?: string; added_at: string }>;
+    friends?: Array<{ friend_user_id: string; nickname: string; display_name?: string; added_at: string }>;
   };
   if (!payload?.ok) return [];
 
@@ -63,6 +65,7 @@ export async function loadIlchonList(ownerUserId: string): Promise<StoredIlchon[
       return {
         ilchonUserId: id,
         nickname: row.nickname.trim(),
+        displayName: row.display_name?.trim() || row.nickname.trim(),
         addedAt: row.added_at,
       };
     })
@@ -78,7 +81,7 @@ export async function loadIlchonRequests(userId: string): Promise<{
 
   const { data: rows, error } = await supabase
     .from("ilchon_requests")
-    .select("id, from_user_id, to_user_id, status, created_at")
+    .select("id, from_user_id, to_user_id, status, requester_alias, created_at")
     .eq("status", "pending")
     .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
     .order("created_at", { ascending: false });
@@ -118,6 +121,7 @@ export async function loadIlchonRequests(userId: string): Promise<{
       fromUserId: fromId,
       toUserId: toId,
       nickname: nickMap.get(otherId) ?? "알 수 없음",
+      requesterAlias: typeof row.requester_alias === "string" ? row.requester_alias.trim() : undefined,
       createdAt: row.created_at as string,
       direction: isIncoming ? "incoming" : "outgoing",
     };
@@ -128,7 +132,18 @@ export async function loadIlchonRequests(userId: string): Promise<{
   return { incoming, outgoing };
 }
 
-export async function sendIlchonRequest(targetUserId: string): Promise<IlchonActionResult> {
+function normalizeDisplayName(value: string): string {
+  return value.normalize("NFC").replace(/[\r\n\t]/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function validateDisplayName(value: string): string | null {
+  const normalized = normalizeDisplayName(value);
+  if (!normalized) return "일촌명을 입력해 주세요.";
+  if (Array.from(normalized).length > 12) return "일촌명은 12자 이하로 입력해 주세요.";
+  return null;
+}
+
+export async function sendIlchonRequest(targetUserId: string, displayName: string): Promise<IlchonActionResult> {
   if (!isSupabaseConfigured()) {
     return { ok: false, error: "Supabase 연결이 필요해요." };
   }
@@ -136,8 +151,12 @@ export async function sendIlchonRequest(targetUserId: string): Promise<IlchonAct
     return { ok: false, error: "일촌 신청 대상을 선택해 주세요." };
   }
 
+  const displayNameError = validateDisplayName(displayName);
+  if (displayNameError) return { ok: false, error: displayNameError };
+
   const { data, error } = await supabase.rpc("send_ilchon_request", {
     target_user_id: targetUserId,
+    target_display_name: normalizeDisplayName(displayName),
   });
 
   if (error) {
@@ -152,13 +171,17 @@ export async function sendIlchonRequest(targetUserId: string): Promise<IlchonAct
   return { ok: true, nickname: payload.nickname ?? "" };
 }
 
-export async function acceptIlchonRequest(requestId: string): Promise<IlchonActionResult> {
+export async function acceptIlchonRequest(requestId: string, displayName: string): Promise<IlchonActionResult> {
   if (!isSupabaseConfigured()) {
     return { ok: false, error: "Supabase 연결이 필요해요." };
   }
 
+  const displayNameError = validateDisplayName(displayName);
+  if (displayNameError) return { ok: false, error: displayNameError };
+
   const { data, error } = await supabase.rpc("accept_ilchon_request", {
     request_id: requestId,
+    target_display_name: normalizeDisplayName(displayName),
   });
 
   if (error) {
@@ -180,6 +203,24 @@ export async function acceptIlchonRequest(requestId: string): Promise<IlchonActi
     nickname: payload.nickname ?? "",
     ilchonUserId: payload.ilchon_user_id,
   };
+}
+
+export async function updateIlchonDisplayName(
+  targetUserId: string,
+  displayName: string,
+): Promise<{ ok: true; displayName: string } | { ok: false; error: string }> {
+  if (!isSupabaseConfigured()) return { ok: false, error: "Supabase 연결이 필요해요." };
+  const displayNameError = validateDisplayName(displayName);
+  if (displayNameError) return { ok: false, error: displayNameError };
+  const normalized = normalizeDisplayName(displayName);
+  const { data, error } = await supabase.rpc("update_ilchon_display_name", {
+    target_user_id: targetUserId,
+    target_display_name: normalized,
+  });
+  if (error) return { ok: false, error: mapIlchonError(error.message, error.code) };
+  const payload = data as { ok?: boolean; error?: string; display_name?: string };
+  if (!payload?.ok) return { ok: false, error: payload?.error ?? "일촌명 변경에 실패했어요." };
+  return { ok: true, displayName: payload.display_name ?? normalized };
 }
 
 export async function rejectIlchonRequest(requestId: string): Promise<boolean> {

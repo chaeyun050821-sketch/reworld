@@ -7,13 +7,13 @@
     <style>
         /* 나만의 스티커 보관함 스타일 */
 .inventory-container {
-    width: 640px; 
+    width: 640px;
     margin-top: 20px;
-    background: #ffffffdd; 
-    padding: 15px; 
+    background: #ffffffdd;
+    padding: 15px;
     border-radius: 20px;
-    display: flex; 
-    gap: 10px; 
+    display: flex;
+    gap: 10px;
     overflow-x: auto;
     box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
     min-height: 90px;
@@ -23,21 +23,21 @@
     flex: 0 0 auto;
 }
 .inventory-item {
-    width: 80px; 
-    height: 80px; 
-    border: 2px solid #E4D9F5; 
+    width: 80px;
+    height: 80px;
+    border: 2px solid #E4D9F5;
     border-radius: 12px;
-    cursor: pointer; 
-    background: white; 
+    cursor: pointer;
+    background: white;
     object-fit: contain;
     transition: 0.2s;
     display: block;
 }
-.inventory-item:hover { 
-    transform: scale(1.1) translateY(-5px); 
+.inventory-item:hover {
+    transform: scale(1.1) translateY(-5px);
 }
-.inventory-item.selected { 
-    border: 4px solid #FF9AA2; 
+.inventory-item.selected {
+    border: 4px solid #FF9AA2;
     box-shadow: 0 0 10px #FF9AA2aa;
 }
 .inventory-edit-btn {
@@ -564,10 +564,10 @@
                             const s = placedStickers[draggingStickerIndex];
                             const centerX = s.x + (s.size / 2);
                             const centerY = s.y + (s.size / 2);
-                            
+
                             // 스티커 중심과 휴지통(화면 아래 가운데) 사이의 거리 계산
                             const trashDist = Math.hypot(centerX - (canvasElement.width / 2), centerY - canvasElement.height);
-                            
+
                             // 휴지통 근처(반경 80px 이내)에 떨어뜨렸다면 배열에서 삭제!
                             if (trashDist < 80) {
                                 placedStickers.splice(draggingStickerIndex, 1);
@@ -648,7 +648,7 @@
 
             if (statusText.innerText.includes("불러오는 중")) {
                 statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
-            } 
+            }
             window.requestAnimationFrame(predictWebcam);
         }
 
@@ -975,7 +975,7 @@
             }
         }
 
-        let selectedSticker = null; 
+        let selectedSticker = null;
         const inventory = document.getElementById('inventory');
 
         function getStickerStorageKey() {
@@ -1355,7 +1355,7 @@ canvasElement.addEventListener('click', (e) => {
     const { x: realX, y: clickY } = getMirroredCanvasPoint(e);
 
     // 도장(스티커) 크기 설정 (픽셀 단위, 원하는 대로 숫자 수정 가능)
-    const stickerSize = 180; 
+    const stickerSize = 180;
 
     // 스티커의 중앙이 마우스 클릭 위치에 오도록 좌표 조정해서 그리기
     // 📌 캔버스에 바로 그리지 않고, 주머니에 스티커 정보를 추가합니다!
@@ -1374,7 +1374,7 @@ window.addEventListener('keydown', (e) => {
     if (activeIndex !== -1) {
         if (e.key === 'ArrowUp') {
             placedStickers[activeIndex].size = Math.min(MAX_STICKER_SIZE, placedStickers[activeIndex].size + 15); // 위 화살표: 확대
-            e.preventDefault(); 
+            e.preventDefault();
         } else if (e.key === 'ArrowDown') {
             placedStickers[activeIndex].size = Math.max(MIN_STICKER_SIZE, placedStickers[activeIndex].size - 15); // 아래 화살표: 축소
             e.preventDefault();
