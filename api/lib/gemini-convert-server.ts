@@ -639,7 +639,9 @@ function needsGeminiRefine(_userText: string, localOps: RefineOp[]): boolean {
   return false;
 }
 
-function buildCreativeRefinePrompt(userText: string): string {
+function buildCreativeRefinePrompt(userText: string, viewBox?: { w: number; h: number } | null): string {
+  const w = Math.max(32, Math.round(viewBox?.w ?? 160));
+  const h = Math.max(32, Math.round(viewBox?.h ?? 120));
   return (
     "당신은 픽셀 아트 편집자입니다. 첨부 이미지는 사용자가 도트 변환으로 만든 결과물입니다.\n"
     + "이 이미지를 보고, 아래 수정 요청을 반영한 개선된 도트 SVG를 만드세요.\n\n"
@@ -647,12 +649,47 @@ function buildCreativeRefinePrompt(userText: string): string {
     + "- 첨부 그림이 무엇인지(별·하트·캐릭터 등) 먼저 파악하고, 같은 대상으로 남기세요.\n"
     + "- 전체 실루엣·비율·방향·위치감은 유지하면서 요청만 반영하세요.\n"
     + "- 그라데이션/빛남/색칠/테두리 다듬기/선 교정 요청이면, 그 효과를 첨부 도형 위에 적용하세요.\n"
-    + "- 다른 물체·똥·얼룩·무작위 덩어리로 바꾸지 마세요.\n"
-    + "- 결과는 한눈에 원래 그림으로 알아볼 수 있어야 합니다.\n"
-    + "- 픽셀은 연결감 있게, viewBox는 약 72~112 격자, width/height='100%', 배경 투명, <rect>만 사용.\n"
+    + "- 다른 물체·얼룩·무작위 덩어리로 바꾸지 마세요.\n"
+    + `- 중요: viewBox는 반드시 "0 0 ${w} ${h}" 로 고정하세요. 격자를 줄이면 픽셀이 커져서 안 됩니다.\n`
+    + `- 원본과 비슷한 픽셀 밀도(${w}×${h} 근처)를 유지하고, 48×48처럼 뭉개지 마세요.\n`
+    + "- width/height='100%', 배경 투명, 정수 좌표 <rect>만 사용. path/circle/gradient 태그 금지.\n"
     + "- 설명 없이 <svg>…</svg>만 출력하세요.\n\n"
     + `[수정 요청]: ${userText}`
   );
+}
+
+/** AI가 격자를 줄여 픽셀이 커지면, 원본 해상도로 색만 입혀 복구 */
+function normalizeRefinePixelSize(originalSvg: string, refinedSvg: string): string {
+  try {
+    const originalVb = parseViewBox(originalSvg);
+    const refinedVb = parseViewBox(refinedSvg);
+    if (!originalVb) return refinedSvg;
+
+    const tooCoarse = !refinedVb
+      || refinedVb.w < originalVb.w * 0.75
+      || refinedVb.h < originalVb.h * 0.75;
+
+    if (!tooCoarse) {
+      // viewBox만 살짝 달라도 원본 크기로 맞춤
+      if (
+        refinedVb
+        && (Math.round(refinedVb.w) !== Math.round(originalVb.w)
+          || Math.round(refinedVb.h) !== Math.round(originalVb.h))
+      ) {
+        return refinedSvg.replace(
+          /viewBox\s*=\s*["'][^"']+["']/i,
+          `viewBox="0 0 ${Math.round(originalVb.w)} ${Math.round(originalVb.h)}"`,
+        );
+      }
+      return refinedSvg;
+    }
+
+    const originalGrid = parseSvgToGrid(originalSvg);
+    const refinedGrid = parseSvgToGrid(refinedSvg);
+    return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+  } catch {
+    return refinedSvg;
+  }
 }
 
 function getGeminiApiKey(): string {
@@ -747,7 +784,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       throw new Error("AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.");
     }
 
-    const prompt = buildCreativeRefinePrompt(userText);
+    const sourceVb = svgMarkup.includes("<svg") ? parseViewBox(svgMarkup) : null;
+    const prompt = buildCreativeRefinePrompt(userText, sourceVb);
     const requestBody = {
       contents: [
         {
@@ -759,8 +797,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       ],
       generationConfig: {
         temperature: 0.3,
-        // SVG가 너무 길면 생성 시간이 폭증 → 4096으로 제한해 타임아웃 완화
-        maxOutputTokens: 4096,
+        // 세밀한 격자 SVG를 위해 출력 여유를 둠 (Edge 한도 안에서)
+        maxOutputTokens: 6144,
       },
     };
 
@@ -781,24 +819,27 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
           && (err.status === 408 || /초과|지연|overloaded|unavailable|high demand/i.test(err.message))
           && model !== FALLBACK_GEMINI_MODEL
         ) {
-          refined = await runRefine(FALLBACK_GEMINI_MODEL, 22_000);
+          refined = await runRefine(FALLBACK_GEMINI_MODEL, 20_000);
         } else {
           throw error;
         }
       }
 
-      // 완전 붕괴(픽셀 수가 비정상)일 때만 원본 실루엣에 색을 입혀 응급 복구
-      if (svgMarkup.includes("<svg") && !allowSilhouetteBreak(userText)) {
-        try {
-          const originalGrid = parseSvgToGrid(svgMarkup);
-          const refinedGrid = parseSvgToGrid(refined);
-          const before = originalGrid.cells.size;
-          const after = refinedGrid.cells.size;
-          if (before > 0 && (after < before * 0.35 || after > before * 4)) {
-            return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+      // 픽셀이 커졌거나(격자 축소) 형태가 붕괴되면 원본 해상도/실루엣 기준으로 보정
+      if (svgMarkup.includes("<svg")) {
+        refined = normalizeRefinePixelSize(svgMarkup, refined);
+        if (!allowSilhouetteBreak(userText)) {
+          try {
+            const originalGrid = parseSvgToGrid(svgMarkup);
+            const refinedGrid = parseSvgToGrid(refined);
+            const before = originalGrid.cells.size;
+            const after = refinedGrid.cells.size;
+            if (before > 0 && (after < before * 0.35 || after > before * 4)) {
+              return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+            }
+          } catch {
+            // refined 그대로
           }
-        } catch {
-          // refined 그대로 사용
         }
       }
       return refined;
