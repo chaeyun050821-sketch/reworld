@@ -195,10 +195,10 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   try {
     return await requestGeminiModel(apiKey, model, requestBody, GEMINI_REQUEST_TIMEOUT_MS);
   } catch (error) {
-    const lastError = error instanceof Error ? (error as Error & { status?: number }) : new Error("변환에 실패했어요.");
-    if (lastError.status === 408) {
+    const err = error as Error & { status?: number };
+    if (err instanceof Error && err.status === 408) {
       throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }
-    throw lastError;
+    throw err instanceof Error ? err : new Error("변환에 실패했어요.");
   }
 }
