@@ -68,20 +68,23 @@ function cleanSvgResponse(text: string): string {
   return text.replace(/```xml/g, "").replace(/```svg/g, "").replace(/```/g, "").trim();
 }
 
+const REFINE_SVG_RULES =
+  "설명·마크다운 없이 <svg>…</svg> 코드만 출력하세요. "
+  + "첨부와 비슷한 픽셀 밀도·비율을 유지하고, viewBox를 48×48로 억지로 줄이지 마세요. "
+  + "width='100%' height='100%', 배경 투명(배경 rect 금지), 정수 좌표 <rect>만 사용. "
+  + "path/circle/blur/gradient 금지.";
+
 function buildPrompt(customPrompt?: string, isCustomRefine?: boolean, refineFromSketch?: boolean): string {
   const userText = customPrompt?.trim() ?? "";
   if (isCustomRefine && userText !== "") {
-    if (refineFromSketch) {
-      return (
-        BASE_SVG_PROMPT
-        + `\n[사용자 수정]: "${userText}"\n`
-        + "수정과 직접 관련된 부분만 최소 반영하고, 전체 형태는 알아보기 쉽게 유지하세요.\n"
-      );
-    }
+    // refineFromSketch는 더 이상 기본 경로가 아님. 혹시 남아 있어도 '도트 그림 수정'으로 취급.
+    void refineFromSketch;
     return (
-      "첨부 픽셀 아트의 형태는 유지하고, 아래 수정만 반영하세요. 새 그림으로 바꾸지 마세요.\n"
-      + `[사용자 수정]: "${userText}"\n`
-      + SVG_OUTPUT_RULES
+      "첨부 이미지는 사용자가 이미 만든 도트(픽셀) 아트입니다. "
+      + "이 그림을 기반으로만 수정하세요. 손그림/스케치로 되돌아가거나 형태를 새로 그리지 마세요. "
+      + "실루엣·비율·위치·색의 큰 구조는 유지하고, 아래 요청과 직접 관련된 부분만 최소 변경하세요.\n"
+      + `[수정 요청]: "${userText}"\n`
+      + REFINE_SVG_RULES
     );
   }
   return BASE_SVG_PROMPT;
