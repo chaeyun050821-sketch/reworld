@@ -8,12 +8,12 @@ const BASE_SVG_PROMPT =
   + "viewBox는 내용에 맞게 잡되 너무 뭉개지지 않게 하세요(대략 64~128 격자). "
   + SVG_OUTPUT_RULES;
 
-// 현재 배포 기본 모델 (Vercel GEMINI_MODEL로 덮어쓸 수 있음)
-export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash";
+// Edge 30초 한도: flash는 품질↑·속도↓라 타임아웃이 잦음.
+// 기본은 lite로 안정화하고, Vercel GEMINI_MODEL=gemini-3.5-flash 로 올릴 수 있음.
+export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
 const FALLBACK_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_GEMINI_MODEL = ACTIVE_GEMINI_MODEL_DEFAULT;
-// Node.js 함수 60초 한도 기준 (Edge 30초에서는 flash가 자주 타임아웃)
-const GEMINI_REQUEST_TIMEOUT_MS = 52_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 22_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
 
 type PixelGrid = {
