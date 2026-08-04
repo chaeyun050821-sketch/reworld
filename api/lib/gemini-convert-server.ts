@@ -106,59 +106,134 @@ function applyGradientKeepShape(grid: PixelGrid, style: "shine" | "vertical" | "
   return next;
 }
 
-/** Gemini가 형태를 망가뜨렸을 때: 원본 실루엣에 결과 색만 입힘 */
-function remapColorsOntoMask(original: PixelGrid, refined: PixelGrid): PixelGrid {
-  const next = cloneGrid(original);
-  if (refined.cells.size === 0) return next;
+type GridBounds = { minX: number; minY: number; maxX: number; maxY: number };
 
-  let rMinX = refined.width;
-  let rMinY = refined.height;
-  let rMaxX = -1;
-  let rMaxY = -1;
-  for (const key of refined.cells.keys()) {
+function inkBounds(grid: PixelGrid): GridBounds | null {
+  let minX = grid.width;
+  let minY = grid.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (const key of grid.cells.keys()) {
     const [x, y] = key.split(",").map(Number);
-    if (x < rMinX) rMinX = x;
-    if (y < rMinY) rMinY = y;
-    if (x > rMaxX) rMaxX = x;
-    if (y > rMaxY) rMaxY = y;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
   }
-  let oMinX = original.width;
-  let oMinY = original.height;
-  let oMaxX = -1;
-  let oMaxY = -1;
-  for (const key of original.cells.keys()) {
-    const [x, y] = key.split(",").map(Number);
-    if (x < oMinX) oMinX = x;
-    if (y < oMinY) oMinY = y;
-    if (x > oMaxX) oMaxX = x;
-    if (y > oMaxY) oMaxY = y;
-  }
-  const oW = Math.max(1, oMaxX - oMinX);
-  const oH = Math.max(1, oMaxY - oMinY);
-  const rW = Math.max(1, rMaxX - rMinX);
-  const rH = Math.max(1, rMaxY - rMinY);
+  if (maxX < 0) return null;
+  return { minX, minY, maxX, maxY };
+}
 
-  for (const key of original.cells.keys()) {
-    const [x, y] = key.split(",").map(Number);
-    const nx = (x - oMinX) / oW;
-    const ny = (y - oMinY) / oH;
-    const sx = Math.round(rMinX + nx * rW);
-    const sy = Math.round(rMinY + ny * rH);
-    let color = refined.cells.get(cellKey(sx, sy));
-    if (!color) {
-      // 근처 색 탐색
-      outer: for (let d = 1; d <= 3; d++) {
-        for (let dy = -d; dy <= d; dy++) {
-          for (let dx = -d; dx <= d; dx++) {
-            color = refined.cells.get(cellKey(sx + dx, sy + dy));
-            if (color) break outer;
-          }
-        }
+function sampleColorNear(grid: PixelGrid, x: number, y: number, maxDist = 3): string | undefined {
+  const direct = grid.cells.get(cellKey(x, y));
+  if (direct) return direct;
+  for (let d = 1; d <= maxDist; d++) {
+    for (let dy = -d; dy <= d; dy++) {
+      for (let dx = -d; dx <= d; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
+        const color = grid.cells.get(cellKey(x + dx, y + dy));
+        if (color) return color;
       }
     }
-    if (color) next.cells.set(key, color);
+  }
+  return undefined;
+}
+
+/** refined 격자에서 original 좌표에 대응하는 색을 샘플 (동일 해상도면 직접, 아니면 bbox 매핑) */
+function sampleRefinedColor(
+  original: PixelGrid,
+  refined: PixelGrid,
+  x: number,
+  y: number,
+  oBounds: GridBounds,
+  rBounds: GridBounds,
+): string | undefined {
+  if (original.width === refined.width && original.height === refined.height) {
+    const direct = sampleColorNear(refined, x, y, 2);
+    if (direct) return direct;
+  }
+  const oW = Math.max(1, oBounds.maxX - oBounds.minX);
+  const oH = Math.max(1, oBounds.maxY - oBounds.minY);
+  const rW = Math.max(1, rBounds.maxX - rBounds.minX);
+  const rH = Math.max(1, rBounds.maxY - rBounds.minY);
+  const nx = (x - oBounds.minX) / oW;
+  const ny = (y - oBounds.minY) / oH;
+  const sx = Math.round(rBounds.minX + nx * rW);
+  const sy = Math.round(rBounds.minY + ny * rH);
+  return sampleColorNear(refined, sx, sy, 3);
+}
+
+/**
+ * 원본 실루엣(+인접 1칸)만 유지하고 AI 결과에서 색만 입힘.
+ * 빈 배경을 AI 덩어리로 채우지 않아 별→뭉개진 방울 붕괴를 막음.
+ */
+function remapColorsOntoMask(original: PixelGrid, refined: PixelGrid, softRadius = 1): PixelGrid {
+  const next: PixelGrid = {
+    width: original.width,
+    height: original.height,
+    cells: new Map(),
+  };
+  if (refined.cells.size === 0) return cloneGrid(original);
+
+  const oBounds = inkBounds(original);
+  const rBounds = inkBounds(refined);
+  if (!oBounds || !rBounds) return cloneGrid(original);
+
+  const allowed = softRadius > 0 ? dilateGrid(original, softRadius) : original;
+
+  for (const key of allowed.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    const color = sampleRefinedColor(original, refined, x, y, oBounds, rBounds);
+    if (color) {
+      next.cells.set(key, color);
+      continue;
+    }
+    // 소프트 확장 칸은 AI 색이 있을 때만 채움 (배경 범람 방지)
+    if (original.cells.has(key)) {
+      next.cells.set(key, original.cells.get(key)!);
+    }
+  }
+  return next.cells.size > 0 ? next : cloneGrid(original);
+}
+
+/** 격자를 목표 viewBox로 최근접 확대해 재배치 (구멍은 채우지 않음) */
+function remeshToViewBox(grid: PixelGrid, targetW: number, targetH: number): PixelGrid {
+  const tw = Math.max(1, Math.round(targetW));
+  const th = Math.max(1, Math.round(targetH));
+  if (grid.width === tw && grid.height === th) return cloneGrid(grid);
+  const next: PixelGrid = { width: tw, height: th, cells: new Map() };
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const sx = Math.min(grid.width - 1, Math.floor((x * grid.width) / tw));
+      const sy = Math.min(grid.height - 1, Math.floor((y * grid.height) / th));
+      const color = grid.cells.get(cellKey(sx, sy));
+      if (color) next.cells.set(cellKey(x, y), color);
+    }
   }
   return next;
+}
+
+/** AI가 큰 rect 덩어리로 뭉갰는지 (평균 블록 면적) */
+function estimateMeanBlockArea(svgMarkup: string): number {
+  const rectRe = /<rect\b([^>]*)\/?>/gi;
+  let m: RegExpExecArray | null;
+  let areaSum = 0;
+  let n = 0;
+  while ((m = rectRe.exec(svgMarkup)) !== null) {
+    const attrs = m[1];
+    const get = (name: string) => {
+      const am = attrs.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "i"))
+        || attrs.match(new RegExp(`\\b${name}\\s*=\\s*(-?[\\d.]+)`, "i"));
+      return am?.[1];
+    };
+    const w = Math.max(1, Math.round(Number(get("width") ?? 1)));
+    const h = Math.max(1, Math.round(Number(get("height") ?? 1)));
+    const fill = (get("fill") || "").trim();
+    if (!fill || fill === "none") continue;
+    areaSum += w * h;
+    n += 1;
+  }
+  return n > 0 ? areaSum / n : 1;
 }
 
 function getGeminiModel(): string {
@@ -643,50 +718,69 @@ function buildCreativeRefinePrompt(userText: string, viewBox?: { w: number; h: n
   const w = Math.max(32, Math.round(viewBox?.w ?? 160));
   const h = Math.max(32, Math.round(viewBox?.h ?? 120));
   return (
-    "당신은 픽셀 아트 편집자입니다. 첨부 이미지는 사용자가 도트 변환으로 만든 결과물입니다.\n"
-    + "이 이미지를 보고, 아래 수정 요청을 반영한 개선된 도트 SVG를 만드세요.\n\n"
+    "당신은 픽셀 아트 색/스타일 편집자입니다. 첨부 이미지는 사용자가 도트 변환으로 만든 결과물입니다.\n"
+    + "아래 수정 요청을 반영한 도트 SVG를 만드세요.\n\n"
     + "반드시 지킬 것:\n"
-    + "- 첨부 그림이 무엇인지(별·하트·캐릭터 등) 먼저 파악하고, 같은 대상으로 남기세요.\n"
-    + "- 전체 실루엣·비율·방향·위치감은 유지하면서 요청만 반영하세요.\n"
-    + "- 그라데이션/빛남/색칠/테두리 다듬기/선 교정 요청이면, 그 효과를 첨부 도형 위에 적용하세요.\n"
-    + "- 다른 물체·얼룩·무작위 덩어리로 바꾸지 마세요.\n"
-    + `- 중요: viewBox는 반드시 "0 0 ${w} ${h}" 로 고정하세요. 격자를 줄이면 픽셀이 커져서 안 됩니다.\n`
-    + `- 원본과 비슷한 픽셀 밀도(${w}×${h} 근처)를 유지하고, 48×48처럼 뭉개지 마세요.\n`
+    + "- 첨부 그림이 무엇인지(별·하트·캐릭터 등) 파악하고 같은 대상으로 남기세요.\n"
+    + "- 실루엣·비율·방향·위치를 유지하세요. 큰 사각형 덩어리/통짜 fill로 다시 그리지 마세요.\n"
+    + "- 색·그라데이션·빛남·테두리 요청이면 기존 픽셀 위치를 기준으로 색만 바꾸세요.\n"
+    + "- 빈 배경을 채우거나 도형을 뭉툭한 방울/얼룩으로 바꾸지 마세요.\n"
+    + `- 중요: viewBox는 반드시 "0 0 ${w} ${h}" 로 고정. 1×1에 가까운 작은 <rect> 픽셀을 유지하세요.\n`
+    + `- ${w}×${h} 격자 밀도를 유지하고, 48×48 이하로 줄이거나 width/height≥4인 큰 블록으로 뭉개지 마세요.\n`
     + "- width/height='100%', 배경 투명, 정수 좌표 <rect>만 사용. path/circle/gradient 태그 금지.\n"
     + "- 설명 없이 <svg>…</svg>만 출력하세요.\n\n"
     + `[수정 요청]: ${userText}`
   );
 }
 
-/** AI가 격자를 줄여 픽셀이 커지면, 원본 해상도로 색만 입혀 복구 */
-function normalizeRefinePixelSize(originalSvg: string, refinedSvg: string): string {
+/**
+ * Gemini 결과를 원본 해상도/실루엣에 맞게 보정.
+ * - 기본: 원본 마스크(+인접)에 AI 색만 입힘 → 뭉개진 재드로잉 차단
+ * - 실루엣 파괴 허용 시: 격자가 다르면 구멍 없이 최근접 remesh만 수행
+ */
+function finalizeRefineSvg(
+  originalSvg: string,
+  refinedSvg: string,
+  userText: string,
+): string {
   try {
     const originalVb = parseViewBox(originalSvg);
-    const refinedVb = parseViewBox(refinedSvg);
     if (!originalVb) return refinedSvg;
 
-    const tooCoarse = !refinedVb
-      || refinedVb.w < originalVb.w * 0.75
-      || refinedVb.h < originalVb.h * 0.75;
+    const originalGrid = parseSvgToGrid(originalSvg);
+    let refinedGrid = parseSvgToGrid(refinedSvg);
+    const refinedVb = parseViewBox(refinedSvg);
+    const targetW = Math.round(originalVb.w);
+    const targetH = Math.round(originalVb.h);
 
-    if (!tooCoarse) {
-      // viewBox만 살짝 달라도 원본 크기로 맞춤
-      if (
-        refinedVb
-        && (Math.round(refinedVb.w) !== Math.round(originalVb.w)
-          || Math.round(refinedVb.h) !== Math.round(originalVb.h))
-      ) {
-        return refinedSvg.replace(
-          /viewBox\s*=\s*["'][^"']+["']/i,
-          `viewBox="0 0 ${Math.round(originalVb.w)} ${Math.round(originalVb.h)}"`,
-        );
-      }
-      return refinedSvg;
+    const viewBoxMismatch = !refinedVb
+      || Math.round(refinedVb.w) !== targetW
+      || Math.round(refinedVb.h) !== targetH;
+    const tooCoarse = !refinedVb
+      || refinedVb.w < originalVb.w * 0.85
+      || refinedVb.h < originalVb.h * 0.85
+      || estimateMeanBlockArea(refinedSvg) >= 4;
+
+    if (viewBoxMismatch || tooCoarse) {
+      refinedGrid = remeshToViewBox(refinedGrid, targetW, targetH);
     }
 
-    const originalGrid = parseSvgToGrid(originalSvg);
-    const refinedGrid = parseSvgToGrid(refinedSvg);
-    return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+    if (!allowSilhouetteBreak(userText)) {
+      // 색/스타일 수정: 형태는 원본 고정, AI는 색 소스만
+      return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid, 1));
+    }
+
+    // 부위 추가 등: 형태 변경 허용하되 원본 해상도로 맞춤
+    if (refinedGrid.width !== targetW || refinedGrid.height !== targetH) {
+      refinedGrid = remeshToViewBox(refinedGrid, targetW, targetH);
+    }
+    const before = originalGrid.cells.size;
+    const after = refinedGrid.cells.size;
+    // 완전 붕괴(거의 빈 SVG / 배경 전부 채움)만 마스크로 복구
+    if (before > 0 && (after < before * 0.2 || after > before * 6)) {
+      return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid, 1));
+    }
+    return gridToSvg(refinedGrid);
   } catch {
     return refinedSvg;
   }
@@ -778,8 +872,20 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   const svgMarkup = payload.svgMarkup?.trim() ?? "";
   const imageBase64 = payload.imageBase64?.trim() ?? "";
 
-  // 수정하기: Gemini가 도트 이미지+요청을 보고 직접 수정
+  // 수정하기: 단순 ops는 로컬(형태 보존), 그 외는 Gemini + 실루엣 락
   if (payload.isCustomRefine && userText) {
+    if (svgMarkup.includes("<svg")) {
+      const localOps = detectLocalOps(userText);
+      if (!needsGeminiRefine(userText, localOps) && localOps.length > 0) {
+        try {
+          const grid = parseSvgToGrid(svgMarkup);
+          return gridToSvg(applyOps(grid, localOps));
+        } catch {
+          // 로컬 실패 시 Gemini로 계속
+        }
+      }
+    }
+
     if (!imageBase64) {
       throw new Error("AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.");
     }
@@ -796,7 +902,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
         },
       ],
       generationConfig: {
-        temperature: 0.3,
+        temperature: 0.2,
         // 세밀한 격자 SVG를 위해 출력 여유를 둠 (Edge 한도 안에서)
         maxOutputTokens: 6144,
       },
@@ -825,22 +931,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
         }
       }
 
-      // 픽셀이 커졌거나(격자 축소) 형태가 붕괴되면 원본 해상도/실루엣 기준으로 보정
       if (svgMarkup.includes("<svg")) {
-        refined = normalizeRefinePixelSize(svgMarkup, refined);
-        if (!allowSilhouetteBreak(userText)) {
-          try {
-            const originalGrid = parseSvgToGrid(svgMarkup);
-            const refinedGrid = parseSvgToGrid(refined);
-            const before = originalGrid.cells.size;
-            const after = refinedGrid.cells.size;
-            if (before > 0 && (after < before * 0.35 || after > before * 4)) {
-              return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
-            }
-          } catch {
-            // refined 그대로
-          }
-        }
+        refined = finalizeRefineSvg(svgMarkup, refined, userText);
       }
       return refined;
     } catch (error) {
