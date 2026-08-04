@@ -1094,25 +1094,18 @@
                 return;
             }
 
-            // 수정하기: 반드시 도트 변환 결과(또는 보관함 스티커)를 Gemini(유료 키)로 수정
+            // 수정하기: 도트 SVG 코드 자체를 수정 (이미지 재해석/재그리기 금지)
             let sourceSvg = svgOutput.querySelector('svg');
-            if (!sourceSvg && lastDotSvgMarkup) {
-                const holder = document.createElement('div');
-                holder.innerHTML = lastDotSvgMarkup;
-                sourceSvg = holder.querySelector('svg');
-            }
-
-            let imageBase64 = null;
+            let svgMarkup = lastDotSvgMarkup;
             if (sourceSvg) {
-                try {
-                    imageBase64 = await captureSvgBase64(sourceSvg);
-                } catch (error) {
-                    alert(error instanceof Error ? error.message : '도트 그림을 불러오지 못했어요.');
-                    return;
-                }
-            } else if (selectedSticker) {
-                imageBase64 = captureImageElementBase64(selectedSticker);
-            } else {
+                svgMarkup = new XMLSerializer().serializeToString(sourceSvg);
+                lastDotSvgMarkup = svgMarkup;
+            }
+            if (!svgMarkup.includes('<svg') && selectedSticker) {
+                alert('보관함 스티커는 먼저 캔버스에 찍거나, 도트 변환 결과에 수정을 적용해 주세요.');
+                return;
+            }
+            if (!svgMarkup.includes('<svg')) {
                 alert('먼저 ✨ 도트 변환을 한 뒤, 그 결과에 수정 요청을 적용해 주세요.');
                 return;
             }
@@ -1120,9 +1113,9 @@
             isProcessingAI = true;
             svgOutput.innerHTML = `
                 <div style="text-align: center; width: 100%;">
-                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ 도트 그림을 AI로 수정 중입니다...</p>
+                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ 도트 그림을 수정 중입니다...</p>
                     <div class="loading-container"><div class="loading-bar"></div></div>
-                    <p style="color: #a89bc0; font-size: 14px;">(유료 Gemini API 사용 · 보통 5~15초)</p>
+                    <p style="color: #a89bc0; font-size: 14px;">(형태 유지 · 색 변경은 즉시, 그 외는 Gemini)</p>
                 </div>
             `;
 
@@ -1131,7 +1124,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        imageBase64,
+                        svgMarkup,
                         customPrompt: userText,
                         isCustomRefine: true,
                         refineFromSketch: false,

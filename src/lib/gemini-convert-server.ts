@@ -14,9 +14,10 @@ const BASE_SVG_PROMPT =
   + "그림이 화면 중앙을 크게 차지하도록 배치하세요. "
   + SVG_OUTPUT_RULES;
 
-// Edge 30초 한도: flash는 타임아웃, lite + 명확한 형태 유지 프롬프트로 품질/속도 균형.
+// Edge 30초 한도: flash는 타임아웃, lite가 안정적.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_REQUEST_TIMEOUT_MS = 26_000;
+const MAX_REFINE_SVG_CHARS = 120_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -58,7 +59,8 @@ function formatGeminiError(message: string, status?: number): string {
 }
 
 export type GeminiConvertRequest = {
-  imageBase64: string;
+  imageBase64?: string;
+  svgMarkup?: string;
   customPrompt?: string;
   isCustomRefine?: boolean;
   refineFromSketch?: boolean;
@@ -68,26 +70,68 @@ function cleanSvgResponse(text: string): string {
   return text.replace(/```xml/g, "").replace(/```svg/g, "").replace(/```/g, "").trim();
 }
 
-const REFINE_SVG_RULES =
-  "설명·마크다운 없이 <svg>…</svg> 코드만 출력하세요. "
-  + "첨부와 비슷한 픽셀 밀도·비율을 유지하고, viewBox를 48×48로 억지로 줄이지 마세요. "
-  + "width='100%' height='100%', 배경 투명(배경 rect 금지), 정수 좌표 <rect>만 사용. "
-  + "path/circle/blur/gradient 금지.";
+function extractSvg(text: string): string {
+  const cleaned = cleanSvgResponse(text);
+  const start = cleaned.indexOf("<svg");
+  const end = cleaned.lastIndexOf("</svg>");
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error("Gemini가 올바른 SVG를 반환하지 않았어요.");
+  }
+  return cleaned.slice(start, end + "</svg>".length);
+}
 
-function buildPrompt(customPrompt?: string, isCustomRefine?: boolean, refineFromSketch?: boolean): string {
-  const userText = customPrompt?.trim() ?? "";
-  if (isCustomRefine && userText !== "") {
-    // refineFromSketch는 더 이상 기본 경로가 아님. 혹시 남아 있어도 '도트 그림 수정'으로 취급.
-    void refineFromSketch;
-    return (
-      "첨부 이미지는 사용자가 이미 만든 도트(픽셀) 아트입니다. "
-      + "이 그림을 기반으로만 수정하세요. 손그림/스케치로 되돌아가거나 형태를 새로 그리지 마세요. "
-      + "실루엣·비율·위치·색의 큰 구조는 유지하고, 아래 요청과 직접 관련된 부분만 최소 변경하세요.\n"
-      + `[수정 요청]: "${userText}"\n`
-      + REFINE_SVG_RULES
+function countRects(svg: string): number {
+  return (svg.match(/<rect\b/gi) || []).length;
+}
+
+function parseViewBox(svg: string): { w: number; h: number } | null {
+  const match = svg.match(/viewBox\s*=\s*["']\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*["']/i);
+  if (!match) return null;
+  const w = Number(match[3]);
+  const h = Number(match[4]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+  return { w, h };
+}
+
+function assertRefinePreservesShape(originalSvg: string, refinedSvg: string): void {
+  const before = countRects(originalSvg);
+  const after = countRects(refinedSvg);
+  if (before > 0 && after < Math.max(8, Math.floor(before * 0.45))) {
+    throw new Error(
+      "AI가 도트 형태를 너무 많이 바꿔서 결과를 취소했어요. "
+      + "색 변경처럼 간단한 요청으로 다시 시도하거나, 도트 변환 후 다시 수정해 주세요.",
     );
   }
-  return BASE_SVG_PROMPT;
+
+  const vbBefore = parseViewBox(originalSvg);
+  const vbAfter = parseViewBox(refinedSvg);
+  if (vbBefore && vbAfter) {
+    const ratioBefore = vbBefore.w / vbBefore.h;
+    const ratioAfter = vbAfter.w / vbAfter.h;
+    if (Math.abs(ratioBefore - ratioAfter) > 0.35) {
+      throw new Error("AI가 그림 비율을 너무 바꿔서 결과를 취소했어요. 다시 시도해 주세요.");
+    }
+    // 48x48처럼 격자를 크게 뭉개는 경우 차단
+    if (vbBefore.w >= 80 && vbAfter.w <= 56 && vbAfter.w < vbBefore.w * 0.5) {
+      throw new Error("AI가 픽셀을 너무 크게 뭉개서 결과를 취소했어요. 다시 시도해 주세요.");
+    }
+  }
+}
+
+function buildRefinePrompt(userText: string, svgMarkup: string): string {
+  const vb = parseViewBox(svgMarkup);
+  const vbHint = vb ? `원본 viewBox 크기 roughly ${Math.round(vb.w)}x${Math.round(vb.h)}. ` : "";
+  return (
+    "당신은 SVG 픽셀아트 편집기입니다. 아래 SVG 코드를 직접 수정하세요.\n"
+    + "절대 처음부터 다시 그리지 마세요. 대부분의 <rect> x/y/width/height는 그대로 두고, "
+    + "요청과 관련된 속성(주로 fill 색, 필요 시 아주 적은 rect 추가/삭제)만 바꾸세요.\n"
+    + `${vbHint}`
+    + "viewBox 값과 width/height='100%'는 유지하세요. path/circle/polygon/텍스트 설명 금지.\n"
+    + `[수정 요청]: ${userText}\n\n`
+    + "원본 SVG:\n"
+    + svgMarkup
+    + "\n\n수정된 전체 SVG만 출력하세요."
+  );
 }
 
 function getGeminiApiKey(): string {
@@ -169,25 +213,107 @@ async function requestGeminiModel(
     throw new Error(blockReason ? `요청이 차단됐어요: ${blockReason}` : "Gemini가 SVG를 반환하지 않았어요.");
   }
 
-  return cleanSvgResponse(text);
+  return text;
+}
+
+/** 색 변경처럼 명확한 요청은 로컬에서 처리해 형태를 100% 유지 */
+export function tryLocalSvgColorRefine(svgMarkup: string, customPrompt: string): string | null {
+  const text = customPrompt.trim();
+  if (!text) return null;
+
+  const named: Array<[RegExp, string]> = [
+    [/빨강|빨간|레드|\bred\b/i, "#e11d48"],
+    [/파랑|파란|블루|\bblue\b/i, "#2563eb"],
+    [/하늘|하늘색|라이트블루|sky/i, "#38bdf8"],
+    [/노랑|노란|옐로|\byellow\b/i, "#eab308"],
+    [/초록|그린|\bgreen\b/i, "#16a34a"],
+    [/분홍|핑크|\bpink\b/i, "#f472b6"],
+    [/보라|퍼플|\bpurple\b|\bviolet\b/i, "#9333ea"],
+    [/주황|오렌지|\borange\b/i, "#f97316"],
+    [/갈색|브라운|\bbrown\b/i, "#92400e"],
+    [/검정|검은|블랙|\bblack\b/i, "#111827"],
+    [/흰|하얀|화이트|\bwhite\b/i, "#ffffff"],
+    [/회색|그레이|\bgray\b|\bgrey\b/i, "#9ca3af"],
+  ];
+
+  const hexMatch = text.match(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/);
+  let nextColor: string | null = hexMatch ? (hexMatch[0].startsWith("#") ? hexMatch[0] : `#${hexMatch[1]}`) : null;
+  if (!nextColor) {
+    for (const [re, color] of named) {
+      if (re.test(text)) {
+        nextColor = color;
+        break;
+      }
+    }
+  }
+  if (!nextColor) return null;
+
+  // 색 변경 의이 있을 때만 (너무 모호한 요청은 AI로)
+  if (!/(색|컬러|colour|color|바꿔|변경|칠해|채워)/i.test(text) && !hexMatch) {
+    // "파란색으로" 같은 짧은 요청도 허용
+    if (!named.some(([re]) => re.test(text))) return null;
+  }
+
+  const fills = svgMarkup.match(/fill\s*=\s*["'][^"']+["']/gi) || [];
+  if (fills.length === 0) return null;
+
+  return svgMarkup.replace(/fill\s*=\s*["'][^"']+["']/gi, `fill="${nextColor}"`);
 }
 
 export async function convertDrawingWithGemini(payload: GeminiConvertRequest): Promise<string> {
+  const apiKey = getGeminiApiKey();
+  const model = getGeminiModel();
+  const userText = payload.customPrompt?.trim() ?? "";
+  const svgMarkup = payload.svgMarkup?.trim() ?? "";
+
+  // 수정하기: SVG 코드 편집 (이미지 재해석 금지)
+  if (payload.isCustomRefine && userText) {
+    if (!svgMarkup.includes("<svg")) {
+      throw new Error("수정할 도트 SVG가 없어요. 먼저 도트 변환을 해 주세요.");
+    }
+    if (svgMarkup.length > MAX_REFINE_SVG_CHARS) {
+      throw new Error("도트 그림이 너무 커서 AI 수정이 어려워요. 더 작게 그린 뒤 다시 도트 변환해 주세요.");
+    }
+
+    const local = tryLocalSvgColorRefine(svgMarkup, userText);
+    if (local) {
+      return local;
+    }
+
+    const prompt = buildRefinePrompt(userText, svgMarkup);
+    const requestBody = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 8192,
+      },
+    };
+
+    try {
+      const raw = await requestGeminiModel(apiKey, model, requestBody, GEMINI_REQUEST_TIMEOUT_MS);
+      const refined = extractSvg(raw);
+      assertRefinePreservesShape(svgMarkup, refined);
+      return refined;
+    } catch (error) {
+      const err = error as Error & { status?: number };
+      if (err instanceof Error && err.status === 408) {
+        throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
+      }
+      throw err instanceof Error ? err : new Error("수정에 실패했어요.");
+    }
+  }
+
   const imageBase64 = payload.imageBase64?.trim();
   if (!imageBase64) {
     throw new Error("그림 데이터가 없어요.");
   }
 
-  const apiKey = getGeminiApiKey();
-  const model = getGeminiModel();
-  const finalPrompt = buildPrompt(payload.customPrompt, payload.isCustomRefine, payload.refineFromSketch);
   const requestBody = {
     contents: [
       {
         parts: [
-          // 이미지를 먼저 두어 형태를 읽게 한 뒤 변환 규칙을 적용
           { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
-          { text: finalPrompt },
+          { text: BASE_SVG_PROMPT },
         ],
       },
     ],
@@ -198,7 +324,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   };
 
   try {
-    return await requestGeminiModel(apiKey, model, requestBody, GEMINI_REQUEST_TIMEOUT_MS);
+    const raw = await requestGeminiModel(apiKey, model, requestBody, GEMINI_REQUEST_TIMEOUT_MS);
+    return extractSvg(raw);
   } catch (error) {
     const err = error as Error & { status?: number };
     if (err instanceof Error && err.status === 408) {
