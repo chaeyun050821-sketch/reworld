@@ -821,7 +821,7 @@
             historyContainer.appendChild(record);
         }
 
-        const AI_CAPTURE_MAX_WIDTH = 400;
+        const AI_CAPTURE_MAX_WIDTH = 640;
 
         function canvasToCompactBase64(sourceCanvas, mirror = false) {
             const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
@@ -831,12 +831,13 @@
             tempCanvas.width = width;
             tempCanvas.height = height;
             const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.imageSmoothingEnabled = false;
             if (mirror) {
                 tempCtx.translate(width, 0);
                 tempCtx.scale(-1, 1);
             }
             tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+            return tempCanvas.toDataURL('image/png').split(',')[1];
         }
 
         function captureCanvasBase64() {

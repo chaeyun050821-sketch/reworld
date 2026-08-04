@@ -4,17 +4,17 @@ const SVG_OUTPUT_RULES =
   + "배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
 
 const BASE_SVG_PROMPT =
-  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 당신의 역할은 재창작이 아니라 '픽셀 격자 변환'입니다. "
-  + "윤곽선·비율·위치·각도·개수·연결 관계·전체 실루엣을 절대 바꾸지 마세요. "
-  + "선을 매끄럽게 다듬거나, 대칭화하거나, 디테일을 추가·삭제·단순화하지 마세요. "
-  + "기성 이모지·아이콘·새 캐릭터처럼 다시 그리지 마세요. "
-  + "원본과 동일한 형태 위에 레트로 8비트 픽셀 아트(Pixelated) 질감만 입히세요. "
-  + "작은 사각형 픽셀들이 모여 만든 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 나도록 SVG 코드를 구성해 주세요. "
+  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 실루엣·비율·위치·개수는 유지하면서, "
+  + "고품질 레트로 8비트 픽셀 아트 SVG로 변환하세요. "
+  + "SVG는 작은 정사각형 <rect> 픽셀들로만 구성하고, blur/gradient/anti-alias 곡선은 쓰지 마세요. "
+  + "선은 계단형(jagged) 도트로 선명하게, 색은 원 그림에서 뽑은 8~24색 팔레트로 제한하세요. "
+  + "형태를 이모지·아이콘처럼 새로 창조하지 말고, 픽셀 격자에 맞게만 표현하세요. "
+  + "디테일은 픽셀 단위로 깔끔하게 정리해도 되지만, 전체 실루엣은 바꾸지 마세요. "
   + SVG_OUTPUT_RULES;
 
-// 모델 1개만 사용 (폴백 없음). SVG 도트 변환용 — Nano Banana 이미지 모델(-image)과는 별개.
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_REQUEST_TIMEOUT_MS = 25_000;
+// lite보다 flash가 SVG/도트 품질이 좋음. 모델 1개만 사용.
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const GEMINI_REQUEST_TIMEOUT_MS = 28_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -182,12 +182,12 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       {
         parts: [
           { text: finalPrompt },
-          { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+          { inline_data: { mime_type: "image/png", data: imageBase64 } },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0.15,
+      temperature: 0.1,
       maxOutputTokens: 8192,
     },
   };
