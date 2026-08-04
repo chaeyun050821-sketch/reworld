@@ -954,8 +954,10 @@
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) {
                     let apiMessage = data?.error || `HTTP ${response.status}`;
-                    if (response.status === 504 || response.status === 500) {
-                        apiMessage = '서버 오류가 발생했어요. .env의 GEMINI_API_KEY를 확인하고 잠시 후 다시 시도해 주세요.';
+                    if (response.status === 504) {
+                        apiMessage = data?.error || '응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.';
+                    } else if (response.status === 500 && !data?.error) {
+                        apiMessage = '서버 오류가 발생했어요. 잠시 후 다시 시도해 주세요.';
                     }
                     throw new Error(apiMessage);
                 }

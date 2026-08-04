@@ -12,9 +12,9 @@ const BASE_SVG_PROMPT =
   + "디테일은 픽셀 단위로 깔끔하게 정리해도 되지만, 전체 실루엣은 바꾸지 마세요. "
   + SVG_OUTPUT_RULES;
 
-// lite보다 flash가 SVG/도트 품질이 좋음. 모델 1개만 사용.
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
-const GEMINI_REQUEST_TIMEOUT_MS = 28_000;
+// flash는 품질은 좋지만 Edge 30초 한도에서 자주 타임아웃(504). lite + PNG/프롬프트로 품질 보완.
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_REQUEST_TIMEOUT_MS = 22_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -149,6 +149,11 @@ async function requestGeminiModel(
 
   if (response.status === 503 && retry < 1) {
     await new Promise((resolve) => setTimeout(resolve, 800));
+    return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
+  }
+
+  if (response.status === 404 && retry < 2) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
 
