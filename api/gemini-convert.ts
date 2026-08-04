@@ -1,6 +1,6 @@
 export const config = {
-  runtime: "edge",
-  maxDuration: 30,
+  runtime: "nodejs",
+  maxDuration: 60,
 };
 
 import { convertDrawingWithGemini } from "../src/lib/gemini-convert-server";
@@ -41,8 +41,10 @@ export default async function handler(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "변환에 실패했어요.";
+    const status = (err as Error & { status?: number }).status;
+    const httpStatus = status === 408 ? 504 : 502;
     return new Response(JSON.stringify({ error: message }), {
-      status: 502,
+      status: httpStatus,
       headers: { "Content-Type": "application/json" },
     });
   }

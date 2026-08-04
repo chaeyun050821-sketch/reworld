@@ -1,20 +1,14 @@
 const SVG_OUTPUT_RULES =
-  "응답에는 어떠한 설명이나 마크다운 기호(```svg 등)도 쓰지 말고, 오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. "
-  + "크기는 width='100%' height='100%'로 설정해주세요. 배경을 하얀색이나 특정 색으로 채우지 마세요. "
-  + "배경은 반드시 투명(Transparent)하게 처리하세요. SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
+  "설명·마크다운 없이 <svg>…</svg> 코드만 출력. width='100%' height='100%'. 배경 투명(배경 rect 금지).";
 
 const BASE_SVG_PROMPT =
-  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 원본 실루엣·비율·위치·개수는 유지하면서, "
-  + "고품질 레트로 8비트 픽셀 아트 SVG로 변환하세요. "
-  + "SVG는 작은 정사각형 <rect> 픽셀들로만 구성하고, blur/gradient/anti-alias 곡선은 쓰지 마세요. "
-  + "선은 계단형(jagged) 도트로 선명하게, 색은 원 그림에서 뽑은 8~24색 팔레트로 제한하세요. "
-  + "형태를 이모지·아이콘처럼 새로 창조하지 말고, 픽셀 격자에 맞게만 표현하세요. "
-  + "디테일은 픽셀 단위로 깔끔하게 정리해도 되지만, 전체 실루엣은 바꾸지 마세요. "
+  "스케치를 레트로 8비트 픽셀 아트 SVG로 변환. 실루엣·비율·위치 유지, 새로 창조 금지. "
+  + "작은 <rect>로 32×32 이하 격자만 사용. blur/곡선/gradient 금지. "
   + SVG_OUTPUT_RULES;
 
-// flash는 품질은 좋지만 Edge 30초 한도에서 자주 타임아웃(504). lite + PNG/프롬프트로 품질 보완.
+// flash는 Edge 30초 한도에서 타임아웃. lite + 작은 SVG 출력이 가장 안정적.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_REQUEST_TIMEOUT_MS = 25_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 50_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -71,20 +65,14 @@ function buildPrompt(customPrompt?: string, isCustomRefine?: boolean, refineFrom
   if (isCustomRefine && userText !== "") {
     if (refineFromSketch) {
       return (
-        "첨부된 이미지는 사용자가 직접 그린 스케치입니다. 재창작 금지. "
-        + "윤곽·비율·위치·각도·선 개수·연결 관계를 바꾸지 말고, 원본 실루엣 그대로 레트로 8비트 픽셀(계단형 도트) SVG로 변환하세요. "
-        + "선을 매끄럽게 하거나 대칭화·이모지화하지 마세요.\n\n"
-        + `[사용자 수정 요청]: "${userText}"\n`
-        + "요청과 직접 관련된 부분만 최소 반영하고, 나머지는 원본 형태를 유지하세요.\n\n"
+        "스케치를 8비트 픽셀 SVG로 변환. 실루엣 유지, 32×32 이하 격자.\n"
+        + `[수정]: "${userText}"\n`
         + SVG_OUTPUT_RULES
       );
     }
     return (
-      "첨부된 이미지는 레트로 8비트 픽셀 아트입니다. "
-      + "형태·구도·픽셀 배치는 최대한 유지하고, 아래 사용자 수정 요청만 반영하세요. "
-      + "완전히 새로운 그림으로 다시 만들지 마세요.\n\n"
-      + `[사용자 수정 요청]: "${userText}"\n`
-      + "요청과 직접 관련된 부분만 최소 반영하세요.\n\n"
+      "픽셀 SVG 유지, 아래 수정만 반영.\n"
+      + `[수정]: "${userText}"\n`
       + SVG_OUTPUT_RULES
     );
   }
@@ -148,12 +136,12 @@ async function requestGeminiModel(
   };
 
   if (response.status === 503 && retry < 1) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
 
-  if (response.status === 404 && retry < 2) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
+  if (response.status === 404 && retry < 1) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
 
@@ -192,8 +180,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       },
     ],
     generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 8192,
+      temperature: 0.05,
+      maxOutputTokens: 2048,
     },
   };
 
