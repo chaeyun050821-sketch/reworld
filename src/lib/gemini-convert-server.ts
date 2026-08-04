@@ -1,12 +1,14 @@
 const SVG_OUTPUT_RULES =
   "설명·마크다운 없이 <svg>…</svg> 코드만 출력하세요. "
-  + "viewBox='0 0 48 48' width='100%' height='100%'. 배경은 투명(배경용 <rect> 금지). "
-  + "도형은 정수 좌표의 작은 정사각형 <rect>만 사용하고, path/circle/blur/gradient/곡선은 쓰지 마세요.";
+  + "width='100%' height='100%', 배경 투명(배경용 rect 금지). "
+  + "도형은 정수 좌표 <rect> 픽셀만 사용하고 path/circle/blur/gradient는 금지하세요.";
 
 const BASE_SVG_PROMPT =
   "첨부 이미지는 흰 배경 위 손그림입니다. 레트로 도트 픽셀 SVG로 변환하세요. "
+  + "viewBox는 내용에 맞게 잡되 너무 뭉개지지 않게 하세요(대략 64~128 격자). "
   + SVG_OUTPUT_RULES;
 
+// refine은 Node 60초 한도에서 flash-lite로 자유 수정. 단순 편집은 로컬 격자 연산.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_REQUEST_TIMEOUT_MS = 26_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
@@ -14,12 +16,12 @@ const MAX_REFINE_SVG_CHARS = 120_000;
 type PixelGrid = {
   width: number;
   height: number;
-  // key: "x,y" -> fill color
   cells: Map<string, string>;
 };
 
 type RefineOp =
   | { type: "recolor"; color: string }
+  | { type: "fill"; color: string }
   | { type: "dilate"; radius?: number }
   | { type: "erode"; radius?: number }
   | { type: "outline"; color?: string }
@@ -129,11 +131,9 @@ function parseSvgToGrid(svgMarkup: string): PixelGrid {
       }
     }
   }
-
   if (cells.size === 0) {
     throw new Error("도트 SVG에서 픽셀을 읽지 못했어요. 다시 도트 변환 후 수정해 주세요.");
   }
-
   return { width, height, cells };
 }
 
@@ -141,7 +141,6 @@ function gridToSvg(grid: PixelGrid): string {
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${grid.width} ${grid.height}" width="100%" height="100%" shape-rendering="crispEdges">`,
   ];
-
   for (let y = 0; y < grid.height; y++) {
     let runX = -1;
     let runColor = "";
@@ -159,9 +158,8 @@ function gridToSvg(grid: PixelGrid): string {
         flush();
         continue;
       }
-      if (runLen > 0 && color === runColor && x === runX + runLen) {
-        runLen += 1;
-      } else {
+      if (runLen > 0 && color === runColor && x === runX + runLen) runLen += 1;
+      else {
         flush();
         runX = x;
         runColor = color;
@@ -170,70 +168,77 @@ function gridToSvg(grid: PixelGrid): string {
     }
     flush();
   }
-
   parts.push("</svg>");
   return parts.join("");
 }
 
 function cloneGrid(grid: PixelGrid): PixelGrid {
-  return {
-    width: grid.width,
-    height: grid.height,
-    cells: new Map(grid.cells),
-  };
+  return { width: grid.width, height: grid.height, cells: new Map(grid.cells) };
 }
 
 function normalizeColor(input: string): string {
-  const named: Record<string, string> = {
-    red: "#e11d48",
-    빨강: "#e11d48",
-    빨간: "#e11d48",
-    레드: "#e11d48",
-    blue: "#2563eb",
-    파랑: "#2563eb",
-    파란: "#2563eb",
-    블루: "#2563eb",
-    sky: "#38bdf8",
-    하늘: "#38bdf8",
-    yellow: "#eab308",
-    노랑: "#eab308",
-    노란: "#eab308",
-    green: "#16a34a",
-    초록: "#16a34a",
-    그린: "#16a34a",
-    pink: "#f472b6",
-    분홍: "#f472b6",
-    핑크: "#f472b6",
-    purple: "#9333ea",
-    보라: "#9333ea",
-    퍼플: "#9333ea",
-    orange: "#f97316",
-    주황: "#f97316",
-    오렌지: "#f97316",
-    brown: "#92400e",
-    갈색: "#92400e",
-    black: "#111827",
-    검정: "#111827",
-    검은: "#111827",
-    white: "#ffffff",
-    흰: "#ffffff",
-    하얀: "#ffffff",
-    gray: "#9ca3af",
-    grey: "#9ca3af",
-    회색: "#9ca3af",
-  };
-  const t = input.trim();
-  const hex = t.match(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/);
-  if (hex) return hex[0].startsWith("#") ? hex[0] : `#${hex[1]}`;
-  for (const [key, value] of Object.entries(named)) {
-    if (t.toLowerCase().includes(key.toLowerCase()) || t.includes(key)) return value;
+  return pickColorFromText(input) || (input.startsWith("#") ? input : "#111827");
+}
+
+const COLOR_PATTERNS: Array<[RegExp, string]> = [
+  [/빨강|빨간|레드|\bred\b/i, "#e11d48"],
+  [/파랑|파란|블루|\bblue\b/i, "#2563eb"],
+  [/하늘|하늘색|라이트블루|sky/i, "#38bdf8"],
+  [/노랑|노란|옐로|\byellow\b/i, "#eab308"],
+  [/초록|그린|\bgreen\b/i, "#16a34a"],
+  [/분홍|핑크|\bpink\b/i, "#f472b6"],
+  [/보라|퍼플|\bpurple\b|\bviolet\b/i, "#9333ea"],
+  [/주황|오렌지|\borange\b/i, "#f97316"],
+  [/갈색|브라운|\bbrown\b/i, "#92400e"],
+  [/검정|검은|블랙|\bblack\b/i, "#111827"],
+  [/흰|하얀|화이트|\bwhite\b/i, "#ffffff"],
+  [/회색|그레이|\bgray\b|\bgrey\b/i, "#9ca3af"],
+];
+
+function pickColorFromText(text: string): string | null {
+  const hex = text.match(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/);
+  if (hex) return hex[0];
+  for (const [re, color] of COLOR_PATTERNS) {
+    if (re.test(text)) return color;
   }
-  return t.startsWith("#") ? t : "#111827";
+  return null;
+}
+
+function fillInterior(grid: PixelGrid, color: string): PixelGrid {
+  const exterior = new Set<string>();
+  const queue: Array<[number, number]> = [];
+  for (let x = 0; x < grid.width; x++) {
+    queue.push([x, 0], [x, grid.height - 1]);
+  }
+  for (let y = 0; y < grid.height; y++) {
+    queue.push([0, y], [grid.width - 1, y]);
+  }
+  while (queue.length) {
+    const [x, y] = queue.pop()!;
+    if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+    const k = cellKey(x, y);
+    if (exterior.has(k) || grid.cells.has(k)) continue;
+    exterior.add(k);
+    queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+  const next = cloneGrid(grid);
+  let filled = 0;
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const k = cellKey(x, y);
+      if (!grid.cells.has(k) && !exterior.has(k)) {
+        next.cells.set(k, color);
+        filled += 1;
+      }
+    }
+  }
+  // 닫히지 않은 도형이면 내부를 못 찾을 수 있음 → 실패로 두지 않고 원본 유지 후 AI로 넘기도록 null 신호 대신 그대로 반환
+  void filled;
+  return next;
 }
 
 function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
   let current = cloneGrid(grid);
-
   for (const op of ops) {
     if (op.type === "recolor") {
       const color = normalizeColor(op.color);
@@ -242,7 +247,10 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
       current = next;
       continue;
     }
-
+    if (op.type === "fill") {
+      current = fillInterior(current, normalizeColor(op.color));
+      continue;
+    }
     if (op.type === "dilate") {
       const radius = Math.max(1, Math.min(3, Math.round(op.radius ?? 1)));
       const next = cloneGrid(current);
@@ -261,37 +269,21 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
       current = next;
       continue;
     }
-
     if (op.type === "erode") {
-      const radius = Math.max(1, Math.min(2, Math.round(op.radius ?? 1)));
       const next: PixelGrid = { width: current.width, height: current.height, cells: new Map() };
       for (const [key, color] of current.cells) {
         const [x0, y0] = key.split(",").map(Number);
-        let keep = true;
-        for (let dy = -radius; dy <= radius && keep; dy++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            if (Math.abs(dx) + Math.abs(dy) !== radius) continue;
-            if (!current.cells.has(cellKey(x0 + dx, y0 + dy))) {
-              keep = false;
-              break;
-            }
-          }
-        }
-        // simpler erode: keep only if all 4-neighbors exist
         const neighbors = [
           cellKey(x0 + 1, y0),
           cellKey(x0 - 1, y0),
           cellKey(x0, y0 + 1),
           cellKey(x0, y0 - 1),
         ];
-        if (neighbors.every((n) => current.cells.has(n))) {
-          next.cells.set(key, color);
-        }
+        if (neighbors.every((n) => current.cells.has(n))) next.cells.set(key, color);
       }
       if (next.cells.size > 0) current = next;
       continue;
     }
-
     if (op.type === "outline") {
       const color = normalizeColor(op.color || "#111827");
       const next = cloneGrid(current);
@@ -308,20 +300,18 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
       current = next;
       continue;
     }
-
     if (op.type === "flip") {
       const axis = op.axis === "y" ? "y" : "x";
       const next: PixelGrid = { width: current.width, height: current.height, cells: new Map() };
       for (const [key, color] of current.cells) {
         const [x0, y0] = key.split(",").map(Number);
-        const x = axis === "x" ? (current.width - 1 - x0) : x0;
-        const y = axis === "y" ? (current.height - 1 - y0) : y0;
+        const x = axis === "x" ? current.width - 1 - x0 : x0;
+        const y = axis === "y" ? current.height - 1 - y0 : y0;
         next.cells.set(cellKey(x, y), color);
       }
       current = next;
       continue;
     }
-
     if (op.type === "translate") {
       const dx = Math.round(op.dx ?? 0);
       const dy = Math.round(op.dy ?? 0);
@@ -336,47 +326,21 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
       if (next.cells.size > 0) current = next;
     }
   }
-
   return current;
 }
-
-const COLOR_PATTERNS: Array<[RegExp, string]> = [
-  [/빨강|빨간|레드|\bred\b/i, "#e11d48"],
-  [/파랑|파란|블루|\bblue\b/i, "#2563eb"],
-  [/하늘|하늘색|라이트블루|sky/i, "#38bdf8"],
-  [/노랑|노란|옐로|\byellow\b/i, "#eab308"],
-  [/초록|그린|\bgreen\b/i, "#16a34a"],
-  [/분홍|핑크|\bpink\b/i, "#f472b6"],
-  [/보라|퍼플|\bpurple\b|\bviolet\b/i, "#9333ea"],
-  [/주황|오렌지|\borange\b/i, "#f97316"],
-  [/갈색|브라운|\bbrown\b/i, "#92400e"],
-  [/검정|검은|블랙|\bblack\b/i, "#111827"],
-  [/흰|하얀|화이트|\bwhite\b/i, "#ffffff"],
-  [/회색|그레이|\bgray\b|\bgrey\b/i, "#9ca3af"],
-];
 
 function detectLocalOps(userText: string): RefineOp[] {
   const text = userText.trim();
   const ops: RefineOp[] = [];
 
   if (/(굵|두껍|thick|dilate|팽창)/i.test(text) || /선\s*더\s*굵/i.test(text)) {
-    const radius = /(많이|더더|아주|매우)/i.test(text) ? 2 : 1;
-    ops.push({ type: "dilate", radius });
+    ops.push({ type: "dilate", radius: /(많이|더더|아주|매우)/i.test(text) ? 2 : 1 });
   }
   if (/(얇|가늘|thin|erode|침식)/i.test(text)) {
     ops.push({ type: "erode", radius: 1 });
   }
-  if (/(테두리|외곽|outline|올라인|윤곽)/i.test(text)) {
-    let outlineColor = "#111827";
-    for (const [re, color] of COLOR_PATTERNS) {
-      if (re.test(text)) {
-        outlineColor = color;
-        break;
-      }
-    }
-    const hex = text.match(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/);
-    if (hex) outlineColor = hex[0];
-    ops.push({ type: "outline", color: outlineColor });
+  if (/(테두리|외곽|outline|윤곽)/i.test(text)) {
+    ops.push({ type: "outline", color: pickColorFromText(text) || "#111827" });
   }
   if (/(좌우|가로).*(반전|뒤집)|flip\s*x|mirror/i.test(text)) {
     ops.push({ type: "flip", axis: "x" });
@@ -386,27 +350,44 @@ function detectLocalOps(userText: string): RefineOp[] {
     ops.push({ type: "flip", axis: "x" });
   }
 
-  // 색 변경: 테두리 요청에 색이 같이 있으면 recolor는 넣지 않음(outline 색만)
-  const wantsRecolor = /(색|컬러|colour|color|바꿔|변경|칠해|채워|으로\s*해)/i.test(text)
+  const wantsFill = /(채우|색칠|내부|안쪽|안을|속을)/i.test(text);
+  if (wantsFill) {
+    ops.push({ type: "fill", color: pickColorFromText(text) || "#f472b6" });
+  }
+
+  const wantsRecolor = /(색|컬러|colour|color|바꿔|변경|칠해)/i.test(text)
     || COLOR_PATTERNS.some(([re]) => re.test(text));
-  const onlyOutlineColor = ops.some((o) => o.type === "outline")
-    && !/(전체|다|전부|속|안|채우)/i.test(text);
-  if (wantsRecolor && !onlyOutlineColor) {
-    let color: string | null = null;
-    const hex = text.match(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/);
-    if (hex) color = hex[0];
-    if (!color) {
-      for (const [re, c] of COLOR_PATTERNS) {
-        if (re.test(text)) {
-          color = c;
-          break;
-        }
-      }
-    }
+  const onlyFillOrOutline = wantsFill || ops.some((o) => o.type === "outline");
+  if (wantsRecolor && !onlyFillOrOutline) {
+    const color = pickColorFromText(text);
+    if (color) ops.push({ type: "recolor", color });
+  } else if (wantsRecolor && wantsFill && /(전체|선도|테두리도|밖도)/i.test(text)) {
+    const color = pickColorFromText(text);
     if (color) ops.push({ type: "recolor", color });
   }
 
   return ops;
+}
+
+/** 단순 편집만이면 로컬, 교정/디테일/자유 수정이면 Gemini */
+function needsGeminiRefine(userText: string, localOps: RefineOp[]): boolean {
+  if (localOps.length === 0) return true;
+  return /(교정|반듯|매끄|다듬|예쁘|깔끔|정리|추가|그려|만들어|변형|그림자|하이라이트|디테일|눈\b|귀\b|입\b|표정|대칭|똑바|삐뚤|휘어|지그재그|부드럽게|입체)/i.test(userText);
+}
+
+function buildCreativeRefinePrompt(userText: string): string {
+  return (
+    "첨부 이미지는 사용자가 이미 만든 도트(픽셀) 아트입니다. "
+    + "이 그림을 기준으로 아래 수정 요청을 반영한 새 도트 SVG를 만드세요.\n"
+    + "중요 규칙:\n"
+    + "1) 무엇을 그린 그림인지(별·하트·캐릭터 등)와 전체 실루엣·비율·방향은 유지하세요.\n"
+    + "2) 요청한 수정만 하세요. 예: 내부 색칠, 삐뚤어진 선 교정, 대칭 정리, 디테일 추가.\n"
+    + "3) 다른 물체로 바꾸거나 이모지처럼 완전히 새로 그리지 마세요.\n"
+    + "4) 출력은 알아보기 쉬운 픽셀 아트여야 합니다. 선을 듬성듬성 1px로 흩뿌리지 마세요.\n"
+    + "5) viewBox는 대략 64~96 격자, width/height='100%', 배경 투명, <rect>만 사용.\n"
+    + `[수정 요청]: ${userText}\n`
+    + SVG_OUTPUT_RULES
+  );
 }
 
 function getGeminiApiKey(): string {
@@ -469,12 +450,10 @@ async function requestGeminiModel(
     await new Promise((resolve) => setTimeout(resolve, 500));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
-
   if (response.status === 404 && retry < 1) {
     await new Promise((resolve) => setTimeout(resolve, 300));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
   }
-
   if (!response.ok) {
     const apiMessage = data?.error?.message || `HTTP ${response.status}`;
     const err = new Error(formatGeminiError(apiMessage, response.status)) as Error & { status?: number };
@@ -487,84 +466,7 @@ async function requestGeminiModel(
     const blockReason = data?.promptFeedback?.blockReason;
     throw new Error(blockReason ? `요청이 차단됐어요: ${blockReason}` : "Gemini가 응답하지 않았어요.");
   }
-
   return text;
-}
-
-function extractJsonObject(text: string): unknown {
-  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start === -1 || end === -1 || end < start) {
-      throw new Error("수정 의도를 이해하지 못했어요. 예: '더 굵게', '테두리 추가', '파란색으로'");
-    }
-    return JSON.parse(cleaned.slice(start, end + 1));
-  }
-}
-
-function normalizeOpsFromModel(raw: unknown): RefineOp[] {
-  if (!raw || typeof raw !== "object") return [];
-  const obj = raw as { ops?: unknown; unsupported?: unknown };
-  if (!Array.isArray(obj.ops)) return [];
-  const ops: RefineOp[] = [];
-  for (const item of obj.ops) {
-    if (!item || typeof item !== "object") continue;
-    const type = String((item as { type?: string }).type || "").toLowerCase();
-    if (type === "recolor") {
-      const color = String((item as { color?: string }).color || "").trim();
-      if (color) ops.push({ type: "recolor", color });
-    } else if (type === "dilate" || type === "thicken") {
-      ops.push({ type: "dilate", radius: Number((item as { radius?: number }).radius ?? 1) });
-    } else if (type === "erode" || type === "thin") {
-      ops.push({ type: "erode", radius: Number((item as { radius?: number }).radius ?? 1) });
-    } else if (type === "outline") {
-      ops.push({ type: "outline", color: String((item as { color?: string }).color || "#111827") });
-    } else if (type === "flip") {
-      const axis = String((item as { axis?: string }).axis || "x").toLowerCase() === "y" ? "y" : "x";
-      ops.push({ type: "flip", axis });
-    } else if (type === "translate") {
-      ops.push({
-        type: "translate",
-        dx: Number((item as { dx?: number }).dx ?? 0),
-        dy: Number((item as { dy?: number }).dy ?? 0),
-      });
-    }
-  }
-  return ops;
-}
-
-async function inferOpsWithGemini(apiKey: string, model: string, userText: string): Promise<RefineOp[]> {
-  const prompt =
-    "사용자의 도트(픽셀) 그림 수정 요청을 아래 JSON 한 개로만 변환하세요. 설명 금지.\n"
-    + '형식: {"ops":[{"type":"recolor|dilate|erode|outline|flip|translate","color?":"#rrggbb","radius?":1,"axis?":"x|y","dx?":0,"dy?":0}]}\n'
-    + "지원 의미:\n"
-    + "- recolor: 전체 색 변경\n"
-    + "- dilate: 선/도형 굵게\n"
-    + "- erode: 선/도형 얇게\n"
-    + "- outline: 테두리 추가\n"
-    + "- flip: 반전\n"
-    + "- translate: 이동\n"
-    + "형태를 완전히 새로 그리거나 다른 물체로 바꾸는 요청이면 {\"ops\":[],\"unsupported\":true}\n"
-    + `요청: ${userText}`;
-
-  const raw = await requestGeminiModel(
-    apiKey,
-    model,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 256,
-      },
-    },
-    15_000,
-  );
-
-  const parsed = extractJsonObject(raw);
-  return normalizeOpsFromModel(parsed);
 }
 
 export async function convertDrawingWithGemini(payload: GeminiConvertRequest): Promise<string> {
@@ -572,43 +474,68 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   const model = getGeminiModel();
   const userText = payload.customPrompt?.trim() ?? "";
   const svgMarkup = payload.svgMarkup?.trim() ?? "";
+  const imageBase64 = payload.imageBase64?.trim() ?? "";
 
-  // 수정하기: 픽셀 격자에 연산을 적용 (형태 유지). Gemini는 의도 JSON만 추론.
   if (payload.isCustomRefine && userText) {
-    if (!svgMarkup.includes("<svg")) {
-      throw new Error("수정할 도트 SVG가 없어요. 먼저 도트 변환을 해 주세요.");
-    }
-    if (svgMarkup.length > MAX_REFINE_SVG_CHARS) {
-      throw new Error("도트 그림이 너무 커서 수정이 어려워요. 더 작게 그린 뒤 다시 도트 변환해 주세요.");
+    if (!svgMarkup.includes("<svg") && !imageBase64) {
+      throw new Error("수정할 도트 그림이 없어요. 먼저 도트 변환을 해 주세요.");
     }
 
-    const grid = parseSvgToGrid(svgMarkup);
-    let ops = detectLocalOps(userText);
-
-    if (ops.length === 0) {
+    // 1) 단순 편집: 로컬 격자 연산 (빠르고 형태 유지)
+    if (svgMarkup.includes("<svg") && svgMarkup.length <= MAX_REFINE_SVG_CHARS) {
       try {
-        ops = await inferOpsWithGemini(apiKey, model, userText);
-      } catch (error) {
-        const err = error as Error & { status?: number };
-        if (err instanceof Error && err.status === 408) {
-          throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
+        const localOps = detectLocalOps(userText);
+        if (localOps.length > 0 && !needsGeminiRefine(userText, localOps)) {
+          const grid = parseSvgToGrid(svgMarkup);
+          const before = grid.cells.size;
+          const next = applyOps(grid, localOps);
+          const fillFailed = localOps.some((o) => o.type === "fill") && next.cells.size <= before;
+          if (!fillFailed) {
+            return gridToSvg(next);
+          }
+          // 선이 안 닫혀 내부 색칠 실패 → Gemini로
         }
-        throw err instanceof Error ? err : new Error("수정 요청을 이해하지 못했어요.");
+      } catch {
+        // 로컬 실패 시 Gemini로 계속
       }
     }
 
-    if (ops.length === 0) {
-      throw new Error(
-        "그 수정은 아직 지원하지 않아요. "
-        + "예: '파란색으로', '더 굵게', '더 얇게', '검은 테두리', '좌우 반전'",
-      );
+    // 2) 자유 수정: 유료 Gemini로 도트 이미지를 보고 요청 반영
+    if (!imageBase64) {
+      throw new Error("AI 수정을 위해 도트 그림 이미지가 필요해요. 도트 변환 후 다시 시도해 주세요.");
     }
 
-    const next = applyOps(grid, ops);
-    return gridToSvg(next);
+    const prompt = buildCreativeRefinePrompt(userText);
+    try {
+      const raw = await requestGeminiModel(
+        apiKey,
+        model,
+        {
+          contents: [
+            {
+              parts: [
+                { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+                { text: prompt },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+          },
+        },
+        GEMINI_REQUEST_TIMEOUT_MS,
+      );
+      return extractSvg(raw);
+    } catch (error) {
+      const err = error as Error & { status?: number };
+      if (err instanceof Error && err.status === 408) {
+        throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
+      }
+      throw err instanceof Error ? err : new Error("수정에 실패했어요.");
+    }
   }
 
-  const imageBase64 = payload.imageBase64?.trim();
   if (!imageBase64) {
     throw new Error("그림 데이터가 없어요.");
   }
@@ -631,7 +558,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
           maxOutputTokens: 4096,
         },
       },
-      GEMINI_REQUEST_TIMEOUT_MS,
+      Math.min(GEMINI_REQUEST_TIMEOUT_MS, 28_000),
     );
     return extractSvg(raw);
   } catch (error) {
