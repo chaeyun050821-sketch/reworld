@@ -286,7 +286,7 @@
     <div class="status" id="statusText">웹캠과 AI 모델을 불러오는 중입니다. 잠시만 기다려주세요...</div>
 
     <div class="container">
-        <video id="input_video" autoplay playsinline></video>
+        <video id="input_video" autoplay playsinline muted></video>
         <canvas id="output_canvas" width="640" height="480"></canvas>
         <canvas id="overlay_canvas" width="640" height="480"></canvas>
     </div>
@@ -427,25 +427,117 @@
         let resizeBaselineDist = null;
         let resizeBaselineSize = null;
 
-        async function createHandLandmarker() {
-            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
-            handLandmarker = await HandLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-                    delegate: "GPU"
-                },
-                runningMode: "VIDEO",
-                numHands: 2
-            });
-            startCamera();
+        let cameraStream = null;
+        let cameraReady = false;
+        let modelReady = false;
+        let predictLoopStarted = false;
+
+        function updateReadyStatus() {
+            if (cameraReady && modelReady) {
+                statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
+                statusText.style.color = "#a3729c";
+            } else if (cameraReady) {
+                statusText.innerText = "웹캠 연결됨. AI 손 인식 모델 로딩 중...";
+                statusText.style.color = "#a3729c";
+            }
         }
-        createHandLandmarker();
+
+        function maybeStartPredictLoop() {
+            if (!cameraReady || !modelReady || predictLoopStarted) return;
+            predictLoopStarted = true;
+            predictWebcam();
+        }
+
+        function showCameraRetryButton() {
+            if (document.getElementById("cameraRetryBtn")) return;
+            const btn = document.createElement("button");
+            btn.id = "cameraRetryBtn";
+            btn.type = "button";
+            btn.textContent = "📷 웹캠 다시 켜기";
+            btn.className = "action-btn";
+            btn.style.cssText = "margin-top:12px;background:#5B9BD5;grid-column:1/-1;";
+            btn.onclick = () => {
+                btn.remove();
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach((track) => track.stop());
+                    cameraStream = null;
+                }
+                cameraReady = false;
+                predictLoopStarted = false;
+                startCamera();
+            };
+            document.querySelector(".controls")?.prepend(btn);
+        }
+
+        async function createHandLandmarker() {
+            statusText.innerText = "웹캠 연결 중... AI 모델도 함께 불러옵니다.";
+            try {
+                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+                const landmarkerOptions = {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+                    },
+                    runningMode: "VIDEO",
+                    numHands: 2,
+                };
+                try {
+                    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                        ...landmarkerOptions,
+                        baseOptions: { ...landmarkerOptions.baseOptions, delegate: "GPU" },
+                    });
+                } catch {
+                    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                        ...landmarkerOptions,
+                        baseOptions: { ...landmarkerOptions.baseOptions, delegate: "CPU" },
+                    });
+                }
+                modelReady = true;
+                updateReadyStatus();
+                maybeStartPredictLoop();
+            } catch (err) {
+                console.error("[hand-tracking] model load failed:", err);
+                statusText.innerText = "AI 모델 로드에 실패했어요. 새로고침 후 다시 시도해 주세요.";
+                statusText.style.color = "#e74c3c";
+            }
+        }
 
         async function startCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            videoElement.srcObject = stream;
-            videoElement.addEventListener("loadeddata", predictWebcam);
+            if (!navigator.mediaDevices?.getUserMedia) {
+                statusText.innerText = "이 브라우저는 웹캠을 지원하지 않아요. Chrome 또는 Safari 최신 버전을 사용해 주세요.";
+                statusText.style.color = "#e74c3c";
+                showCameraRetryButton();
+                return;
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false,
+                });
+                cameraStream = stream;
+                videoElement.srcObject = stream;
+                videoElement.muted = true;
+                await videoElement.play();
+                cameraReady = true;
+                updateReadyStatus();
+                videoElement.addEventListener("loadeddata", maybeStartPredictLoop, { once: true });
+                if (videoElement.readyState >= 2) maybeStartPredictLoop();
+            } catch (err) {
+                console.error("[hand-tracking] camera failed:", err);
+                const name = err?.name || "";
+                if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+                    statusText.innerText = "웹캠 권한이 거부됐어요. 주소창 🔒에서 카메라를 '허용'으로 바꾼 뒤 아래 버튼을 눌러 주세요.";
+                } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+                    statusText.innerText = "연결된 카메라를 찾을 수 없어요. 웹캠 연결을 확인해 주세요.";
+                } else {
+                    statusText.innerText = "웹캠을 켤 수 없어요. 다른 앱에서 카메라를 쓰고 있지 않은지 확인해 주세요.";
+                }
+                statusText.style.color = "#e74c3c";
+                showCameraRetryButton();
+            }
         }
+
+        startCamera();
+        createHandLandmarker();
 
         async function predictWebcam() {
             if (!handLandmarker) return;

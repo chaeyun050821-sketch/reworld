@@ -6925,13 +6925,44 @@ function LiveCameraView({
   children,
   bindVideo,
   status,
+  errorReason,
+  onRetry,
 }: {
   children?: ReactNode;
   bindVideo: (el: HTMLVideoElement | null) => void;
   status: "loading" | "live" | "unavailable";
+  errorReason?: "unsupported" | "denied" | "not-found" | "failed" | null;
+  onRetry?: () => void;
 }) {
   if (status === "unavailable") {
-    return <FakeCameraView>{children}</FakeCameraView>;
+    const message =
+      errorReason === "denied"
+        ? "웹캠 권한이 필요해요. 브라우저 설정에서 카메라를 허용해 주세요."
+        : errorReason === "not-found"
+          ? "연결된 카메라를 찾을 수 없어요."
+          : errorReason === "unsupported"
+            ? "이 브라우저는 웹캠을 지원하지 않아요."
+            : "웹캠을 켤 수 없어요.";
+    return (
+      <FakeCameraView>
+        <div className="absolute inset-x-0 bottom-4 flex flex-col items-center gap-2 px-4">
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.45rem", color: "#ffd0d0", textAlign: "center", fontWeight: 600 }}>
+            {message}
+          </span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="px-3 py-1 rounded-full"
+              style={{ background: "rgba(91,155,213,0.85)", color: "white", fontFamily: FONT_UI, fontSize: "0.45rem", fontWeight: 700 }}
+            >
+              📷 웹캠 다시 켜기
+            </button>
+          )}
+        </div>
+        {children}
+      </FakeCameraView>
+    );
   }
 
   return (
@@ -7132,7 +7163,7 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
   const [flash, setFlash] = useState(false);
   const [previewShot, setPreviewShot] = useState<string | null>(null);
   const { addUpload, addGradient } = usePhotoAlbum(userId);
-  const { bindVideo, status, capture } = useLiveCamera();
+  const { bindVideo, status, errorReason, retry, capture } = useLiveCamera();
   const blobUrlsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -7192,7 +7223,7 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
 
       <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
         <div className="flex-1 relative" style={{ minWidth: 0 }}>
-          <LiveCameraView bindVideo={bindVideo} status={status}>
+          <LiveCameraView bindVideo={bindVideo} status={status} errorReason={errorReason} onRetry={retry}>
             <AnimatePresence>
               {flash && (
                 <motion.div className="absolute inset-0 bg-white pointer-events-none"
