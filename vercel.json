@@ -11,10 +11,5 @@
       ]
     }
   ],
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
-  "functions": {
-    "api/gemini-convert.ts": {
-      "maxDuration": 60
-    }
-  }
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
 }

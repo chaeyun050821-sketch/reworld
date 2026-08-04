@@ -1,6 +1,6 @@
 export const config = {
-  runtime: "nodejs",
-  maxDuration: 60,
+  runtime: "edge",
+  maxDuration: 30,
 };
 
 import { convertDrawingWithGemini } from "../src/lib/gemini-convert-server";

@@ -8,7 +8,7 @@ const BASE_SVG_PROMPT =
 
 // flash는 Edge 30초 한도에서 타임아웃. lite + 작은 SVG 출력이 가장 안정적.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_REQUEST_TIMEOUT_MS = 50_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 24_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
