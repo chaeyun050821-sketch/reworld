@@ -822,25 +822,98 @@
         }
 
         const AI_CAPTURE_MAX_WIDTH = 448;
+        const AI_STROKE_DILATE = 3;
 
-        function canvasToCompactBase64(sourceCanvas, mirror = false) {
-            const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
-            const width = Math.max(1, Math.round(sourceCanvas.width * scale));
-            const height = Math.max(1, Math.round(sourceCanvas.height * scale));
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.imageSmoothingEnabled = false;
-            // JPEG 압축 전 흰 배경을 깔아 선이 뭉개지지 않게 함
-            tempCtx.fillStyle = '#ffffff';
-            tempCtx.fillRect(0, 0, width, height);
-            if (mirror) {
-                tempCtx.translate(width, 0);
-                tempCtx.scale(-1, 1);
+        function isInkPixel(r, g, b, a) {
+            if (a < 20) return false;
+            // 흰/거의 흰 배경 제외
+            return !(r > 245 && g > 245 && b > 245);
+        }
+
+        function dilateInkImageData(srcData, width, height, radius) {
+            const out = new Uint8ClampedArray(srcData.length);
+            // 흰 배경으로 시작
+            for (let i = 0; i < out.length; i += 4) {
+                out[i] = 255; out[i + 1] = 255; out[i + 2] = 255; out[i + 3] = 255;
             }
-            tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-            return tempCanvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x) * 4;
+                    if (!isInkPixel(srcData[i], srcData[i + 1], srcData[i + 2], srcData[i + 3])) continue;
+                    const r = srcData[i], g = srcData[i + 1], b = srcData[i + 2];
+                    for (let dy = -radius; dy <= radius; dy++) {
+                        for (let dx = -radius; dx <= radius; dx++) {
+                            if (dx * dx + dy * dy > radius * radius) continue;
+                            const nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                            const j = (ny * width + nx) * 4;
+                            out[j] = r; out[j + 1] = g; out[j + 2] = b; out[j + 3] = 255;
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        function findInkBounds(data, width, height) {
+            let minX = width, minY = height, maxX = -1, maxY = -1;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x) * 4;
+                    if (!isInkPixel(data[i], data[i + 1], data[i + 2], data[i + 3])) continue;
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            if (maxX < 0) return null;
+            return { minX, minY, maxX, maxY };
+        }
+
+        // 선을 두껍게 + 그림 영역만 크롭해서 AI가 형태를 잘 읽게 함
+        function canvasToCompactBase64(sourceCanvas, mirror = false) {
+            const prep = document.createElement('canvas');
+            prep.width = sourceCanvas.width;
+            prep.height = sourceCanvas.height;
+            const prepCtx = prep.getContext('2d');
+            prepCtx.fillStyle = '#ffffff';
+            prepCtx.fillRect(0, 0, prep.width, prep.height);
+            if (mirror) {
+                prepCtx.translate(prep.width, 0);
+                prepCtx.scale(-1, 1);
+            }
+            prepCtx.drawImage(sourceCanvas, 0, 0);
+
+            const src = prepCtx.getImageData(0, 0, prep.width, prep.height);
+            const dilated = dilateInkImageData(src.data, prep.width, prep.height, AI_STROKE_DILATE);
+            prepCtx.putImageData(new ImageData(dilated, prep.width, prep.height), 0, 0);
+
+            const bounds = findInkBounds(dilated, prep.width, prep.height);
+            let sx = 0, sy = 0, sw = prep.width, sh = prep.height;
+            if (bounds) {
+                const padX = Math.max(8, Math.round((bounds.maxX - bounds.minX) * 0.12));
+                const padY = Math.max(8, Math.round((bounds.maxY - bounds.minY) * 0.12));
+                sx = Math.max(0, bounds.minX - padX);
+                sy = Math.max(0, bounds.minY - padY);
+                const ex = Math.min(prep.width, bounds.maxX + padX + 1);
+                const ey = Math.min(prep.height, bounds.maxY + padY + 1);
+                sw = Math.max(1, ex - sx);
+                sh = Math.max(1, ey - sy);
+            }
+
+            const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / Math.max(sw, sh));
+            const width = Math.max(1, Math.round(sw * scale));
+            const height = Math.max(1, Math.round(sh * scale));
+            const out = document.createElement('canvas');
+            out.width = width;
+            out.height = height;
+            const outCtx = out.getContext('2d');
+            outCtx.imageSmoothingEnabled = false;
+            outCtx.fillStyle = '#ffffff';
+            outCtx.fillRect(0, 0, width, height);
+            outCtx.drawImage(prep, sx, sy, sw, sh, 0, 0, width, height);
+            return out.toDataURL('image/jpeg', 0.92).split(',')[1];
         }
 
         function captureCanvasBase64() {
