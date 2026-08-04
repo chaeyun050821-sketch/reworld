@@ -71,7 +71,7 @@ export default defineConfig(({ mode }) => {
               if (!process.env.GEMINI_API_KEY && env.GEMINI_API_KEY) {
                 process.env.GEMINI_API_KEY = env.GEMINI_API_KEY
               }
-              const { convertDrawingWithGemini } = await import('./src/lib/gemini-convert-server')
+              const { convertDrawingWithGemini } = await import('./api/lib/gemini-convert-server')
               const svg = await convertDrawingWithGemini({
                 imageBase64: payload.imageBase64,
                 svgMarkup: payload.svgMarkup,

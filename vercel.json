@@ -5,8 +5,7 @@
   "framework": "vite",
   "functions": {
     "api/gemini-convert.ts": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     }
   },
   "headers": [

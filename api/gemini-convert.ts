@@ -1,16 +1,58 @@
-// Edge 30초로는 gemini-3.5-flash 수정이 자주 타임아웃남 → Node.js 60초
+// Node.js 60초. Edge는 30초라 flash 수정이 자주 타임아웃났음.
+// src/ 밖 import는 Node 번들에 안 들어가 500이 났으므로 api/lib 로 둠.
 export const config = {
   maxDuration: 60,
 };
 
-import { convertDrawingWithGemini } from "../src/lib/gemini-convert-server";
+import { convertDrawingWithGemini } from "./lib/gemini-convert-server";
 
-export default async function handler(request: Request) {
-  if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { Allow: "POST", "Content-Type": "application/json" },
+type NodeReq = {
+  method?: string;
+  body?: unknown;
+  on?: (event: string, cb: (chunk: Buffer | string) => void) => void;
+};
+
+type NodeRes = {
+  statusCode: number;
+  setHeader: (key: string, value: string) => void;
+  end: (body?: string) => void;
+};
+
+function sendJson(res: NodeRes, status: number, payload: unknown) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(payload));
+}
+
+async function readJsonBody(req: NodeReq): Promise<unknown> {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === "string") {
+      return req.body ? JSON.parse(req.body) : {};
+    }
+    return req.body;
+  }
+
+  const raw = await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    if (!req.on) {
+      resolve("");
+      return;
+    }
+    req.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+export default async function handler(req: NodeReq, res: NodeRes) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: "Method not allowed" });
+    return;
   }
 
   let body: {
@@ -20,13 +62,12 @@ export default async function handler(request: Request) {
     isCustomRefine?: boolean;
     refineFromSketch?: boolean;
   };
+
   try {
-    body = (await request.json()) as typeof body;
+    body = (await readJsonBody(req)) as typeof body;
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
   }
 
   try {
@@ -37,17 +78,11 @@ export default async function handler(request: Request) {
       isCustomRefine: body.isCustomRefine,
       refineFromSketch: body.refineFromSketch,
     });
-    return new Response(JSON.stringify({ svg }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    sendJson(res, 200, { svg });
   } catch (err) {
     const message = err instanceof Error ? err.message : "변환에 실패했어요.";
     const status = (err as Error & { status?: number }).status;
     const httpStatus = status === 408 ? 504 : 502;
-    return new Response(JSON.stringify({ error: message }), {
-      status: httpStatus,
-      headers: { "Content-Type": "application/json" },
-    });
+    sendJson(res, httpStatus, { error: message });
   }
 }

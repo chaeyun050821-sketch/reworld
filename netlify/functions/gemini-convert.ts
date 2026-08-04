@@ -1,4 +1,4 @@
-import { convertDrawingWithGemini } from "../../src/lib/gemini-convert-server";
+import { convertDrawingWithGemini } from "../../api/lib/gemini-convert-server";
 
 export const handler = async (event: { httpMethod: string; body?: string | null }) => {
   if (event.httpMethod !== "POST") {
