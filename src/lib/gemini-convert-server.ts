@@ -376,25 +376,63 @@ function erodeGrid(grid: PixelGrid): PixelGrid {
   return next.cells.size > 0 ? next : grid;
 }
 
-/** 튀어나온 점·구멍만 정리. 실루엣은 거의 그대로 유지 */
-function applyCleanup(grid: PixelGrid): PixelGrid {
-  // 고립 픽셀 제거
-  let current: PixelGrid = { width: grid.width, height: grid.height, cells: new Map() };
-  for (const [key, color] of grid.cells) {
-    const [x, y] = key.split(",").map(Number);
-    if (countNeighbors(grid, x, y) >= 2) current.cells.set(key, color);
+function gridsEqual(a: PixelGrid, b: PixelGrid): boolean {
+  if (a.cells.size !== b.cells.size) return false;
+  for (const [key, color] of a.cells) {
+    if (b.cells.get(key) !== color) return false;
   }
-  if (current.cells.size < grid.cells.size * 0.5) current = cloneGrid(grid);
+  return true;
+}
 
-  // closing: 작은 틈 메우기
-  current = erodeGrid(dilateGrid(current, 1));
-  // 다시 아주 얇은 spur 제거
-  const cleaned: PixelGrid = { width: current.width, height: current.height, cells: new Map() };
-  for (const [key, color] of current.cells) {
-    const [x, y] = key.split(",").map(Number);
-    if (countNeighbors(current, x, y) >= 2) cleaned.cells.set(key, color);
+function majoritySmooth(grid: PixelGrid): PixelGrid {
+  const next = cloneGrid(grid);
+  for (let y = 1; y < grid.height - 1; y++) {
+    for (let x = 1; x < grid.width - 1; x++) {
+      const key = cellKey(x, y);
+      const counts = new Map<string, number>();
+      let ink = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const c = grid.cells.get(cellKey(x + dx, y + dy));
+          if (!c) continue;
+          ink += 1;
+          counts.set(c, (counts.get(c) || 0) + 1);
+        }
+      }
+      let best = "";
+      let bestN = 0;
+      for (const [c, n] of counts) {
+        if (n > bestN) {
+          best = c;
+          bestN = n;
+        }
+      }
+      // 움푹 들어간 톱니 메우기
+      if (!grid.cells.has(key) && ink >= 5 && best) {
+        next.cells.set(key, best);
+      }
+      // 혼자 튀어나온 점 제거
+      if (grid.cells.has(key) && ink <= 1) {
+        next.cells.delete(key);
+      }
+    }
   }
-  return cleaned.cells.size >= current.cells.size * 0.6 ? cleaned : current;
+  return next;
+}
+
+/** 테두리 다듬기: 톱니 메우기 + 살짝 두껍게 정리 (눈에 띄게) */
+function applyCleanup(grid: PixelGrid): PixelGrid {
+  let current = majoritySmooth(grid);
+  current = majoritySmooth(current);
+  // closing으로 끊긴 선 연결
+  current = erodeGrid(dilateGrid(current, 1));
+  // 다듬기 체감이 있도록 한 픽셀 보강
+  current = dilateGrid(current, 1);
+  if (gridsEqual(grid, current)) {
+    current = dilateGrid(grid, 1);
+  }
+  return current;
 }
 
 function fillInterior(grid: PixelGrid, color: string): PixelGrid {
@@ -706,26 +744,39 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       throw new Error("수정할 도트 그림이 없어요. 먼저 도트 변환을 해 주세요.");
     }
 
-    // 1) 단순 편집: 로컬 격자 연산 (빠르고 형태 유지)
+    // 1) 단순 편집: 로컬 격자 연산 (빠르고 형태 유지, 변화가 보여야 함)
     if (svgMarkup.includes("<svg") && svgMarkup.length <= MAX_REFINE_SVG_CHARS) {
       try {
         const localOps = detectLocalOps(userText);
         if (localOps.length > 0 && !needsGeminiRefine(userText, localOps)) {
           const grid = parseSvgToGrid(svgMarkup);
           const before = grid.cells.size;
-          const next = applyOps(grid, localOps);
+          let next = applyOps(grid, localOps);
           const fillFailed = localOps.some((o) => o.type === "fill") && next.cells.size <= before;
           if (!fillFailed) {
+            if (gridsEqual(grid, next) && localOps.some((o) => o.type === "cleanup")) {
+              next = dilateGrid(grid, 1);
+            }
+            if (gridsEqual(grid, next)) {
+              throw new Error(
+                "요청은 처리됐지만 눈에 띄는 변화가 없었어요. "
+                + "'더 굵게', '파란색으로', '그라데이션 넣어줘'처럼 더 구체적으로 적어 주세요.",
+              );
+            }
             return gridToSvg(next);
           }
           // 선이 안 닫혀 내부 색칠 실패 → Gemini로
         }
-      } catch {
+      } catch (error) {
+        // 의도적으로 던진 "변화 없음" 메시지는 그대로 전달
+        if (error instanceof Error && error.message.includes("눈에 띄는 변화")) {
+          throw error;
+        }
         // 로컬 실패 시 Gemini로 계속
       }
     }
 
-    // 2) 자유 수정: 유료 Gemini로 도트 이미지를 보고 요청 반영
+    // 2) 자유 수정: 유료 Gemini(flash)로 도트 이미지를 보고 요청 반영
     if (!imageBase64) {
       throw new Error("AI 수정을 위해 도트 그림 이미지가 필요해요. 도트 변환 후 다시 시도해 주세요.");
     }
@@ -745,7 +796,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
             },
           ],
           generationConfig: {
-            temperature: 0.2,
+            temperature: 0.25,
             maxOutputTokens: 8192,
           },
         },
@@ -753,12 +804,17 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       );
       const refined = extractSvg(raw);
 
-      // 기본: 원본 실루엣 고정 + AI 색/톤만 반영 (똥·오줌 형태 붕괴 방지)
+      // 형태가 심하게 붕괴된 경우에만 원본 실루엣으로 색을 입혀 복구
+      // (항상 덮어쓰면 수정이 '아무 변화 없음'처럼 보였음)
       if (svgMarkup.includes("<svg") && !allowSilhouetteBreak(userText)) {
         try {
           const originalGrid = parseSvgToGrid(svgMarkup);
           const refinedGrid = parseSvgToGrid(refined);
-          return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+          const before = originalGrid.cells.size;
+          const after = refinedGrid.cells.size;
+          if (after < before * 0.45 || after > before * 3) {
+            return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+          }
         } catch {
           // 파싱 실패 시 refined 그대로
         }
