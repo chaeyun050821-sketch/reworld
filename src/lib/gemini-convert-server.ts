@@ -12,15 +12,15 @@ const BASE_SVG_PROMPT =
   + "작은 사각형 픽셀들이 모여 만든 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 나도록 SVG 코드를 구성해 주세요. "
   + SVG_OUTPUT_RULES;
 
-// 이미지 변환은 lite 모델 1개만 — 여러 모델 연속 호출 시 유료 키도 RPM/IPM 한도를 빠르게 소진함
-const GEMINI_MODELS = [
-  "gemini-2.0-flash-lite",
-  "gemini-2.0-flash",
-];
-const PRIMARY_TIMEOUT_MS = 22_000;
-const FALLBACK_TIMEOUT_MS = 8_000;
-const MAX_MODEL_ATTEMPTS = 2;
-const MAX_429_RETRIES = 1;
+// 모델 1개만 사용 (폴백 없음). SVG 도트 변환용 — Nano Banana 이미지 모델(-image)과는 별개.
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_REQUEST_TIMEOUT_MS = 25_000;
+
+function getGeminiModel(): string {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  if (configured) return configured;
+  return DEFAULT_GEMINI_MODEL;
+}
 
 function parseRetryAfterSeconds(message: string): number | null {
   const retryMatch = message.match(/retry in ([\d.]+)s/i);
@@ -53,22 +53,6 @@ function formatGeminiError(message: string, status?: number): string {
     return "사용 중인 Gemini 모델을 쓸 수 없어요. 잠시 후 다시 시도해 주세요.";
   }
   return message;
-}
-
-function shouldTryNextModel(error: Error & { status?: number }): boolean {
-  if (error.status === 429) return false;
-  if (error.status === 408) return true;
-  if (error.status === 404) return true;
-  if (error.status === 503) return true;
-  const lower = error.message.toLowerCase();
-  if (lower.includes("응답 시간이 초과")) return true;
-  return (
-    lower.includes("no longer available")
-    || lower.includes("not found")
-    || lower.includes("high demand")
-    || lower.includes("overloaded")
-    || lower.includes("unavailable")
-  );
 }
 
 export type GeminiConvertRequest = {
@@ -163,13 +147,6 @@ async function requestGeminiModel(
     promptFeedback?: { blockReason?: string };
   };
 
-  if (response.status === 429 && retry < MAX_429_RETRIES) {
-    const apiMessage = data?.error?.message ?? "";
-    const waitSec = Math.min(parseRetryAfterSeconds(apiMessage) ?? 4, 8);
-    await new Promise((resolve) => setTimeout(resolve, waitSec * 1000));
-    return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
-  }
-
   if (response.status === 503 && retry < 1) {
     await new Promise((resolve) => setTimeout(resolve, 800));
     return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
@@ -198,6 +175,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   }
 
   const apiKey = getGeminiApiKey();
+  const model = getGeminiModel();
   const finalPrompt = buildPrompt(payload.customPrompt, payload.isCustomRefine, payload.refineFromSketch);
   const requestBody = {
     contents: [
@@ -214,24 +192,13 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
     },
   };
 
-  let lastError: (Error & { status?: number }) | null = null;
-  const models = GEMINI_MODELS.slice(0, MAX_MODEL_ATTEMPTS);
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    const timeoutMs = i === 0 ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS;
-    try {
-      return await requestGeminiModel(apiKey, model, requestBody, timeoutMs);
-    } catch (error) {
-      lastError = error instanceof Error ? (error as Error & { status?: number }) : new Error("변환에 실패했어요.");
-      if (i >= models.length - 1 || !shouldTryNextModel(lastError)) {
-        break;
-      }
+  try {
+    return await requestGeminiModel(apiKey, model, requestBody, GEMINI_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    const lastError = error instanceof Error ? (error as Error & { status?: number }) : new Error("변환에 실패했어요.");
+    if (lastError.status === 408) {
+      throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }
+    throw lastError;
   }
-
-  if (lastError?.status === 408) {
-    throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요. (동시 사용자가 많으면 조금 기다려야 할 수 있어요)");
-  }
-
-  throw lastError ?? new Error("변환에 실패했어요.");
 }
