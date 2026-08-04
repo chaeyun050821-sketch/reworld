@@ -14,7 +14,7 @@ const BASE_SVG_PROMPT =
 
 // flash는 품질은 좋지만 Edge 30초 한도에서 자주 타임아웃(504). lite + PNG/프롬프트로 품질 보완.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_REQUEST_TIMEOUT_MS = 22_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 25_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -187,7 +187,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
       {
         parts: [
           { text: finalPrompt },
-          { inline_data: { mime_type: "image/png", data: imageBase64 } },
+          { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
         ],
       },
     ],

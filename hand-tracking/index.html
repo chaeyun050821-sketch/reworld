@@ -821,7 +821,7 @@
             historyContainer.appendChild(record);
         }
 
-        const AI_CAPTURE_MAX_WIDTH = 640;
+        const AI_CAPTURE_MAX_WIDTH = 480;
 
         function canvasToCompactBase64(sourceCanvas, mirror = false) {
             const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
@@ -837,7 +837,7 @@
                 tempCtx.scale(-1, 1);
             }
             tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-            return tempCanvas.toDataURL('image/png').split(',')[1];
+            return tempCanvas.toDataURL('image/jpeg', 0.88).split(',')[1];
         }
 
         function captureCanvasBase64() {
