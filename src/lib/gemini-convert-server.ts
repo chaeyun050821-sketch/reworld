@@ -1,14 +1,21 @@
 const SVG_OUTPUT_RULES =
-  "설명·마크다운 없이 <svg>…</svg> 코드만 출력. width='100%' height='100%'. 배경 투명(배경 rect 금지).";
+  "설명·마크다운 없이 <svg>…</svg> 코드만 출력하세요. "
+  + "viewBox='0 0 48 48' width='100%' height='100%'. 배경은 투명(배경용 <rect> 금지). "
+  + "도형은 정수 좌표의 작은 정사각형 <rect>만 사용하고, path/circle/blur/gradient/곡선은 쓰지 마세요.";
 
 const BASE_SVG_PROMPT =
-  "스케치를 레트로 8비트 픽셀 아트 SVG로 변환. 실루엣·비율·위치 유지, 새로 창조 금지. "
-  + "작은 <rect>로 32×32 이하 격자만 사용. blur/곡선/gradient 금지. "
+  "첨부 이미지는 사용자가 손으로 그린 스케치입니다. "
+  + "역할을 '픽셀화'로 한정하세요. 새 그림을 상상하거나 다른 물체로 바꾸지 마세요. "
+  + "별이면 별(꼭짓점 개수·방향·비율 동일), 하트면 하트, 얼굴이면 얼굴처럼 "
+  + "원본에서 보이는 실루엣·위치·개수·색을 그대로 따르세요. "
+  + "둥글게 뭉개거나 이모지/아이콘으로 대체하지 말고, "
+  + "스케치 윤곽을 48×48 격자 위의 채워진 픽셀 덩어리로 옮기세요. "
+  + "선이 얇으면 1~2픽셀 두께로만 두껍게 해도 되지만 형태는 유지하세요. "
   + SVG_OUTPUT_RULES;
 
-// flash는 Edge 30초 한도에서 타임아웃. lite + 작은 SVG 출력이 가장 안정적.
+// Edge 30초 한도: flash는 타임아웃, lite + 명확한 형태 유지 프롬프트로 품질/속도 균형.
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_REQUEST_TIMEOUT_MS = 24_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 26_000;
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -65,14 +72,16 @@ function buildPrompt(customPrompt?: string, isCustomRefine?: boolean, refineFrom
   if (isCustomRefine && userText !== "") {
     if (refineFromSketch) {
       return (
-        "스케치를 8비트 픽셀 SVG로 변환. 실루엣 유지, 32×32 이하 격자.\n"
-        + `[수정]: "${userText}"\n`
+        "첨부 스케치를 레트로 8비트 픽셀 SVG로 변환하세요. "
+        + "원본 실루엣·꼭짓점·비율·위치를 유지하고 다른 물체로 바꾸지 마세요.\n"
+        + `[사용자 수정]: "${userText}"\n`
+        + "수정과 직접 관련된 부분만 최소 반영하세요.\n"
         + SVG_OUTPUT_RULES
       );
     }
     return (
-      "픽셀 SVG 유지, 아래 수정만 반영.\n"
-      + `[수정]: "${userText}"\n`
+      "첨부 픽셀 아트의 형태는 유지하고, 아래 수정만 반영하세요. 새 그림으로 바꾸지 마세요.\n"
+      + `[사용자 수정]: "${userText}"\n`
       + SVG_OUTPUT_RULES
     );
   }
@@ -174,14 +183,15 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
     contents: [
       {
         parts: [
-          { text: finalPrompt },
+          // 이미지를 먼저 두어 형태를 읽게 한 뒤 변환 규칙을 적용
           { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+          { text: finalPrompt },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0.05,
-      maxOutputTokens: 2048,
+      temperature: 0.1,
+      maxOutputTokens: 4096,
     },
   };
 

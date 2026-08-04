@@ -821,7 +821,7 @@
             historyContainer.appendChild(record);
         }
 
-        const AI_CAPTURE_MAX_WIDTH = 360;
+        const AI_CAPTURE_MAX_WIDTH = 448;
 
         function canvasToCompactBase64(sourceCanvas, mirror = false) {
             const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
@@ -832,12 +832,15 @@
             tempCanvas.height = height;
             const tempCtx = tempCanvas.getContext('2d');
             tempCtx.imageSmoothingEnabled = false;
+            // JPEG 압축 전 흰 배경을 깔아 선이 뭉개지지 않게 함
+            tempCtx.fillStyle = '#ffffff';
+            tempCtx.fillRect(0, 0, width, height);
             if (mirror) {
                 tempCtx.translate(width, 0);
                 tempCtx.scale(-1, 1);
             }
             tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+            return tempCanvas.toDataURL('image/jpeg', 0.9).split(',')[1];
         }
 
         function captureCanvasBase64() {
