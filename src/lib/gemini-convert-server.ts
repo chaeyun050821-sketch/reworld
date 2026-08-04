@@ -13,7 +13,7 @@ const BASE_SVG_PROMPT =
   + SVG_OUTPUT_RULES;
 
 // 모델 1개만 사용 (폴백 없음). SVG 도트 변환용 — Nano Banana 이미지 모델(-image)과는 별개.
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_REQUEST_TIMEOUT_MS = 25_000;
 
 function getGeminiModel(): string {
@@ -49,8 +49,8 @@ function formatGeminiError(message: string, status?: number): string {
   if (lower.includes("invalid authentication") || lower.includes("api key not valid")) {
     return "Gemini API 키가 올바르지 않아요. Vercel GEMINI_API_KEY 값에 따옴표 없이 AQ. 키 전체를 넣고 재배포해 주세요.";
   }
-  if (lower.includes("no longer available")) {
-    return "사용 중인 Gemini 모델을 쓸 수 없어요. 잠시 후 다시 시도해 주세요.";
+  if (lower.includes("no longer available") || (status === 404 && lower.includes("not found"))) {
+    return `사용 중인 Gemini 모델(${getGeminiModel()})을 쓸 수 없어요. AI Studio에서 사용 가능한 모델로 바꿔 주세요.`;
   }
   return message;
 }
