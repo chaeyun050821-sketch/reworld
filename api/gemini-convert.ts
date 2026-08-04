@@ -1,6 +1,6 @@
+// Edge 30초로는 gemini-3.5-flash 수정이 자주 타임아웃남 → Node.js 60초
 export const config = {
-  runtime: "edge",
-  maxDuration: 30,
+  maxDuration: 60,
 };
 
 import { convertDrawingWithGemini } from "../src/lib/gemini-convert-server";

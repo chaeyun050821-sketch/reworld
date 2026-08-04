@@ -10,9 +10,10 @@ const BASE_SVG_PROMPT =
 
 // 현재 배포 기본 모델 (Vercel GEMINI_MODEL로 덮어쓸 수 있음)
 export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash";
+const FALLBACK_GEMINI_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_GEMINI_MODEL = ACTIVE_GEMINI_MODEL_DEFAULT;
-// flash는 lite보다 느림. Edge 30초 한도 안에서 끝나도록 여유 있게 설정.
-const GEMINI_REQUEST_TIMEOUT_MS = 28_000;
+// Node.js 함수 60초 한도 기준 (Edge 30초에서는 flash가 자주 타임아웃)
+const GEMINI_REQUEST_TIMEOUT_MS = 52_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
 
 type PixelGrid = {
@@ -740,34 +741,51 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   const svgMarkup = payload.svgMarkup?.trim() ?? "";
   const imageBase64 = payload.imageBase64?.trim() ?? "";
 
-  // 수정하기: 로컬 규칙 없이 Gemini flash가 도트 이미지+요청을 보고 직접 수정
+  // 수정하기: Gemini가 도트 이미지+요청을 보고 직접 수정
   if (payload.isCustomRefine && userText) {
     if (!imageBase64) {
       throw new Error("AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.");
     }
 
     const prompt = buildCreativeRefinePrompt(userText);
-    try {
-      const raw = await requestGeminiModel(
-        apiKey,
-        model,
+    const requestBody = {
+      contents: [
         {
-          contents: [
-            {
-              parts: [
-                { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
-                { text: prompt },
-              ],
-            },
+          parts: [
+            { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+            { text: prompt },
           ],
-          generationConfig: {
-            temperature: 0.35,
-            maxOutputTokens: 8192,
-          },
         },
-        GEMINI_REQUEST_TIMEOUT_MS,
-      );
-      const refined = extractSvg(raw);
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        // SVG가 너무 길면 생성 시간이 폭증 → 4096으로 제한해 타임아웃 완화
+        maxOutputTokens: 4096,
+      },
+    };
+
+    const runRefine = async (modelName: string, timeoutMs: number) => {
+      const raw = await requestGeminiModel(apiKey, modelName, requestBody, timeoutMs);
+      return extractSvg(raw);
+    };
+
+    try {
+      let refined: string;
+      try {
+        refined = await runRefine(model, GEMINI_REQUEST_TIMEOUT_MS);
+      } catch (error) {
+        const err = error as Error & { status?: number };
+        // flash 타임아웃/과부하 시 lite로 1회 재시도
+        if (
+          err instanceof Error
+          && (err.status === 408 || /초과|지연|overloaded|unavailable|high demand/i.test(err.message))
+          && model !== FALLBACK_GEMINI_MODEL
+        ) {
+          refined = await runRefine(FALLBACK_GEMINI_MODEL, 22_000);
+        } else {
+          throw error;
+        }
+      }
 
       // 완전 붕괴(픽셀 수가 비정상)일 때만 원본 실루엣에 색을 입혀 응급 복구
       if (svgMarkup.includes("<svg") && !allowSilhouetteBreak(userText)) {
@@ -787,7 +805,10 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
     } catch (error) {
       const err = error as Error & { status?: number };
       if (err instanceof Error && err.status === 408) {
-        throw new Error("Gemini 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
+        throw new Error(
+          "Gemini 응답 시간이 초과됐어요. "
+          + "요청을 짧게 하거나 잠시 후 다시 시도해 주세요. (flash는 품질이 좋은 대신 응답이 느릴 수 있어요)",
+        );
       }
       throw err instanceof Error ? err : new Error("수정에 실패했어요.");
     }

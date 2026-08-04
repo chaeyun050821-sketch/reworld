@@ -927,12 +927,12 @@
             return new Promise((resolve, reject) => {
                 const clone = svgElement.cloneNode(true);
                 const vb = (clone.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
-                let outW = 640;
-                let outH = 480;
+                // 이미지가 크면 flash 응답이 느려져 타임아웃남 → 최대 ~360px
+                let outW = 360;
+                let outH = 270;
                 if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
-                    // 셀당 4px 정도로 키워 AI가 형태를 잘 읽게 함
-                    outW = Math.min(768, Math.max(160, Math.round(vb[2] * 4)));
-                    outH = Math.min(576, Math.max(120, Math.round(vb[3] * 4)));
+                    outW = Math.min(360, Math.max(128, Math.round(vb[2] * 3)));
+                    outH = Math.min(360, Math.max(96, Math.round(vb[3] * 3)));
                 }
                 clone.setAttribute('width', String(outW));
                 clone.setAttribute('height', String(outH));
@@ -954,8 +954,7 @@
                     tempCtx.fillRect(0, 0, outW, outH);
                     tempCtx.drawImage(img, 0, 0, outW, outH);
                     URL.revokeObjectURL(url);
-                    // 수정용은 팽창/크롭 없이 도트 그림 그대로 전송
-                    resolve(tempCanvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
+                    resolve(tempCanvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
                 };
                 img.onerror = () => {
                     URL.revokeObjectURL(url);
@@ -1129,7 +1128,7 @@
                 <div style="text-align: center; width: 100%;">
                     <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ Gemini flash가 도트 그림을 수정 중...</p>
                     <div class="loading-container"><div class="loading-bar"></div></div>
-                    <p style="color: #a89bc0; font-size: 14px;">(유료 API · 보통 5~20초 · 도트 변환 결과 기준)</p>
+                    <p style="color: #a89bc0; font-size: 14px;">(Gemini flash · 최대 약 1분 · 느리면 자동으로 lite 재시도)</p>
                 </div>
             `;
 
