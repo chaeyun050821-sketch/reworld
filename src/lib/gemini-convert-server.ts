@@ -9,9 +9,10 @@ const BASE_SVG_PROMPT =
   + SVG_OUTPUT_RULES;
 
 // 현재 배포 기본 모델 (Vercel GEMINI_MODEL로 덮어쓸 수 있음)
-export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash";
 const DEFAULT_GEMINI_MODEL = ACTIVE_GEMINI_MODEL_DEFAULT;
-const GEMINI_REQUEST_TIMEOUT_MS = 26_000;
+// flash는 lite보다 느림. Edge 30초 한도 안에서 끝나도록 여유 있게 설정.
+const GEMINI_REQUEST_TIMEOUT_MS = 28_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
 
 type PixelGrid = {
