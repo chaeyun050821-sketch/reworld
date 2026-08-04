@@ -12,25 +12,39 @@ const BASE_SVG_PROMPT =
   + "작은 사각형 픽셀들이 모여 만든 것처럼 투박하고 계단 현상이 있는 도트 그래픽 느낌이 나도록 SVG 코드를 구성해 주세요. "
   + SVG_OUTPUT_RULES;
 
-// 빠른 모델 우선. Vercel Edge는 30초 한도라 2~3개만 시도합니다.
+// 이미지 변환은 lite 모델 1개만 — 여러 모델 연속 호출 시 유료 키도 RPM/IPM 한도를 빠르게 소진함
 const GEMINI_MODELS = [
-  "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
+  "gemini-2.0-flash",
 ];
-const PRIMARY_TIMEOUT_MS = 18_000;
-const FALLBACK_TIMEOUT_MS = 10_000;
-const MAX_MODEL_ATTEMPTS = 3;
+const PRIMARY_TIMEOUT_MS = 22_000;
+const FALLBACK_TIMEOUT_MS = 8_000;
+const MAX_MODEL_ATTEMPTS = 2;
+const MAX_429_RETRIES = 1;
 
-function formatGeminiError(message: string): string {
+function parseRetryAfterSeconds(message: string): number | null {
+  const retryMatch = message.match(/retry in ([\d.]+)s/i);
+  if (!retryMatch) return null;
+  return Math.ceil(Number(retryMatch[1]));
+}
+
+function formatGeminiError(message: string, status?: number): string {
   const lower = message.toLowerCase();
   if (lower.includes("high demand") || lower.includes("overloaded") || lower.includes("unavailable")) {
-    return "Gemini 서버가 잠시 붐벼요. 다른 모델로도 실패했어요. 1~2분 뒤 다시 시도해 주세요.";
+    return "Gemini 서버가 잠시 붐벼요. 1~2분 뒤 다시 시도해 주세요.";
   }
-  if (lower.includes("quota") || lower.includes("rate limit") || lower.includes("resource_exhausted")) {
-    const retryMatch = message.match(/retry in ([\d.]+)s/i);
-    const waitSec = retryMatch ? Math.ceil(Number(retryMatch[1])) : 60;
-    return `Gemini 무료 한도에 걸렸어요. 새 API 키를 만들어도 같은 Google 계정이면 한도가 같아요. ${waitSec}초 후 다시 시도하거나, 다른 Google 계정으로 키를 만들거나 Google AI Studio에서 결제(유료)를 켜 주세요. (AQ. 키는 정상 형식이에요)`;
+  if (
+    status === 429
+    || lower.includes("quota")
+    || lower.includes("rate limit")
+    || lower.includes("resource_exhausted")
+  ) {
+    const waitSec = parseRetryAfterSeconds(message) ?? 30;
+    return (
+      `Gemini API 요청 한도에 걸렸어요. (유료 키여도 분당 요청·이미지 처리 한도는 있습니다.) `
+      + `${waitSec}초 정도 기다린 뒤 다시 시도해 주세요. `
+      + `여러 사람이 동시에 변환하면 같은 키 한도를 나눠 써서 더 자주 걸릴 수 있어요.`
+    );
   }
   if (lower.includes("invalid authentication") || lower.includes("api key not valid")) {
     return "Gemini API 키가 올바르지 않아요. Vercel GEMINI_API_KEY 값에 따옴표 없이 AQ. 키 전체를 넣고 재배포해 주세요.";
@@ -144,10 +158,17 @@ async function requestGeminiModel(
   }
 
   const data = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string };
+    error?: { message?: string; status?: string };
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     promptFeedback?: { blockReason?: string };
   };
+
+  if (response.status === 429 && retry < MAX_429_RETRIES) {
+    const apiMessage = data?.error?.message ?? "";
+    const waitSec = Math.min(parseRetryAfterSeconds(apiMessage) ?? 4, 8);
+    await new Promise((resolve) => setTimeout(resolve, waitSec * 1000));
+    return requestGeminiModel(apiKey, model, requestBody, timeoutMs, retry + 1);
+  }
 
   if (response.status === 503 && retry < 1) {
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -156,7 +177,7 @@ async function requestGeminiModel(
 
   if (!response.ok) {
     const apiMessage = data?.error?.message || `HTTP ${response.status}`;
-    const err = new Error(formatGeminiError(apiMessage)) as Error & { status?: number };
+    const err = new Error(formatGeminiError(apiMessage, response.status)) as Error & { status?: number };
     err.status = response.status;
     throw err;
   }
