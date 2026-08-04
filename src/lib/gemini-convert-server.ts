@@ -22,11 +22,140 @@ type PixelGrid = {
 type RefineOp =
   | { type: "recolor"; color: string }
   | { type: "fill"; color: string }
+  | { type: "gradient"; style?: "shine" | "vertical" | "radial" }
   | { type: "dilate"; radius?: number }
   | { type: "erode"; radius?: number }
   | { type: "outline"; color?: string }
   | { type: "flip"; axis?: "x" | "y" }
   | { type: "translate"; dx?: number; dy?: number };
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  let h = hex.replace("#", "").trim();
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = Number.parseInt(h, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function lerpColor(a: string, b: string, t: number): string {
+  const ca = hexToRgb(a);
+  const cb = hexToRgb(b);
+  const u = Math.max(0, Math.min(1, t));
+  return rgbToHex(
+    ca.r + (cb.r - ca.r) * u,
+    ca.g + (cb.g - ca.g) * u,
+    ca.b + (cb.b - ca.b) * u,
+  );
+}
+
+function samplePalette(palette: string[], t: number): string {
+  if (palette.length === 0) return "#fbbf24";
+  if (palette.length === 1) return palette[0];
+  const u = Math.max(0, Math.min(1, t)) * (palette.length - 1);
+  const i = Math.floor(u);
+  const j = Math.min(palette.length - 1, i + 1);
+  return lerpColor(palette[i], palette[j], u - i);
+}
+
+/** 기존 픽셀 위치는 그대로 두고 색만 그라데이션/반짝임 적용 */
+function applyGradientKeepShape(grid: PixelGrid, style: "shine" | "vertical" | "radial" = "shine"): PixelGrid {
+  let minX = grid.width;
+  let minY = grid.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (const key of grid.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  if (maxX < 0) return cloneGrid(grid);
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const maxDist = Math.max(1, Math.hypot(maxX - minX, maxY - minY) / 2);
+  // 별이 빛나 보이게: 중심 밝은 크림 → 중간 골드 → 끝 진한 앰버 (노란 오줌톤 단색 금지)
+  const shinePalette = ["#fff7d6", "#ffe566", "#fbbf24", "#f59e0b", "#d97706"];
+  const next = cloneGrid(grid);
+
+  for (const key of grid.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    let t = 0;
+    if (style === "vertical") {
+      t = (y - minY) / Math.max(1, maxY - minY);
+    } else {
+      // radial / shine: 중심이 밝고 바깥이 깊게
+      t = Math.min(1, Math.hypot(x - cx, y - cy) / maxDist);
+      if (style === "shine") {
+        // 위쪽이 조금 더 밝게
+        const topBias = (y - minY) / Math.max(1, maxY - minY);
+        t = Math.min(1, t * 0.75 + topBias * 0.25);
+      }
+    }
+    next.cells.set(key, samplePalette(shinePalette, t));
+  }
+  return next;
+}
+
+/** Gemini가 형태를 망가뜨렸을 때: 원본 실루엣에 결과 색만 입힘 */
+function remapColorsOntoMask(original: PixelGrid, refined: PixelGrid): PixelGrid {
+  const next = cloneGrid(original);
+  if (refined.cells.size === 0) return next;
+
+  let rMinX = refined.width;
+  let rMinY = refined.height;
+  let rMaxX = -1;
+  let rMaxY = -1;
+  for (const key of refined.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    if (x < rMinX) rMinX = x;
+    if (y < rMinY) rMinY = y;
+    if (x > rMaxX) rMaxX = x;
+    if (y > rMaxY) rMaxY = y;
+  }
+  let oMinX = original.width;
+  let oMinY = original.height;
+  let oMaxX = -1;
+  let oMaxY = -1;
+  for (const key of original.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    if (x < oMinX) oMinX = x;
+    if (y < oMinY) oMinY = y;
+    if (x > oMaxX) oMaxX = x;
+    if (y > oMaxY) oMaxY = y;
+  }
+  const oW = Math.max(1, oMaxX - oMinX);
+  const oH = Math.max(1, oMaxY - oMinY);
+  const rW = Math.max(1, rMaxX - rMinX);
+  const rH = Math.max(1, rMaxY - rMinY);
+
+  for (const key of original.cells.keys()) {
+    const [x, y] = key.split(",").map(Number);
+    const nx = (x - oMinX) / oW;
+    const ny = (y - oMinY) / oH;
+    const sx = Math.round(rMinX + nx * rW);
+    const sy = Math.round(rMinY + ny * rH);
+    let color = refined.cells.get(cellKey(sx, sy));
+    if (!color) {
+      // 근처 색 탐색
+      outer: for (let d = 1; d <= 3; d++) {
+        for (let dy = -d; dy <= d; dy++) {
+          for (let dx = -d; dx <= d; dx++) {
+            color = refined.cells.get(cellKey(sx + dx, sy + dy));
+            if (color) break outer;
+          }
+        }
+      }
+    }
+    if (color) next.cells.set(key, color);
+  }
+  return next;
+}
 
 function getGeminiModel(): string {
   const configured = process.env.GEMINI_MODEL?.trim();
@@ -251,6 +380,10 @@ function applyOps(grid: PixelGrid, ops: RefineOp[]): PixelGrid {
       current = fillInterior(current, normalizeColor(op.color));
       continue;
     }
+    if (op.type === "gradient") {
+      current = applyGradientKeepShape(current, op.style || "shine");
+      continue;
+    }
     if (op.type === "dilate") {
       const radius = Math.max(1, Math.min(3, Math.round(op.radius ?? 1)));
       const next = cloneGrid(current);
@@ -333,6 +466,13 @@ function detectLocalOps(userText: string): RefineOp[] {
   const text = userText.trim();
   const ops: RefineOp[] = [];
 
+  // 그라데이션/반짝임: 형태 고정, 색만 변경 (Gemini에 맡기면 별→노란 덩어리로 깨짐)
+  if (/(그라데이션|그라디언트|gradient|빛나|반짝|샤인|shine|하이라이트)/i.test(text)) {
+    const style = /(세로|위아래|vertical)/i.test(text) ? "vertical" : "shine";
+    ops.push({ type: "gradient", style });
+    return ops;
+  }
+
   if (/(굵|두껍|thick|dilate|팽창)/i.test(text) || /선\s*더\s*굵/i.test(text)) {
     ops.push({ type: "dilate", radius: /(많이|더더|아주|매우)/i.test(text) ? 2 : 1 });
   }
@@ -369,10 +509,16 @@ function detectLocalOps(userText: string): RefineOp[] {
   return ops;
 }
 
-/** 단순 편집만이면 로컬, 교정/디테일/자유 수정이면 Gemini */
+function wantsGeometryChange(userText: string): boolean {
+  return /(교정|반듯|추가|그려|만들어|귀|눈|입|다리|팔|지워|삭제|얇|굵|테두리|대칭|똑바|삐뚤)/i.test(userText);
+}
+
+/** 단순 편집만이면 로컬, 형태 변경이 필요한 요청만 Gemini */
 function needsGeminiRefine(userText: string, localOps: RefineOp[]): boolean {
+  if (localOps.some((o) => o.type === "gradient")) return false;
   if (localOps.length === 0) return true;
-  return /(교정|반듯|매끄|다듬|예쁘|깔끔|정리|추가|그려|만들어|변형|그림자|하이라이트|디테일|눈\b|귀\b|입\b|표정|대칭|똑바|삐뚤|휘어|지그재그|부드럽게|입체)/i.test(userText);
+  return wantsGeometryChange(userText)
+    || /(매끄|다듬|예쁘|깔끔|정리|변형|그림자|디테일|표정|휘어|지그재그|부드럽게|입체)/i.test(userText);
 }
 
 function buildCreativeRefinePrompt(userText: string): string {
@@ -526,7 +672,23 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
         },
         GEMINI_REQUEST_TIMEOUT_MS,
       );
-      return extractSvg(raw);
+      const refined = extractSvg(raw);
+
+      // 스타일 요청인데 형태가 깨지면 원본 실루엣에 색만 입혀 복구
+      if (svgMarkup.includes("<svg") && !wantsGeometryChange(userText)) {
+        try {
+          const originalGrid = parseSvgToGrid(svgMarkup);
+          const refinedGrid = parseSvgToGrid(refined);
+          const before = originalGrid.cells.size;
+          const after = refinedGrid.cells.size;
+          if (after < before * 0.55 || after > before * 2.5) {
+            return gridToSvg(remapColorsOntoMask(originalGrid, refinedGrid));
+          }
+        } catch {
+          // 파싱 실패 시 refined 그대로
+        }
+      }
+      return refined;
     } catch (error) {
       const err = error as Error & { status?: number };
       if (err instanceof Error && err.status === 408) {
