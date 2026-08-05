@@ -427,11 +427,6 @@
         let resizeBaselineDist = null;
         let resizeBaselineSize = null;
 
-        let cameraStream = null;
-        let cameraReady = false;
-        let modelReady = false;
-        let predictLoopStarted = false;
-
         function updateReadyStatus() {
             if (cameraReady && modelReady) {
                 statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
@@ -473,16 +468,6 @@
         let cameraReady = false;
         let modelReady = false;
         let predictLoopStarted = false;
-
-        function updateReadyStatus() {
-            if (cameraReady && modelReady) {
-                statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
-                statusText.style.color = "#a3729c";
-            } else if (cameraReady) {
-                statusText.innerText = "웹캠 연결됨. AI 손 인식 모델 로딩 중...";
-                statusText.style.color = "#a3729c";
-            }
-        }
 
         function maybeStartPredictLoop() {
             if (!cameraReady || !modelReady || predictLoopStarted) return;
@@ -571,7 +556,6 @@
                 statusText.innerText = "AI 모델 로드에 실패했어요. 새로고침 후 다시 시도해 주세요.";
                 statusText.style.color = "#e74c3c";
             }
-        }
 
         async function startCamera() {
             if (!navigator.mediaDevices?.getUserMedia) {
@@ -1022,8 +1006,6 @@
             outCtx.drawImage(prep, sx, sy, sw, sh, 0, 0, width, height);
             return out.toDataURL('image/jpeg', 0.92).split(',')[1];
         }
-
-        const AI_CAPTURE_MAX_WIDTH = 400;
 
         function canvasToCompactBase64(sourceCanvas, mirror = false) {
             const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);

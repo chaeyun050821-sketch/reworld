@@ -14470,7 +14470,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     }}>
       {activeTab === "world" && (
         <div className="absolute inset-0 z-50 w-full h-full">
-          <WorldPage user={user} myAvatar={avatar} />
+          <WorldPage 
+            user={user} 
+            myAvatar={avatar} 
+            onGoHome={() => setActiveTab("home")} 
+          />
         </div>
       )}
       <div className="absolute top-1/2 right-4 z-20 -translate-y-1/2">
