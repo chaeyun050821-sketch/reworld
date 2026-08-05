@@ -1,3 +1,4 @@
+import WorldPage from "./WorldPage";
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, type Dispatch, type SetStateAction, type CSSProperties, type ReactNode, type RefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
@@ -1183,7 +1184,7 @@ function getAvatarRects(config: AvatarConfig): AvatarRect[] {
   ];
 }
 
-function PixelAvatar({
+export function PixelAvatar({
   avatar = DEFAULT_AVATAR_PROFILE,
   width = 84,
   height = 102,
@@ -13993,6 +13994,7 @@ function RightPage({
     );
   }
   if (activeTab === "miniroom") return <MiniRoomPage userId={user.id} miniroomData={miniroomData} setMiniroomData={setMiniroomData} />;
+  //if (activeTab === "world") return <WorldPage user={user} myAvatar={avatar} />;
   return null;
 }
 
@@ -14075,7 +14077,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorSaveError(null);
     setCreatorSaved(false);
     setCreatorDirty(false);
-    setCreatorAvatar(cloneAvatarProfile(avatar));
+    (cloneAvatarProfile(avatar));
   };
 
   const handleSelectCreatorItem = (itemId: string | null) => {
@@ -14174,7 +14176,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 
   const toggleCreatorClothes = () => {
     setCreatorAvatar((prev) => {
-      if (creatorClothesOn) {
+      if (creatorClothesOn) {setCreatorAvatar
         const decorIds = prev.equipped.filter(id => isDecorEquipId(user.id, id));
         const catalogIds = prev.equipped.filter(id => !isDecorEquipId(user.id, id));
         setCreatorEquippedBackup(catalogIds);
@@ -14466,6 +14468,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     <div className="size-full flex items-center justify-center overflow-auto relative" style={{
       background: "var(--diary-outer-bg)",
     }}>
+      {activeTab === "world" && (
+        <div className="absolute inset-0 z-50 w-full h-full">
+          <WorldPage user={user} myAvatar={avatar} />
+        </div>
+      )}
       <div className="absolute top-1/2 right-4 z-20 -translate-y-1/2">
         <DiaryColorPicker compact />
       </div>
@@ -14519,6 +14526,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           overflow: "hidden",
           boxShadow: "inset -4px 0 12px rgba(0,0,0,0.06)",
           flexShrink: 0,
+          display: activeTab === "world" ? "none" : "block",
         }}>
           {leftProfileFriend ? (
             <FriendProfileLeftPage nb={leftProfileFriend} user={user} onVisitFriend={handleVisitFriend} />
@@ -14596,22 +14604,62 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         </div>
 
         {/* BOOKMARK TABS on far right */}
+   {/* ✨ 1. 위쪽에 꽂히는 WORLD 탭 추가 ✨ */}
+{/* ✨ 1. 위쪽에 꽂히는 WORLD 탭 (데이터 의존 안 하고 강제로 그리기!) ✨ */}
+<motion.button
+          onClick={() => handleTabChange("world")}
+          className="absolute flex items-center justify-center"
+          style={{
+            top: -30,       // 다이어리 위로 튀어나오게
+            right: 40,      // 다이어리 오른쪽 끝에서 위치
+            zIndex: 999,    // 🚨 무조건 최상단으로 끌어올림!
+            width: 80,      
+            height: 30,     
+            borderRadius: "8px 8px 0 0", 
+            background: activeTab === "world"
+              ? "linear-gradient(180deg, #a8c0ff, #a8c0ffdd)" 
+              : "linear-gradient(180deg, #a8c0ff88, #a8c0ff66)",
+            borderTop: "2px solid #a8c0ff",
+            borderLeft: "1px solid #a8c0ff",
+            borderRight: "1px solid #a8c0ff",
+            boxShadow: activeTab === "world" ? "0 -2px 8px #a8c0ff66" : "none",
+            cursor: "pointer",
+            transition: "all 0.2s",
+          }}
+          whileHover={{ y: -2 }}
+        >
+          <span style={{
+            fontFamily: FONT_UI,
+            fontSize: "0.5rem",
+            fontWeight: activeTab === "world" ? 700 : 500,
+            color: activeTab === "world" ? "#fff" : "rgba(80,30,60,0.75)",
+            letterSpacing: "0.05em",
+            userSelect: "none",
+          }}>
+            world
+          </span>
+        </motion.button>
+          
+
+        {/* BOOKMARK TABS on far right */}
         <div className="flex flex-col" style={{ flexShrink: 0 }}>
-          {TABS.map((tab, i) => (
+          {/* ✨ 2. 원래 있던 코드에서 TABS를 TABS.filter(...)로 변경! ✨ */}
+          {TABS.filter(tab => tab.id !== "world").map((tab, i, arr) => (
             <motion.button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
               className="relative flex items-center justify-center"
               style={{
                 width: DIARY.tabW,
-                height: DIARY.pageH / TABS.length,
-                borderRadius: i === 0 ? "0 8px 0 0" : i === TABS.length - 1 ? "0 0 8px 0" : "0",
+                // ✨ 높이 계산도 남은 탭 개수(arr.length)에 맞게 변경! ✨
+                height: DIARY.pageH / arr.length,
+                borderRadius: i === 0 ? "0 8px 0 0" : i === arr.length - 1 ? "0 0 8px 0" : "0",
                 background: activeTab === tab.id
                   ? `linear-gradient(90deg, ${tab.color}, ${tab.color}dd)`
                   : `linear-gradient(90deg, ${tab.color}88, ${tab.color}66)`,
                 borderLeft: `2px solid ${tab.color}`,
                 borderTop: i === 0 ? `1px solid ${tab.color}` : "none",
-                borderBottom: i === TABS.length - 1 ? `1px solid ${tab.color}` : `1px solid ${tab.color}44`,
+                borderBottom: i === arr.length - 1 ? `1px solid ${tab.color}` : `1px solid ${tab.color}44`,
                 borderRight: `1px solid ${tab.color}`,
                 boxShadow: activeTab === tab.id
                   ? `2px 0 8px ${tab.color}66`
@@ -14640,6 +14688,9 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           ))}
         </div>
       </motion.div>
+
+      {/* back button */}
+      {/* ... (이하 백버튼 및 로그아웃 버튼 코드는 기존과 동일하게 유지) ... */}
 
       {/* back button */}
       <div className="absolute top-4 left-4 flex items-center gap-2">

@@ -56,6 +56,7 @@ const chaeyunTabs = `export const TABS: TabConfig[] = [
   { id: "photo", label: "사진첩", color: "#ffe080", active: false },
   { id: "guest", label: "방명록", color: "#ffa880", active: false },
   { id: "emoticon", label: "이모티콘룸", color: "#ff80a0", active: false },
+  { id: "world", label: "world", color: "#a8c0ff", active: false },
 ];
 
 `;
@@ -274,6 +275,7 @@ const mergedRightPage = `function RightPage({
   if (activeTab === "diary") return <DiaryPage />;
   if (activeTab === "home") return <HomeRightPage roomSelections={roomSelections} onDecorate={() => onNavigateTab("miniroom")} />;
   if (activeTab === "miniroom") return <MiniRoomPage selections={roomSelections} setSelections={setRoomSelections} />;
+  if (activeTab === "world") return <WorldPage />;
   return null;
 }
 

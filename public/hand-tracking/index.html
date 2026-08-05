@@ -331,8 +331,13 @@
     <div id="svgOutput" style="margin-top: 22px; width: 640px; min-height: 200px; border: 2px dashed #C9B6F5; border-radius: 18px; display: flex; justify-content: center; align-items: center; background-color: #ffffffcc; padding: 20px; box-sizing: border-box;">
         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
             1. 허공에 그림을 먼저 그리세요.<br>
+<<<<<<< Updated upstream
             2. <b>✨ 도트 변환</b>은 AI 없이 캔버스 선을 그대로 픽셀화합니다 (크레딧 미사용).<br>
             3. <b>💬 수정하기</b>: 도트 변환 결과를 Gemini flash가 보고 요청대로 수정합니다.
+=======
+            2. <b>✨ AI 도트 변환</b>은 형태 그대로 픽셀화만 합니다.<br>
+            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면, 캔버스 그림을 바로 픽셀화하면서 요청도 반영됩니다!
+>>>>>>> Stashed changes
         </p>
     </div>
     <div class="inventory-container" id="inventory">
@@ -510,7 +515,11 @@
             }
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
+<<<<<<< Updated upstream
                     video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+=======
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+>>>>>>> Stashed changes
                     audio: false,
                 });
                 cameraStream = stream;
@@ -821,6 +830,7 @@
             historyContainer.appendChild(record);
         }
 
+<<<<<<< Updated upstream
         const AI_CAPTURE_MAX_WIDTH = 448;
         const AI_STROKE_DILATE = 3;
 
@@ -828,6 +838,28 @@
             if (a < 20) return false;
             // 흰/거의 흰 배경 제외
             return !(r > 245 && g > 245 && b > 245);
+=======
+        const AI_CAPTURE_MAX_WIDTH = 400;
+
+        function canvasToCompactBase64(sourceCanvas, mirror = false) {
+            const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
+            const width = Math.max(1, Math.round(sourceCanvas.width * scale));
+            const height = Math.max(1, Math.round(sourceCanvas.height * scale));
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (mirror) {
+                tempCtx.translate(width, 0);
+                tempCtx.scale(-1, 1);
+            }
+            tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
+            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+        }
+
+        function captureCanvasBase64() {
+            return canvasToCompactBase64(canvasElement, true);
+>>>>>>> Stashed changes
         }
 
         function dilateInkImageData(srcData, width, height, radius) {
@@ -954,7 +986,11 @@
                     tempCtx.fillRect(0, 0, outW, outH);
                     tempCtx.drawImage(img, 0, 0, outW, outH);
                     URL.revokeObjectURL(url);
+<<<<<<< Updated upstream
                     resolve(tempCanvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+=======
+                    resolve(canvasToCompactBase64(tempCanvas, false));
+>>>>>>> Stashed changes
                 };
                 img.onerror = () => {
                     URL.revokeObjectURL(url);
@@ -981,6 +1017,7 @@
                 if (pixels[i] > 0) return false;
             }
             return true;
+<<<<<<< Updated upstream
         }
 
         // AI 재창작 없이, 캔버스 선을 격자 샘플링해서 SVG <rect>로만 픽셀화
@@ -1061,6 +1098,8 @@
 
             parts.push('</svg>');
             return parts.join('');
+=======
+>>>>>>> Stashed changes
         }
 
         async function generateAIImage(isCustomRefine) {
@@ -1072,12 +1111,42 @@
                 return;
             }
 
+<<<<<<< Updated upstream
             // 기본 변환: 로컬 픽셀화만 (형태 그대로, 즉시) — API/크레딧 미사용
             if (!isCustomRefine) {
+=======
+            let imageBase64 = null;
+            let refineFromSketch = false;
+            let loadingLabel = '✨ 캔버스 그림을 픽셀 변환 중입니다...';
+            if (isCustomRefine) {
+                const existingSvg = svgOutput.querySelector('svg');
+                if (existingSvg) {
+                    try {
+                        imageBase64 = await captureSvgBase64(existingSvg);
+                    } catch (error) {
+                        alert(error instanceof Error ? error.message : '그림을 불러오지 못했어요.');
+                        return;
+                    }
+                    loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
+                } else if (selectedSticker) {
+                    imageBase64 = captureImageElementBase64(selectedSticker);
+                    loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
+                } else {
+                    if (isCanvasBlank()) {
+                        alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
+                        return;
+                    }
+                    imageBase64 = captureCanvasBase64();
+                    refineFromSketch = true;
+                    loadingLabel = '✨ 캔버스 그림을 픽셀화하고 요청을 반영 중입니다...';
+                }
+            } else {
+>>>>>>> Stashed changes
                 if (isCanvasBlank()) {
                     alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
                     return;
                 }
+<<<<<<< Updated upstream
                 isProcessingAI = true;
                 try {
                     const svgMarkup = pixelateDrawingToSvg(canvasElement, true, 4);
@@ -1121,6 +1190,9 @@
             } catch (error) {
                 alert(error instanceof Error ? error.message : '도트 그림을 불러오지 못했어요. 다시 도트 변환 후 수정해 주세요.');
                 return;
+=======
+                imageBase64 = captureCanvasBase64();
+>>>>>>> Stashed changes
             }
 
             isProcessingAI = true;
@@ -1139,9 +1211,15 @@
                     body: JSON.stringify({
                         svgMarkup,
                         imageBase64,
+<<<<<<< Updated upstream
                         customPrompt: userText,
                         isCustomRefine: true,
                         refineFromSketch: false,
+=======
+                        customPrompt: isCustomRefine ? userText : undefined,
+                        isCustomRefine: isCustomRefine && userText !== '',
+                        refineFromSketch,
+>>>>>>> Stashed changes
                     }),
                 });
 
