@@ -6,99 +6,75 @@
     <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
     <style>
         /* 나만의 스티커 보관함 스타일 */
-.inventory-container {
-    width: 640px;
-    margin-top: 20px;
-    background: #ffffffdd;
-    padding: 15px;
-    border-radius: 20px;
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
-    min-height: 90px;
-}
-.inventory-item-wrapper {
-    position: relative;
-    flex: 0 0 auto;
-}
-.inventory-item {
-    width: 80px;
-    height: 80px;
-    border: 2px solid #E4D9F5;
-    border-radius: 12px;
-    cursor: pointer;
-    background: white;
-    object-fit: contain;
-    transition: 0.2s;
-    display: block;
-}
-.inventory-item:hover {
-    transform: scale(1.1) translateY(-5px);
-}
-.inventory-item.selected {
-    border: 4px solid #FF9AA2;
-    box-shadow: 0 0 10px #FF9AA2aa;
-}
-.inventory-edit-btn {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: #5B9BD5;
-    color: #fff;
-    border: 2px solid #fff;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    transition: 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-    z-index: 2;
-}
-.inventory-delete-btn {
-    position: absolute;
-    top: -6px;
-    left: -6px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: #FF9AA2;
-    color: #fff;
-    border: 2px solid #fff;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    transition: 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-    z-index: 2;
-}
-.inventory-item-wrapper:hover .inventory-edit-btn,
-.inventory-item-wrapper:hover .inventory-delete-btn {
-    opacity: 1;
-}
-.inventory-provider-tag {
-    position: absolute;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: #ffffffee;
-    border: 1px solid #E4D9F5;
-    color: #6a5d85;
-    pointer-events: none;
-}
+        .inventory-container {
+            width: 640px;
+            margin-top: 20px;
+            background: #ffffffdd;
+            padding: 15px;
+            border-radius: 20px;
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
+            min-height: 90px;
+        }
+        .inventory-item-wrapper {
+            position: relative;
+            flex: 0 0 auto;
+        }
+        .inventory-item {
+            width: 80px;
+            height: 80px;
+            border: 2px solid #E4D9F5;
+            border-radius: 12px;
+            cursor: pointer;
+            background: white;
+            object-fit: contain;
+            transition: 0.2s;
+            display: block;
+        }
+        .inventory-item:hover {
+            transform: scale(1.1) translateY(-5px);
+        }
+        .inventory-item.selected {
+            border: 4px solid #FF9AA2;
+            box-shadow: 0 0 10px #FF9AA2aa;
+        }
+        .inventory-edit-btn, .inventory-delete-btn {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            color: #fff;
+            border: 2px solid #fff;
+            font-size: 12px;
+            line-height: 1;
+            cursor: pointer;
+            opacity: 0;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            z-index: 2;
+        }
+        .inventory-edit-btn { top: -6px; right: -6px; background: #5B9BD5; }
+        .inventory-delete-btn { top: -6px; left: -6px; background: #FF9AA2; }
+        .inventory-item-wrapper:hover .inventory-edit-btn,
+        .inventory-item-wrapper:hover .inventory-delete-btn { opacity: 1; }
+        .inventory-provider-tag {
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: #ffffffee;
+            border: 1px solid #E4D9F5;
+            color: #6a5d85;
+            pointer-events: none;
+        }
         body {
             margin: 0;
             padding-bottom: 60px;
@@ -129,77 +105,36 @@
             background-color: #2c2c3a;
             box-shadow: 0 12px 28px rgba(150, 130, 190, 0.25);
         }
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); background: #000; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); z-index: 10; }
-        #overlay_canvas {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            transform: scaleX(-1);
-            z-index: 15;
-            pointer-events: none;
+        video, canvas, #overlay_canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); 
         }
-
+        video { object-fit: cover; background: #000; }
+        canvas { z-index: 10; }
+        #overlay_canvas { z-index: 15; pointer-events: none; }
         .color-palette { margin-top: 18px; display: flex; gap: 14px; }
         .color-btn {
-            width: 42px; height: 42px;
-            border-radius: 50%;
-            border: 3px solid #ffffff;
-            cursor: pointer;
-            transition: transform 0.2s;
-            box-shadow: 0 4px 10px rgba(150, 130, 190, 0.3);
+            width: 42px; height: 42px; border-radius: 50%; border: 3px solid #ffffff;
+            cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 10px rgba(150, 130, 190, 0.3);
         }
         .color-btn:hover { transform: scale(1.12) rotate(-4deg); }
         #btnRed { background-color: #FF9AA2; }
         #btnGreen { background-color: #A0E7C7; }
         #btnBlue { background-color: #A6C8FF; }
-
-        #rainbowPickerBtn {
-            background: conic-gradient(#FF9AA2, #FFD6A5, #FDFFB6, #A0E7C7, #A6C8FF, #C9B6F5, #FF9AA2);
-        }
+        #rainbowPickerBtn { background: conic-gradient(#FF9AA2, #FFD6A5, #FDFFB6, #A0E7C7, #A6C8FF, #C9B6F5, #FF9AA2); }
         .brush-size-control {
-            margin-top: 18px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #6a5d85;
-            font-size: 15px;
-            background: #ffffffaa;
-            padding: 10px 20px;
-            border-radius: 30px;
-            box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
+            margin-top: 18px; display: flex; align-items: center; gap: 12px; color: #6a5d85; font-size: 15px;
+            background: #ffffffaa; padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 12px rgba(150, 130, 190, 0.15);
         }
         #brushSizeSlider, #eraserSizeSlider { width: 180px; cursor: pointer; accent-color: #C9B6F5; }
         #brushSizeValue { min-width: 40px; font-weight: bold; color: #e07a9e; }
         #eraserSizeValue { min-width: 40px; font-weight: bold; color: #7c9ec9; }
-
-        .controls {
-            margin-top: 22px;
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 14px;
-            max-width: 640px;
-        }
+        .controls { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 640px; }
         .action-btn {
-            padding: 13px 24px;
-            font-family: 'Gowun Dodum', sans-serif;
-            font-size: 15px;
-            font-weight: bold;
-            cursor: pointer;
-            border: none;
-            border-radius: 16px;
-            transition: 0.2s;
-            box-shadow: 0 4px 10px rgba(150, 130, 190, 0.25);
-            color: white;
+            padding: 13px 24px; font-family: 'Gowun Dodum', sans-serif; font-size: 15px; font-weight: bold;
+            cursor: pointer; border: none; border-radius: 16px; transition: 0.2s; box-shadow: 0 4px 10px rgba(150, 130, 190, 0.25); color: white;
         }
         .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(150, 130, 190, 0.35); }
-        .action-btn:disabled {
-            background-color: #b8c9da !important;
-            cursor: not-allowed;
-            opacity: 0.65;
-            transform: none;
-            box-shadow: none;
-        }
+        .action-btn:disabled { background-color: #b8c9da !important; cursor: not-allowed; opacity: 0.65; transform: none; box-shadow: none; }
         #saveBtn { background-color: #FFC48C; }
         #saveBtn:hover { background-color: #ffb266; }
         #clearBtn { background-color: #B8B8D1; }
@@ -208,110 +143,51 @@
         #aiRefineBtn:hover { background-color: #b49ceb; }
         #saveAiBtn { background-color: #7FD8BE; }
         #saveAiBtn:hover { background-color: #5cc9aa; }
-
         #canvasOnBtn { background-color: #A6C8FF; }
         #canvasOnBtn:hover { background-color: #8bb6f7; }
         #canvasOffBtn { background-color: #FF9AA2; }
         #canvasOffBtn:hover { background-color: #ff7f89; }
-
-        .status {
-            margin-top: 16px;
-            font-size: 15px;
-            color: #a3729c;
-            font-weight: bold;
-            background: #ffffffaa;
-            padding: 8px 18px;
-            border-radius: 20px;
-        }
-
+        .status { margin-top: 16px; font-size: 15px; color: #a3729c; font-weight: bold; background: #ffffffaa; padding: 8px 18px; border-radius: 20px; }
         .prompt-container { margin-top: 22px; width: 640px; display: flex; gap: 10px; }
-        #customPrompt {
-            flex: 1;
-            padding: 13px 16px;
-            font-family: 'Gowun Dodum', sans-serif;
-            font-size: 15px;
-            border-radius: 14px;
-            border: 2px solid #E4D9F5;
-            outline: none;
-            transition: 0.2s;
-            background: #ffffffdd;
-            color: #5b5470;
-        }
+        #customPrompt { flex: 1; padding: 13px 16px; font-family: 'Gowun Dodum', sans-serif; font-size: 15px; border-radius: 14px; border: 2px solid #E4D9F5; outline: none; transition: 0.2s; background: #ffffffdd; color: #5b5470; }
         #customPrompt:focus { border-color: #C9B6F5; box-shadow: 0 0 0 3px #C9B6F544; }
         #applyPromptBtn { background-color: #A6C8FF; }
         #applyPromptBtn:hover { background-color: #8bb6f7; }
-
-        .top-bar {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            padding: 10px 16px;
-            background: rgba(255, 255, 255, 0.94);
-            border-bottom: 1px solid rgba(124, 106, 156, 0.18);
-            box-sizing: border-box;
-            box-shadow: 0 2px 10px rgba(150, 130, 190, 0.12);
-        }
-        #backToDiaryBtn {
-            font-family: 'Gowun Dodum', sans-serif;
-            font-size: 14px;
-            font-weight: 700;
-            color: #7c6a9c;
-            background: #fff;
-            border: 2px solid #E4D9F5;
-            border-radius: 999px;
-            padding: 8px 16px;
-            cursor: pointer;
-        }
-        #backToDiaryBtn:hover {
-            color: #5a4a78;
-            border-color: #C9B6F5;
-            background: #faf7ff;
-        }
-
+        .top-bar { position: sticky; top: 0; z-index: 100; width: 100%; display: flex; justify-content: center; padding: 10px 16px; background: rgba(255, 255, 255, 0.94); border-bottom: 1px solid rgba(124, 106, 156, 0.18); box-sizing: border-box; box-shadow: 0 2px 10px rgba(150, 130, 190, 0.12); }
+        #backToDiaryBtn { font-family: 'Gowun Dodum', sans-serif; font-size: 14px; font-weight: 700; color: #7c6a9c; background: #fff; border: 2px solid #E4D9F5; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+        #backToDiaryBtn:hover { color: #5a4a78; border-color: #C9B6F5; background: #faf7ff; }
         .loading-container { width: 80%; height: 12px; background-color: #eee3f7; border-radius: 6px; margin: 15px auto; overflow: hidden; border: 1px solid #d8c8ee; }
         .loading-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #FFC48C, #C9B6F5); animation: loading 2s infinite linear; }
         @keyframes loading { 0% { width: 0%; transform: translateX(-100%); } 100% { width: 100%; transform: translateX(100%); } }
     </style>
 </head>
 <body>
-
     <div class="top-bar">
         <button type="button" id="backToDiaryBtn">← 다이어리로 돌아가기</button>
     </div>
-
-    <h1>  Re:world Drawing</h1>
+    <h1>Re:world Drawing</h1>
     <div class="status" id="statusText">웹캠과 AI 모델을 불러오는 중입니다. 잠시만 기다려주세요...</div>
-
     <div class="container">
         <video id="input_video" autoplay playsinline muted></video>
         <canvas id="output_canvas" width="640" height="480"></canvas>
         <canvas id="overlay_canvas" width="640" height="480"></canvas>
     </div>
-
     <div class="color-palette">
         <button class="color-btn" id="btnRed" title="빨간색"></button>
         <button class="color-btn" id="btnGreen" title="초록색"></button>
         <button class="color-btn" id="btnBlue" title="파란색"></button>
-
         <button class="color-btn" id="rainbowPickerBtn" title="자유롭게 색상 고르기"></button>
         <input type="color" id="customColorPicker" style="opacity: 0; position: absolute; pointer-events: none;">
-
         <button class="color-btn" id="btnEraser" title="부분 지우개" style="background-color: #fff; border: 3px dashed #C9B6F5; font-size: 20px; display: flex; justify-content: center; align-items: center;">🧽</button>
     </div>
-
     <div class="brush-size-control">
         <span>펜 굵기:</span>
         <input type="range" id="brushSizeSlider" min="2" max="30" value="6">
         <span id="brushSizeValue">6px</span>
-
         <span style="margin-left: 20px;">🧽 지우개 굵기:</span>
         <input type="range" id="eraserSizeSlider" min="10" max="100" value="20">
         <span id="eraserSizeValue">20px</span>
     </div>
-
     <div class="controls">
         <button class="action-btn" id="saveBtn">💾 사진 찍기</button>
         <button class="action-btn" id="canvasOnBtn">✏️ ON (Space)</button>
@@ -319,15 +195,12 @@
         <button class="action-btn" id="clearBtn">🗑️ 펜 그림 지우기</button>
         <button class="action-btn" id="aiRefineBtn">✨ 도트 변환</button>
         <button class="action-btn" id="saveAiBtn">🖼️ 도트 그림 저장</button>
-        <!-- 다른 버튼들 사이에 아래 줄을 추가하세요 -->
-<button class="action-btn" id="addToInventoryBtn" style="background-color: #FFD6A5;">🎒 보관함에 넣기</button>
+        <button class="action-btn" id="addToInventoryBtn" style="background-color: #FFD6A5;">🎒 보관함에 넣기</button>
     </div>
-
     <div class="prompt-container">
         <input type="text" id="customPrompt" placeholder="예: 테두리 다듬어줘 / 그라데이션 / 안을 분홍으로">
         <button class="action-btn" id="applyPromptBtn">💬 수정하기</button>
     </div>
-
     <div id="svgOutput" style="margin-top: 22px; width: 640px; min-height: 200px; border: 2px dashed #C9B6F5; border-radius: 18px; display: flex; justify-content: center; align-items: center; background-color: #ffffffcc; padding: 20px; box-sizing: border-box;">
         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
             1. 허공에 그림을 먼저 그리세요.<br>
@@ -361,23 +234,16 @@
             return `rgba(${r}, ${g}, ${b}, ${alpha})`;
         }
 
-        // 펜촉(nib) 모양의 포인터를 그려주는 함수. (x, y)가 실제 펜 끝(닿는 지점)이 됩니다.
-        // isDown = true  -> 그려지는 중 (꽉 찬 펜촉)
-        // isDown = false -> 펜이 떠 있음 (테두리만 있는 빈 펜촉)
         function drawPenNib(ctx, x, y, color, isDown, sizeScale = 1) {
-            const w = 8 * sizeScale;   // 펜촉 몸통 폭
-            const h = 24 * sizeScale;  // 펜촉 길이
-
+            const w = 8 * sizeScale;   
+            const h = 24 * sizeScale;  
             ctx.save();
             ctx.translate(x, y);
-
-            // 펜촉 몸체 (끝이 뾰족한 나뭇잎/눈물 모양, 뾰족한 끝이 (0,0) = 실제 좌표)
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.bezierCurveTo(-w, -h * 0.45, -w * 0.7, -h, 0, -h);
             ctx.bezierCurveTo(w * 0.7, -h, w, -h * 0.45, 0, 0);
             ctx.closePath();
-
             if (isDown) {
                 ctx.fillStyle = color;
                 ctx.fill();
@@ -391,18 +257,13 @@
             ctx.lineWidth = 2;
             ctx.stroke();
             ctx.setLineDash([]);
-
-            // 펜촉 가운데 갈라진 선 (만년필 특유의 슬릿)
             ctx.beginPath();
             ctx.moveTo(0, -h * 0.15);
             ctx.lineTo(0, -h * 0.9);
             ctx.strokeStyle = isDown ? 'rgba(255,255,255,0.9)' : color;
             ctx.lineWidth = 1.4;
             ctx.stroke();
-
             ctx.restore();
-
-            // 실제 좌표(펜촉 맨 끝)를 정확히 짚어주는 아주 작은 점
             ctx.beginPath();
             ctx.arc(x, y, 2, 0, 2 * Math.PI);
             ctx.fillStyle = '#ffffff';
@@ -414,55 +275,16 @@
 
         let isDrawing = false;
         let isProcessingAI = false;
-        let placedStickers = []; // 화면에 찍힌 스티커들을 기억하는 주머니
-        let isPinchingPrevious = false; // 방금 전까지 손가락을 꼬집고 있었는지 기억
-        let draggingStickerIndex = -1; // 지금 집고 있는 스티커 번호 (-1은 빈 손)
+        let placedStickers = [];
+        let isPinchingPrevious = false;
+        let draggingStickerIndex = -1;
         let lastX = 0; let lastY = 0;
         let handLandmarker = undefined;
         let lastVideoTime = -1;
-
-        // 📌 손 모션(두 손) 크기 조절을 위한 상태값
         const MIN_STICKER_SIZE = 30;
         const MAX_STICKER_SIZE = 420;
         let resizeBaselineDist = null;
         let resizeBaselineSize = null;
-
-        function updateReadyStatus() {
-            if (cameraReady && modelReady) {
-                statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
-                statusText.style.color = "#a3729c";
-            } else if (cameraReady) {
-                statusText.innerText = "웹캠 연결됨. AI 손 인식 모델 로딩 중...";
-                statusText.style.color = "#a3729c";
-            }
-        }
-
-        function maybeStartPredictLoop() {
-            if (!cameraReady || !modelReady || predictLoopStarted) return;
-            predictLoopStarted = true;
-            predictWebcam();
-        }
-
-        function showCameraRetryButton() {
-            if (document.getElementById("cameraRetryBtn")) return;
-            const btn = document.createElement("button");
-            btn.id = "cameraRetryBtn";
-            btn.type = "button";
-            btn.textContent = "📷 웹캠 다시 켜기";
-            btn.className = "action-btn";
-            btn.style.cssText = "margin-top:12px;background:#5B9BD5;grid-column:1/-1;";
-            btn.onclick = () => {
-                btn.remove();
-                if (cameraStream) {
-                    cameraStream.getTracks().forEach((track) => track.stop());
-                    cameraStream = null;
-                }
-                cameraReady = false;
-                predictLoopStarted = false;
-                startCamera();
-            };
-            document.querySelector(".controls")?.prepend(btn);
-        }
 
         let cameraStream = null;
         let cameraReady = false;
@@ -537,69 +359,8 @@
                 statusText.style.color = "#e74c3c";
             }
         }
-            statusText.innerText = "웹캠 연결 중... AI 모델도 함께 불러옵니다.";
-            try {
-                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
-                const landmarkerOptions = {
-                    baseOptions: {
-                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-                    },
-                    runningMode: "VIDEO",
-                    numHands: 2,
-                };
-                try {
-                    handLandmarker = await HandLandmarker.createFromOptions(vision, {
-                        ...landmarkerOptions,
-                        baseOptions: { ...landmarkerOptions.baseOptions, delegate: "GPU" },
-                    });
-                } catch {
-                    handLandmarker = await HandLandmarker.createFromOptions(vision, {
-                        ...landmarkerOptions,
-                        baseOptions: { ...landmarkerOptions.baseOptions, delegate: "CPU" },
-                    });
-                }
-                modelReady = true;
-                updateReadyStatus();
-                maybeStartPredictLoop();
-            } catch (err) {
-                console.error("[hand-tracking] model load failed:", err);
-                statusText.innerText = "AI 모델 로드에 실패했어요. 새로고침 후 다시 시도해 주세요.";
-                statusText.style.color = "#e74c3c";
-            }
 
         async function startCamera() {
-            if (!navigator.mediaDevices?.getUserMedia) {
-                statusText.innerText = "이 브라우저는 웹캠을 지원하지 않아요. Chrome 또는 Safari 최신 버전을 사용해 주세요.";
-                statusText.style.color = "#e74c3c";
-                showCameraRetryButton();
-                return;
-            }
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-                    audio: false,
-                });
-                cameraStream = stream;
-                videoElement.srcObject = stream;
-                videoElement.muted = true;
-                await videoElement.play();
-                cameraReady = true;
-                updateReadyStatus();
-                videoElement.addEventListener("loadeddata", maybeStartPredictLoop, { once: true });
-                if (videoElement.readyState >= 2) maybeStartPredictLoop();
-            } catch (err) {
-                console.error("[hand-tracking] camera failed:", err);
-                const name = err?.name || "";
-                if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-                    statusText.innerText = "웹캠 권한이 거부됐어요. 주소창 🔒에서 카메라를 '허용'으로 바꾼 뒤 아래 버튼을 눌러 주세요.";
-                } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-                    statusText.innerText = "연결된 카메라를 찾을 수 없어요. 웹캠 연결을 확인해 주세요.";
-                } else {
-                    statusText.innerText = "웹캠을 켤 수 없어요. 다른 앱에서 카메라를 쓰고 있지 않은지 확인해 주세요.";
-                }
-                statusText.style.color = "#e74c3c";
-                showCameraRetryButton();
-            }
             if (!navigator.mediaDevices?.getUserMedia) {
                 statusText.innerText = "이 브라우저는 웹캠을 지원하지 않아요. Chrome 또는 Safari 최신 버전을 사용해 주세요.";
                 statusText.style.color = "#e74c3c";
@@ -637,9 +398,6 @@
         startCamera();
         createHandLandmarker();
 
-        startCamera();
-        createHandLandmarker();
-
         async function predictWebcam() {
             if (!handLandmarker) return;
             let startTimeMs = performance.now();
@@ -649,25 +407,21 @@
                 const results = handLandmarker.detectForVideo(videoElement, startTimeMs);
 
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-               // 📌 저장된 스티커들을 화면에 계속 띄워줍니다. (좌우반전 방지)
-               placedStickers.forEach((sticker) => {
-                overlayCtx.save();
-                // 1. 스티커의 정중앙 좌표로 이동
-                overlayCtx.translate(sticker.x + sticker.size / 2, sticker.y + sticker.size / 2);
-                // 2. 스티커만 좌우로 휙 뒤집어주기 (캔버스의 반전 효과 상쇄!)
-                overlayCtx.scale(-1, 1);
-                // 3. 중심을 기준으로 스티커 그리기
-                overlayCtx.drawImage(sticker.img, -sticker.size / 2, -sticker.size / 2, sticker.size, sticker.size);
-                overlayCtx.restore();
-            });
+                placedStickers.forEach((sticker) => {
+                    overlayCtx.save();
+                    overlayCtx.translate(sticker.x + sticker.size / 2, sticker.y + sticker.size / 2);
+                    overlayCtx.scale(-1, 1);
+                    overlayCtx.drawImage(sticker.img, -sticker.size / 2, -sticker.size / 2, sticker.size, sticker.size);
+                    overlayCtx.restore();
+                });
 
                 if (results.landmarks && results.landmarks.length > 0 && !isProcessingAI) {
                     if (statusText.innerText.includes("화면 밖으로")) {
                         statusText.innerText = "✅ 준비 완료! 색상이나 🧽지우개를 선택하고 그려보세요.";
-                        statusText.style.color = "#a3729c"; // 원래 색상으로 복구
+                        statusText.style.color = "#a3729c"; 
                     }
-                    const landmarks = results.landmarks[0]; // 첫 번째 손 = 그리기/드래그 담당 손
-                    const secondHandLandmarks = results.landmarks.length > 1 ? results.landmarks[1] : null; // 두 번째 손 = 크기 조절 담당 손
+                    const landmarks = results.landmarks[0]; 
+                    const secondHandLandmarks = results.landmarks.length > 1 ? results.landmarks[1] : null; 
                     const indexTip = landmarks[8];
                     const thumbTip = landmarks[4];
 
@@ -676,71 +430,64 @@
                     const thumbX = thumbTip.x * canvasElement.width;
                     const thumbY = thumbTip.y * canvasElement.height;
 
-                    // 검지와 엄지 끝 사이의 거리 -> 두 손가락을 붙이면(핀치) 펜을 든 것으로 간주
                     const pinchDist = Math.hypot(indexX - thumbX, indexY - thumbY);
-                    const PINCH_THRESHOLD = 70; // 이 값보다 가까우면 "붙었다"고 판단 (필요시 조정)
+                    const PINCH_THRESHOLD = 70; 
                     const isPinching = pinchDist < PINCH_THRESHOLD;
-                    // 📌 스티커 집고 옮기기 마법!
+                    
                     if (isPinching && !isPinchingPrevious) {
                         for (let i = placedStickers.length - 1; i >= 0; i--) {
                             const s = placedStickers[i];
                             if (indexX >= s.x && indexX <= s.x + s.size && indexY >= s.y && indexY <= s.y + s.size) {
-                                draggingStickerIndex = i; // 스티커 획득!
+                                draggingStickerIndex = i;
                                 break;
                             }
                         }
                     }
-                        // 스티커를 집고 있다면 손가락 따라 이동
-                        if (isPinching && draggingStickerIndex !== -1) {
-                            placedStickers[draggingStickerIndex].x = indexX - (placedStickers[draggingStickerIndex].size / 2);
-                            placedStickers[draggingStickerIndex].y = indexY - (placedStickers[draggingStickerIndex].size / 2);
-                        }
+                    
+                    if (isPinching && draggingStickerIndex !== -1) {
+                        placedStickers[draggingStickerIndex].x = indexX - (placedStickers[draggingStickerIndex].size / 2);
+                        placedStickers[draggingStickerIndex].y = indexY - (placedStickers[draggingStickerIndex].size / 2);
+                    }
 
-                        // 📌 스티커를 잡은 채로 다른 손을 꼬집으면(핀치) 그 벌어지는 정도로 크기를 조절합니다.
-                        if (isPinching && draggingStickerIndex !== -1 && secondHandLandmarks) {
-                            const t2 = secondHandLandmarks[4];
-                            const i2 = secondHandLandmarks[8];
-                            const t2x = t2.x * canvasElement.width, t2y = t2.y * canvasElement.height;
-                            const i2x = i2.x * canvasElement.width, i2y = i2.y * canvasElement.height;
-                            const secondPinchDist = Math.hypot(i2x - t2x, i2y - t2y);
+                    if (isPinching && draggingStickerIndex !== -1 && secondHandLandmarks) {
+                        const t2 = secondHandLandmarks[4];
+                        const i2 = secondHandLandmarks[8];
+                        const t2x = t2.x * canvasElement.width, t2y = t2.y * canvasElement.height;
+                        const i2x = i2.x * canvasElement.width, i2y = i2.y * canvasElement.height;
+                        const secondPinchDist = Math.hypot(i2x - t2x, i2y - t2y);
 
-                            if (resizeBaselineDist === null) {
-                                // 두 번째 손이 방금 나타났다면 기준값을 기록 (갑자기 크기가 튀지 않도록)
-                                resizeBaselineDist = secondPinchDist;
-                                resizeBaselineSize = placedStickers[draggingStickerIndex].size;
-                            } else {
-                                const delta = (secondPinchDist - resizeBaselineDist) * 1.6;
-                                let newSize = resizeBaselineSize + delta;
-                                newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
-                                placedStickers[draggingStickerIndex].size = newSize;
-                            }
-
-                            // 두 번째 손 핀치 지점을 살짝 표시해서 크기 조절 중임을 알려줍니다.
-                            overlayCtx.save();
-                            overlayCtx.beginPath();
-                            overlayCtx.moveTo(t2x, t2y);
-                            overlayCtx.lineTo(i2x, i2y);
-                            overlayCtx.strokeStyle = '#5B9BD5';
-                            overlayCtx.lineWidth = 3;
-                            overlayCtx.setLineDash([5, 4]);
-                            overlayCtx.stroke();
-                            overlayCtx.setLineDash([]);
-                            overlayCtx.fillStyle = '#5B9BD5';
-                            overlayCtx.font = '20px sans-serif';
-                            overlayCtx.fillText('🔍', (t2x + i2x) / 2 - 10, (t2y + i2y) / 2 - 12);
-                            overlayCtx.restore();
+                        if (resizeBaselineDist === null) {
+                            resizeBaselineDist = secondPinchDist;
+                            resizeBaselineSize = placedStickers[draggingStickerIndex].size;
                         } else {
-                            // 두 번째 손이 없어지거나 드래그를 멈추면 기준값 초기화
-                            resizeBaselineDist = null;
-                            resizeBaselineSize = null;
+                            const delta = (secondPinchDist - resizeBaselineDist) * 1.6;
+                            let newSize = resizeBaselineSize + delta;
+                            newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
+                            placedStickers[draggingStickerIndex].size = newSize;
                         }
 
-                        // 📌 스티커를 잡고 있는 동안 화면 아래에 '휴지통' 영역 표시하기
+                        overlayCtx.save();
+                        overlayCtx.beginPath();
+                        overlayCtx.moveTo(t2x, t2y);
+                        overlayCtx.lineTo(i2x, i2y);
+                        overlayCtx.strokeStyle = '#5B9BD5';
+                        overlayCtx.lineWidth = 3;
+                        overlayCtx.setLineDash([5, 4]);
+                        overlayCtx.stroke();
+                        overlayCtx.setLineDash([]);
+                        overlayCtx.fillStyle = '#5B9BD5';
+                        overlayCtx.font = '20px sans-serif';
+                        overlayCtx.fillText('🔍', (t2x + i2x) / 2 - 10, (t2y + i2y) / 2 - 12);
+                        overlayCtx.restore();
+                    } else {
+                        resizeBaselineDist = null;
+                        resizeBaselineSize = null;
+                    }
+
                     if (draggingStickerIndex !== -1) {
                         overlayCtx.save();
-                        overlayCtx.fillStyle = 'rgba(255, 100, 100, 0.6)'; // 반투명한 빨간색
+                        overlayCtx.fillStyle = 'rgba(255, 100, 100, 0.6)';
                         overlayCtx.beginPath();
-                        // 화면 맨 아래 가운데에 반원 모양 휴지통 그리기
                         overlayCtx.arc(canvasElement.width / 2, canvasElement.height, 80, 0, Math.PI * 2);
                         overlayCtx.fill();
                         overlayCtx.fillStyle = 'white';
@@ -750,36 +497,30 @@
                         overlayCtx.restore();
                     }
 
-                    // 손가락을 펴면(꼬집기 해제) 스티커를 놓음
                     if (!isPinching) {
-                        // 막 손을 편 순간(이전 프레임까진 꼬집고 있었음) + 스티커를 잡고 있었음
                         if (isPinchingPrevious && draggingStickerIndex !== -1) {
                             const s = placedStickers[draggingStickerIndex];
                             const centerX = s.x + (s.size / 2);
                             const centerY = s.y + (s.size / 2);
-
-                            // 스티커 중심과 휴지통(화면 아래 가운데) 사이의 거리 계산
                             const trashDist = Math.hypot(centerX - (canvasElement.width / 2), centerY - canvasElement.height);
 
-                            // 휴지통 근처(반경 80px 이내)에 떨어뜨렸다면 배열에서 삭제!
                             if (trashDist < 80) {
                                 placedStickers.splice(draggingStickerIndex, 1);
                             }
                         }
-                        draggingStickerIndex = -1; // 무조건 빈 손으로 초기화
+                        draggingStickerIndex = -1;
                         resizeBaselineDist = null;
                         resizeBaselineSize = null;
                     }
-                        isPinchingPrevious = isPinching;
+                    
+                    isPinchingPrevious = isPinching;
 
                     const currentSize = isEraserMode ? eraserSize : brushSize;
                     const cursorColor = isEraserMode ? '#95a5a6' : currentColor;
                     const isDragging = (draggingStickerIndex !== -1);
                     const canActuallyDraw = isDrawingMode && !isPinching && !isDragging;
 
-
                     if (isEraserMode) {
-                        // 지우개는 굵기 미리보기가 더 중요하므로 원형 커서를 그대로 사용 (점선으로 펜과 구분)
                         overlayCtx.save();
                         overlayCtx.beginPath();
                         overlayCtx.arc(indexX, indexY, currentSize / 2 + 4, 0, 2 * Math.PI);
@@ -792,7 +533,6 @@
                         overlayCtx.setLineDash([]);
                         overlayCtx.restore();
                     } else {
-                        // 펜촉처럼 보이는 커서: 실제로 그려지는 중이면 꽉 찬 펜촉, 아니면(핀치/펜OFF) 빈 펜촉
                         const scale = 0.8 + Math.min(brushSize / 30, 1) * 0.6;
                         drawPenNib(overlayCtx, indexX, indexY, cursorColor, canActuallyDraw, scale);
                     }
@@ -808,7 +548,6 @@
                             canvasCtx.lineTo(indexX, indexY);
 
                             if (isEraserMode) {
-                                // 부분 지우개: 지나간 자리만 정확히 투명하게 지웁니다.
                                 canvasCtx.globalCompositeOperation = 'destination-out';
                                 canvasCtx.lineWidth = eraserSize;
                             } else {
@@ -824,7 +563,6 @@
                             lastY = indexY;
                         }
                     } else {
-                        // 핀치 중이거나 펜이 꺼져 있으면 선을 끊어서(펜을 든 상태) 다시 시작할 때 이전 위치와 이어지지 않게 합니다.
                         isDrawing = false;
                     }
                 } else {
@@ -834,7 +572,7 @@
 
                     if (isDrawingMode) {
                         statusText.innerText = "✋ 화면 밖으로 손이 나갔어요! 손바닥 전체가 보이게 들어주세요.";
-                        statusText.style.color = "#e74c3c"; // 글씨를 빨간색으로 강조
+                        statusText.style.color = "#e74c3c";
                     }
                 }
             }
@@ -885,15 +623,11 @@
             tempCtx.translate(tempCanvas.width, 0); tempCtx.scale(-1, 1);
             tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
             tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height);
-            // 📌 찰칵! 스티커들도 사진에 같이 찍히도록 합치기
-            // 📌 찰칵! 스티커들도 사진에 같이 찍히도록 합치기 (좌우반전 방지)
+            
             placedStickers.forEach(sticker => {
                 tempCtx.save();
-                // 1. 스티커의 정중앙 좌표로 이동
                 tempCtx.translate(sticker.x + sticker.size / 2, sticker.y + sticker.size / 2);
-                // 2. 사진 캔버스의 반전 효과 상쇄
                 tempCtx.scale(-1, 1);
-                // 3. 중심을 기준으로 스티커 그리기
                 tempCtx.drawImage(sticker.img, -sticker.size / 2, -sticker.size / 2, sticker.size, sticker.size);
                 tempCtx.restore();
             });
@@ -903,7 +637,6 @@
         });
 
         document.getElementById('clearBtn').addEventListener('click', () => {
-            // 📌 요청에 따라 '펜으로 그린 그림'만 지웁니다. 붙여둔 스티커(도장)는 그대로 유지!
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         });
 
@@ -927,13 +660,11 @@
 
         function isInkPixel(r, g, b, a) {
             if (a < 20) return false;
-            // 흰/거의 흰 배경 제외
             return !(r > 245 && g > 245 && b > 245);
         }
 
         function dilateInkImageData(srcData, width, height, radius) {
             const out = new Uint8ClampedArray(srcData.length);
-            // 흰 배경으로 시작
             for (let i = 0; i < out.length; i += 4) {
                 out[i] = 255; out[i + 1] = 255; out[i + 2] = 255; out[i + 3] = 255;
             }
@@ -972,113 +703,6 @@
             return { minX, minY, maxX, maxY };
         }
 
-        // 선을 두껍게 + 그림 영역만 크롭해서 AI가 형태를 잘 읽게 함
-        function canvasToCompactBase64(sourceCanvas, mirror = false) {
-            const prep = document.createElement('canvas');
-            prep.width = sourceCanvas.width;
-            prep.height = sourceCanvas.height;
-            const prepCtx = prep.getContext('2d');
-            prepCtx.fillStyle = '#ffffff';
-            prepCtx.fillRect(0, 0, prep.width, prep.height);
-            if (mirror) {
-                prepCtx.translate(prep.width, 0);
-                prepCtx.scale(-1, 1);
-            }
-            prepCtx.drawImage(sourceCanvas, 0, 0);
-
-            const src = prepCtx.getImageData(0, 0, prep.width, prep.height);
-            const dilated = dilateInkImageData(src.data, prep.width, prep.height, AI_STROKE_DILATE);
-            prepCtx.putImageData(new ImageData(dilated, prep.width, prep.height), 0, 0);
-
-            const bounds = findInkBounds(dilated, prep.width, prep.height);
-            let sx = 0, sy = 0, sw = prep.width, sh = prep.height;
-            if (bounds) {
-                const padX = Math.max(8, Math.round((bounds.maxX - bounds.minX) * 0.12));
-                const padY = Math.max(8, Math.round((bounds.maxY - bounds.minY) * 0.12));
-                sx = Math.max(0, bounds.minX - padX);
-                sy = Math.max(0, bounds.minY - padY);
-                const ex = Math.min(prep.width, bounds.maxX + padX + 1);
-                const ey = Math.min(prep.height, bounds.maxY + padY + 1);
-                sw = Math.max(1, ex - sx);
-                sh = Math.max(1, ey - sy);
-            }
-
-            const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / Math.max(sw, sh));
-            const width = Math.max(1, Math.round(sw * scale));
-            const height = Math.max(1, Math.round(sh * scale));
-            const out = document.createElement('canvas');
-            out.width = width;
-            out.height = height;
-            const outCtx = out.getContext('2d');
-            outCtx.imageSmoothingEnabled = false;
-            outCtx.fillStyle = '#ffffff';
-            outCtx.fillRect(0, 0, width, height);
-            outCtx.drawImage(prep, sx, sy, sw, sh, 0, 0, width, height);
-            return out.toDataURL('image/jpeg', 0.92).split(',')[1];
-        }
-
-        function canvasToCompactBase64(sourceCanvas, mirror = false) {
-            const scale = Math.min(1, AI_CAPTURE_MAX_WIDTH / sourceCanvas.width);
-            const width = Math.max(1, Math.round(sourceCanvas.width * scale));
-            const height = Math.max(1, Math.round(sourceCanvas.height * scale));
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            const tempCtx = tempCanvas.getContext('2d');
-            if (mirror) {
-                tempCtx.translate(width, 0);
-                tempCtx.scale(-1, 1);
-            }
-            tempCtx.drawImage(sourceCanvas, 0, 0, width, height);
-            return tempCanvas.toDataURL('image/jpeg', 0.82).split(',')[1];
-        }
-
-        function captureCanvasBase64() {
-            return canvasToCompactBase64(canvasElement, true);
-        }
-
-        function dilateInkImageData(srcData, width, height, radius) {
-            const out = new Uint8ClampedArray(srcData.length);
-            // 흰 배경으로 시작
-            for (let i = 0; i < out.length; i += 4) {
-                out[i] = 255; out[i + 1] = 255; out[i + 2] = 255; out[i + 3] = 255;
-            }
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const i = (y * width + x) * 4;
-                    if (!isInkPixel(srcData[i], srcData[i + 1], srcData[i + 2], srcData[i + 3])) continue;
-                    const r = srcData[i], g = srcData[i + 1], b = srcData[i + 2];
-                    for (let dy = -radius; dy <= radius; dy++) {
-                        for (let dx = -radius; dx <= radius; dx++) {
-                            if (dx * dx + dy * dy > radius * radius) continue;
-                            const nx = x + dx, ny = y + dy;
-                            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-                            const j = (ny * width + nx) * 4;
-                            out[j] = r; out[j + 1] = g; out[j + 2] = b; out[j + 3] = 255;
-                        }
-                    }
-                }
-            }
-            return out;
-        }
-
-        function findInkBounds(data, width, height) {
-            let minX = width, minY = height, maxX = -1, maxY = -1;
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const i = (y * width + x) * 4;
-                    if (!isInkPixel(data[i], data[i + 1], data[i + 2], data[i + 3])) continue;
-                    if (x < minX) minX = x;
-                    if (y < minY) minY = y;
-                    if (x > maxX) maxX = x;
-                    if (y > maxY) maxY = y;
-                }
-            }
-            if (maxX < 0) return null;
-            return { minX, minY, maxX, maxY };
-        }
-
-        // 선을 두껍게 + 그림 영역만 크롭해서 AI가 형태를 잘 읽게 함
         function canvasToCompactBase64(sourceCanvas, mirror = false) {
             const prep = document.createElement('canvas');
             prep.width = sourceCanvas.width;
@@ -1129,12 +753,10 @@
 
         let lastDotSvgMarkup = '';
 
-        // 도트 SVG를 고정 픽셀 크기로 래스터라이즈 (width/height % 때문에 빈 이미지가 되던 문제 수정)
         function captureSvgBase64(svgElement) {
             return new Promise((resolve, reject) => {
                 const clone = svgElement.cloneNode(true);
                 const vb = (clone.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
-                // 이미지가 크면 flash 응답이 느려져 타임아웃남 → 최대 ~360px
                 let outW = 360;
                 let outH = 270;
                 if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
@@ -1144,7 +766,7 @@
                 clone.setAttribute('width', String(outW));
                 clone.setAttribute('height', String(outH));
                 if (!clone.getAttribute('xmlns')) {
-                    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                    clone.setAttribute('xmlns', '[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)');
                 }
 
                 const svgData = new XMLSerializer().serializeToString(clone);
@@ -1171,7 +793,6 @@
             });
         }
 
-        // 보관함에서 선택한 스티커 이미지(도장용 img)도 수정 원본으로 쓸 수 있게
         function captureImageElementBase64(imgEl) {
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = canvasElement.width;
@@ -1188,95 +809,6 @@
                 if (pixels[i] > 0) return false;
             }
             return true;
-            return canvasToCompactBase64(tempCanvas, false);
-        }
-
-        function isCanvasBlank() {
-            const pixels = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height).data;
-            for (let i = 3; i < pixels.length; i += 4) {
-                if (pixels[i] > 0) return false;
-            }
-            return true;
-        }
-
-        // AI 재창작 없이, 캔버스 선을 격자 샘플링해서 SVG <rect>로만 픽셀화
-        function pixelateDrawingToSvg(sourceCanvas, mirror = true, cellSize = 4) {
-            const w = sourceCanvas.width;
-            const h = sourceCanvas.height;
-            const prep = document.createElement('canvas');
-            prep.width = w;
-            prep.height = h;
-            const prepCtx = prep.getContext('2d');
-            if (mirror) {
-                prepCtx.translate(w, 0);
-                prepCtx.scale(-1, 1);
-            }
-            prepCtx.drawImage(sourceCanvas, 0, 0);
-            const { data } = prepCtx.getImageData(0, 0, w, h);
-
-            const cols = Math.ceil(w / cellSize);
-            const rows = Math.ceil(h / cellSize);
-            const parts = [
-                `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${cols} ${rows}" width="100%" height="100%" shape-rendering="crispEdges">`,
-            ];
-
-            for (let gy = 0; gy < rows; gy++) {
-                let runX = -1;
-                let runColor = '';
-                let runLen = 0;
-
-                const flushRun = () => {
-                    if (runLen <= 0) return;
-                    parts.push(`<rect x="${runX}" y="${gy}" width="${runLen}" height="1" fill="${runColor}"/>`);
-                    runX = -1;
-                    runColor = '';
-                    runLen = 0;
-                };
-
-                for (let gx = 0; gx < cols; gx++) {
-                    let rSum = 0, gSum = 0, bSum = 0, count = 0;
-                    const x0 = gx * cellSize;
-                    const y0 = gy * cellSize;
-                    const x1 = Math.min(w, x0 + cellSize);
-                    const y1 = Math.min(h, y0 + cellSize);
-                    const cellArea = (x1 - x0) * (y1 - y0);
-
-                    for (let y = y0; y < y1; y++) {
-                        for (let x = x0; x < x1; x++) {
-                            const i = (y * w + x) * 4;
-                            if (data[i + 3] < 40) continue;
-                            rSum += data[i];
-                            gSum += data[i + 1];
-                            bSum += data[i + 2];
-                            count++;
-                        }
-                    }
-
-                    // 칸의 일부만 칠해져 있어도 선이 끊기지 않게 허용
-                    if (count < Math.max(2, cellArea * 0.12)) {
-                        flushRun();
-                        continue;
-                    }
-
-                    const r = Math.round(rSum / count);
-                    const g = Math.round(gSum / count);
-                    const b = Math.round(bSum / count);
-                    const hex = `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-
-                    if (runLen > 0 && hex === runColor && gx === runX + runLen) {
-                        runLen += 1;
-                    } else {
-                        flushRun();
-                        runX = gx;
-                        runColor = hex;
-                        runLen = 1;
-                    }
-                }
-                flushRun();
-            }
-
-            parts.push('</svg>');
-            return parts.join('');
         }
 
         async function generateAIImage(isCustomRefine) {
@@ -1322,6 +854,7 @@
             }
 
             isProcessingAI = true;
+            let svgMarkup = lastDotSvgMarkup; 
             svgOutput.innerHTML = `
                 <div style="text-align: center; width: 100%;">
                     <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ AI가 도트 그림을 수정 중...</p>
@@ -1339,10 +872,7 @@
                         imageBase64,
                         customPrompt: isCustomRefine ? userText : undefined,
                         isCustomRefine: isCustomRefine && userText !== '',
-                        refineFromSketch,
-                        customPrompt: userText,
-                        isCustomRefine: true,
-                        refineFromSketch: false,
+                        refineFromSketch
                     }),
                 });
 
@@ -1354,7 +884,7 @@
                     throw new Error(apiMessage);
                 }
                 if (!data?.svg) {
-                    throw new Error('Gemini가 SVG를 반환하지 않았어요.');
+                    throw new Error('Gemini가 SVG 반환을 하지 않았어요.');
                 }
 
                 appendPromptHistory(userText);
@@ -1372,7 +902,6 @@
             } catch (error) {
                 console.error('에러 상세 내용:', error);
                 const message = error instanceof Error ? error.message : '알 수 없는 오류';
-                // 실패 시 이전 도트 그림 복구
                 if (lastDotSvgMarkup) {
                     svgOutput.innerHTML = `${lastDotSvgMarkup}<p style="color: #e07a9e; line-height: 1.6; margin-top: 12px;">❌ 수정에 실패했습니다.<br><span style="font-size: 13px;">${message}</span></p>`;
                 } else {
@@ -1435,7 +964,6 @@
                 : "🚫 펜 모드 OFF! 손을 움직여도 그려지지 않아요. (스페이스바로도 켜고 끌 수 있어요)";
         }
 
-        // 📌 스페이스바로 펜 ON/OFF 토글하기 (입력창에 글자를 쓰는 중일 땐 무시)
         window.addEventListener('keydown', (e) => {
             if (e.code !== 'Space') return;
             const activeTag = document.activeElement ? document.activeElement.tagName : '';
@@ -1443,7 +971,6 @@
             e.preventDefault();
             setDrawingMode(!isDrawingMode);
         });
-        // ====== 나만의 스티커 보관함 & 도장 찍기 기능 ======
 
         const HANDMADE_KEY_PREFIX = 'reworld_handmade_';
         const STICKER_STORAGE_KEY = 'myArStickers_v2';
@@ -1465,7 +992,6 @@
                 const stored = sessionStorage.getItem('reworld_hand_tracking_return');
                 if (stored) return stored;
             } catch {
-                /* ignore */
             }
             return new URL('../', window.location.href).href;
         }
@@ -1474,7 +1000,6 @@
             try {
                 sessionStorage.setItem('reworld_diary_restore', 'spread');
             } catch {
-                /* ignore */
             }
             window.location.href = getDiaryReturnUrl();
         });
@@ -1566,15 +1091,11 @@
                 });
             };
 
-            // 1) 현재 유저 전용 보관함
             addList(readJsonArray(getStickerStorageKey()), 'user');
-            // 2) 예전 공통 키 (유저 분리 전)
             if (diaryUserId) {
                 addList(readJsonArray(STICKER_STORAGE_KEY), 'shared');
             }
-            // 3) 레거시 문자열 배열
             addList(readJsonArray(LEGACY_STICKER_STORAGE_KEY), 'legacy');
-            // 4) 다이어리 「내 아이템」에 저장된 핸드메이드도 보관함에 복원
             if (diaryUserId) {
                 const handmade = readJsonArray(HANDMADE_KEY_PREFIX + diaryUserId);
                 const fromDiary = handmade
@@ -1598,11 +1119,9 @@
             });
         }
 
-        // 📌 0. 보관함 저장소 읽기/쓰기 (유저별 + 예전 저장/다이어리 아이템까지 합쳐서 복원)
         function loadStickerRecords() {
             const merged = collectStickerRecordsFromSources();
             if (merged.length > 0) {
-                // 복원한 목록을 현재 키에 다시 저장해 나갔다 들어와도 유지되게 함
                 saveStickerRecords(merged);
             }
             return merged;
@@ -1612,18 +1131,15 @@
             const key = getStickerStorageKey();
             try {
                 localStorage.setItem(key, JSON.stringify(records));
-                // 공통 키에도 백업 (userId 없이 들어와도 일부 복원 가능)
                 if (diaryUserId) {
                     try {
                         localStorage.setItem(STICKER_STORAGE_KEY, JSON.stringify(records));
                     } catch {
-                        /* ignore backup quota */
                     }
                 }
                 return true;
             } catch (error) {
                 console.error('[hand-tracking] 보관함 저장 실패:', error);
-                // 용량 초과 시 오래된 것부터 줄여서 재시도
                 try {
                     let trimmed = records.slice(0, Math.max(1, Math.floor(records.length * 0.7)));
                     while (trimmed.length > 0) {
@@ -1636,7 +1152,6 @@
                         }
                     }
                 } catch {
-                    /* ignore */
                 }
                 statusText.innerText = '⚠️ 보관함 저장에 실패했어요 (저장 공간을 확인해주세요).';
                 return false;
@@ -1689,13 +1204,11 @@
             saveStickerRecords(stickerRecords);
             removeDiaryHandMadeMatching(record);
 
-            // 캔버스에 찍어 둔 같은 스티커도 제거
             if (imgEl) {
                 placedStickers = placedStickers.filter((s) => s.img !== imgEl);
             }
             if (selectedSticker === imgEl) selectedSticker = null;
 
-            // 미리보기에 같은 그림이 떠 있으면 안내로 되돌리기
             const previewSvg = svgOutput.querySelector('svg');
             if (previewSvg && record.svg) {
                 const current = new XMLSerializer().serializeToString(previewSvg);
@@ -1703,8 +1216,6 @@
                     svgOutput.innerHTML = `
                         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
                             1. 허공에 그림을 먼저 그리세요.<br>
-                            2. <b>✨ AI 도트 변환</b>은 형태 그대로 픽셀화만 합니다.<br>
-                            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면, 캔버스 그림을 바로 픽셀화하면서 요청도 반영됩니다!
                             2. <b>✨ AI 도트 변환</b>은 형태 그대로 픽셀화만 합니다.<br>
                             3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면, 캔버스 그림을 바로 픽셀화하면서 요청도 반영됩니다!
                         </p>`;
@@ -1716,13 +1227,11 @@
             statusText.innerText = '🗑️ 보관함에서 스티커를 삭제했어요.';
         }
 
-        // 📌 1. 스티커를 화면(보관함)에 추가해주는 전용 함수 (썸네일 클릭=도장용 선택, ✏️ 클릭=수정하기용 불러오기)
         function createStickerElement(record) {
             if (!record?.svg) return;
             const svgBlob = new Blob([record.svg], {type: 'image/svg+xml;charset=utf-8'});
             const url = URL.createObjectURL(svgBlob);
 
-            // 보관함 안내 문구 숨기기
             const placeholder = inventory.querySelector('span');
             if (placeholder) placeholder.style.display = 'none';
 
@@ -1735,7 +1244,6 @@
             img.className = 'inventory-item';
             img.title = '클릭하면 도장으로 선택돼요';
 
-            // 스티커 클릭 시 동작 (AR 캔버스에 도장 찍을 스티커로 선택)
             img.addEventListener('click', () => {
                 document.querySelectorAll('.inventory-item').forEach(el => el.classList.remove('selected'));
                 img.classList.add('selected');
@@ -1776,7 +1284,6 @@
             inventory.appendChild(wrapper);
         }
 
-        // 📌 2. 페이지가 처음 켜질 때 (혹은 다이어리에 갔다가 다시 돌아왔을 때) 보관함 저장소에서 예전 스티커들 불러오기
         stickerRecords.forEach((record) => {
             createStickerElement(record);
         });
@@ -1784,7 +1291,6 @@
             statusText.innerText = `🎒 보관함에서 스티커 ${stickerRecords.length}개를 불러왔어요.`;
         }
 
-        // 📌 3. AI 그림을 보관함에 넣는 기능 (+ 새로고침/페이지 이동 후에도 남아있도록 영구 저장까지!)
         document.getElementById('addToInventoryBtn').addEventListener('click', () => {
             const svgElement = svgOutput.querySelector('svg');
             if (!svgElement) {
@@ -1799,10 +1305,8 @@
                 createdAt: new Date().toISOString(),
             };
 
-            // 화면 보관함에 시각적으로 추가하기
             createStickerElement(record);
 
-            // 브라우저 저장소에 기록해서 나갔다 들어와도(새로고침해도) 안 날아가게 만들기
             stickerRecords = [record, ...stickerRecords.filter((r) => r.svg !== svgData)];
             const saved = saveStickerRecords(stickerRecords);
 
@@ -1812,113 +1316,100 @@
                 : (saved ? '🎒 보관함에 저장했어요!' : '🎒 화면엔 추가했지만 영구 저장에는 실패했어요.');
         });
 
-// ====== 마우스로 스티커 옮기기 / 크기 조절하기 ======
-let mouseDraggingIndex = -1;
-let mouseDragOffsetX = 0;
-let mouseDragOffsetY = 0;
-let mouseInteractionHappened = false; // 방금 상호작용이 '기존 스티커 드래그'였는지 표시 (새 도장 찍기와 구분용)
+        let mouseDraggingIndex = -1;
+        let mouseDragOffsetX = 0;
+        let mouseDragOffsetY = 0;
+        let mouseInteractionHappened = false; 
 
-function getMirroredCanvasPoint(e) {
-    const rect = canvasElement.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    // 캔버스가 좌우 반전(scaleX(-1))되어 있으므로 X좌표를 뒤집어 계산
-    const realX = canvasElement.width - clickX;
-    return { x: realX, y: clickY };
-}
-
-function findStickerAt(x, y) {
-    for (let i = placedStickers.length - 1; i >= 0; i--) {
-        const s = placedStickers[i];
-        if (x >= s.x && x <= s.x + s.size && y >= s.y && y <= s.y + s.size) {
-            return i;
+        function getMirroredCanvasPoint(e) {
+            const rect = canvasElement.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            const realX = canvasElement.width - clickX;
+            return { x: realX, y: clickY };
         }
-    }
-    return -1;
-}
 
-canvasElement.addEventListener('mousedown', (e) => {
-    const { x, y } = getMirroredCanvasPoint(e);
-    const hitIndex = findStickerAt(x, y);
-    if (hitIndex !== -1) {
-        mouseDraggingIndex = hitIndex;
-        mouseDragOffsetX = x - placedStickers[hitIndex].x;
-        mouseDragOffsetY = y - placedStickers[hitIndex].y;
-        mouseInteractionHappened = true;
-    } else {
-        mouseInteractionHappened = false;
-    }
-});
+        function findStickerAt(x, y) {
+            for (let i = placedStickers.length - 1; i >= 0; i--) {
+                const s = placedStickers[i];
+                if (x >= s.x && x <= s.x + s.size && y >= s.y && y <= s.y + s.size) {
+                    return i;
+                }
+            }
+            return -1;
+        }
 
-canvasElement.addEventListener('mousemove', (e) => {
-    if (mouseDraggingIndex === -1) return;
-    const { x, y } = getMirroredCanvasPoint(e);
-    placedStickers[mouseDraggingIndex].x = x - mouseDragOffsetX;
-    placedStickers[mouseDraggingIndex].y = y - mouseDragOffsetY;
-});
+        canvasElement.addEventListener('mousedown', (e) => {
+            const { x, y } = getMirroredCanvasPoint(e);
+            const hitIndex = findStickerAt(x, y);
+            if (hitIndex !== -1) {
+                mouseDraggingIndex = hitIndex;
+                mouseDragOffsetX = x - placedStickers[hitIndex].x;
+                mouseDragOffsetY = y - placedStickers[hitIndex].y;
+                mouseInteractionHappened = true;
+            } else {
+                mouseInteractionHappened = false;
+            }
+        });
 
-window.addEventListener('mouseup', () => {
-    mouseDraggingIndex = -1;
-});
+        canvasElement.addEventListener('mousemove', (e) => {
+            if (mouseDraggingIndex === -1) return;
+            const { x, y } = getMirroredCanvasPoint(e);
+            placedStickers[mouseDraggingIndex].x = x - mouseDragOffsetX;
+            placedStickers[mouseDraggingIndex].y = y - mouseDragOffsetY;
+        });
 
-// 마우스 휠로 스티커 크기 조절하기 (스티커 위에서 스크롤)
-canvasElement.addEventListener('wheel', (e) => {
-    const { x, y } = getMirroredCanvasPoint(e);
-    const hitIndex = findStickerAt(x, y);
-    if (hitIndex === -1) return;
-    e.preventDefault();
-    const delta = -e.deltaY * 0.15; // 위로 스크롤하면 확대, 아래로 스크롤하면 축소
-    let newSize = placedStickers[hitIndex].size + delta;
-    newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
-    placedStickers[hitIndex].size = newSize;
-}, { passive: false });
-
-// 2. 화면(캔버스)을 클릭하면 선택된 스티커를 화면에 도장처럼 찍는 기능
-canvasElement.addEventListener('click', (e) => {
-    // 방금 클릭이 '기존 스티커를 옮기던 드래그'였다면, 새 도장을 찍지 않고 그냥 넘어갑니다.
-    if (mouseInteractionHappened) {
-        mouseInteractionHappened = false;
-        return;
-    }
-
-    if (!selectedSticker) return; // 선택된 스티커가 없으면 아무것도 안 함
-
-    const { x: realX, y: clickY } = getMirroredCanvasPoint(e);
-
-    // 도장(스티커) 크기 설정 (픽셀 단위, 원하는 대로 숫자 수정 가능)
-    const stickerSize = 180;
-
-    // 스티커의 중앙이 마우스 클릭 위치에 오도록 좌표 조정해서 그리기
-    // 📌 캔버스에 바로 그리지 않고, 주머니에 스티커 정보를 추가합니다!
-    placedStickers.push({
-        img: selectedSticker,
-        x: realX - (stickerSize / 2),
-        y: clickY - (stickerSize / 2),
-        size: stickerSize
-    });
-});
-
-// ====== 키보드로 잡고 있는 스티커 크기 조절 & 삭제하기 ======
-window.addEventListener('keydown', (e) => {
-    // 현재 손가락(또는 마우스)으로 스티커를 잡고 있는(Dragging) 상태일 때만 작동!
-    const activeIndex = draggingStickerIndex !== -1 ? draggingStickerIndex : mouseDraggingIndex;
-    if (activeIndex !== -1) {
-        if (e.key === 'ArrowUp') {
-            placedStickers[activeIndex].size = Math.min(MAX_STICKER_SIZE, placedStickers[activeIndex].size + 15); // 위 화살표: 확대
-            e.preventDefault();
-        } else if (e.key === 'ArrowDown') {
-            placedStickers[activeIndex].size = Math.max(MIN_STICKER_SIZE, placedStickers[activeIndex].size - 15); // 아래 화살표: 축소
-            e.preventDefault();
-        } else if (e.key === 'Backspace' || e.key === 'Delete') {
-            // 📌 백스페이스나 딜리트 키를 누르면 즉시 삭제!
-            placedStickers.splice(activeIndex, 1);
-            draggingStickerIndex = -1; // 지웠으니 잡고 있던 손도 빈 손 처리
+        window.addEventListener('mouseup', () => {
             mouseDraggingIndex = -1;
-            e.preventDefault();
-        }
-    }
-});
-    </script>
+        });
 
+        canvasElement.addEventListener('wheel', (e) => {
+            const { x, y } = getMirroredCanvasPoint(e);
+            const hitIndex = findStickerAt(x, y);
+            if (hitIndex === -1) return;
+            e.preventDefault();
+            const delta = -e.deltaY * 0.15;
+            let newSize = placedStickers[hitIndex].size + delta;
+            newSize = Math.max(MIN_STICKER_SIZE, Math.min(MAX_STICKER_SIZE, newSize));
+            placedStickers[hitIndex].size = newSize;
+        }, { passive: false });
+
+        canvasElement.addEventListener('click', (e) => {
+            if (mouseInteractionHappened) {
+                mouseInteractionHappened = false;
+                return;
+            }
+
+            if (!selectedSticker) return; 
+
+            const { x: realX, y: clickY } = getMirroredCanvasPoint(e);
+            const stickerSize = 180;
+
+            placedStickers.push({
+                img: selectedSticker,
+                x: realX - (stickerSize / 2),
+                y: clickY - (stickerSize / 2),
+                size: stickerSize
+            });
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const activeIndex = draggingStickerIndex !== -1 ? draggingStickerIndex : mouseDraggingIndex;
+            if (activeIndex !== -1) {
+                if (e.key === 'ArrowUp') {
+                    placedStickers[activeIndex].size = Math.min(MAX_STICKER_SIZE, placedStickers[activeIndex].size + 15);
+                    e.preventDefault();
+                } else if (e.key === 'ArrowDown') {
+                    placedStickers[activeIndex].size = Math.max(MIN_STICKER_SIZE, placedStickers[activeIndex].size - 15);
+                    e.preventDefault();
+                } else if (e.key === 'Backspace' || e.key === 'Delete') {
+                    placedStickers.splice(activeIndex, 1);
+                    draggingStickerIndex = -1;
+                    mouseDraggingIndex = -1;
+                    e.preventDefault();
+                }
+            }
+        });
+    </script>
 </body>
 </html>
