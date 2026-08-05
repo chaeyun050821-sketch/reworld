@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 
 export type CameraStatus = "loading" | "live" | "unavailable";
 
+export type CameraErrorReason = "unsupported" | "denied" | "not-found" | "failed";
+
 export function captureVideoFrame(video: HTMLVideoElement, mirror = true): Promise<Blob | null> {
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -32,19 +34,21 @@ export function useLiveCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>("loading");
+  const [errorReason, setErrorReason] = useState<CameraErrorReason | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
-  const bindVideo = useCallback((el: HTMLVideoElement | null) => {
-    videoRef.current = el;
+  const startCamera = useCallback((el: HTMLVideoElement) => {
     stopCameraStream(streamRef.current);
     streamRef.current = null;
-
-    if (!el) return;
+    el.srcObject = null;
 
     if (!navigator.mediaDevices?.getUserMedia) {
+      setErrorReason("unsupported");
       setStatus("unavailable");
       return;
     }
 
+    setErrorReason(null);
     setStatus("loading");
     void navigator.mediaDevices
       .getUserMedia({
@@ -54,17 +58,49 @@ export function useLiveCamera() {
       .then(async (stream) => {
         streamRef.current = stream;
         el.srcObject = stream;
+        el.muted = true;
         try {
           await el.play();
           setStatus("live");
         } catch {
           stopCameraStream(stream);
           streamRef.current = null;
+          setErrorReason("failed");
           setStatus("unavailable");
         }
       })
-      .catch(() => setStatus("unavailable"));
+      .catch((err: DOMException) => {
+        const name = err?.name ?? "";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          setErrorReason("denied");
+        } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          setErrorReason("not-found");
+        } else {
+          setErrorReason("failed");
+        }
+        setStatus("unavailable");
+      });
   }, []);
+
+  const bindVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (!el) {
+      stopCameraStream(streamRef.current);
+      streamRef.current = null;
+      return;
+    }
+    startCamera(el);
+  }, [startCamera]);
+
+  const retry = useCallback(() => {
+    setRetryToken((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    if (retryToken === 0) return;
+    const el = videoRef.current;
+    if (el) startCamera(el);
+  }, [retryToken, startCamera]);
 
   useEffect(() => {
     return () => {
@@ -79,7 +115,7 @@ export function useLiveCamera() {
     return captureVideoFrame(videoRef.current);
   }, [status]);
 
-  return { bindVideo, status, capture };
+  return { bindVideo, status, errorReason, retry, capture };
 }
 
 export function photoBoothShotStyle(src: string): CSSProperties {

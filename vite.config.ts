@@ -50,7 +50,13 @@ export default defineConfig(({ mode }) => {
             body += chunk
           })
           req.on('end', async () => {
-            let payload: { imageBase64?: string; customPrompt?: string; isCustomRefine?: boolean }
+            let payload: {
+              imageBase64?: string
+              svgMarkup?: string
+              customPrompt?: string
+              isCustomRefine?: boolean
+              refineFromSketch?: boolean
+            }
             try {
               payload = JSON.parse(body) as typeof payload
             } catch {
@@ -65,11 +71,13 @@ export default defineConfig(({ mode }) => {
               if (!process.env.GEMINI_API_KEY && env.GEMINI_API_KEY) {
                 process.env.GEMINI_API_KEY = env.GEMINI_API_KEY
               }
-              const { convertDrawingWithGemini } = await import('./src/lib/gemini-convert-server')
+              const { convertDrawingWithGemini } = await import('./api/lib/gemini-convert-server')
               const svg = await convertDrawingWithGemini({
-                imageBase64: payload.imageBase64 ?? '',
+                imageBase64: payload.imageBase64,
+                svgMarkup: payload.svgMarkup,
                 customPrompt: payload.customPrompt,
                 isCustomRefine: payload.isCustomRefine,
+                refineFromSketch: payload.refineFromSketch,
               })
               res.statusCode = 200
               res.setHeader('Content-Type', 'application/json')
