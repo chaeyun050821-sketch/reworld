@@ -14510,13 +14510,14 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         filter: "blur(40px)",
       }} />
 
-      {/* book spread — fixed size */}
+      {/* book spread — fixed size (월드 탭에서는 빈 다이어리/인덱스만 보이지 않도록 숨김) */}
       <motion.div
         className="relative flex flex-shrink-0"
         style={{
           width: DIARY_SPREAD_W,
           height: DIARY.pageH,
           boxShadow: "0 20px 80px rgba(var(--diary-dark-rgb), 0.22), 0 4px 20px rgba(var(--diary-mid-rgb), 0.18)",
+          display: activeTab === "world" ? "none" : undefined,
         }}
         initial={{ scaleX: 0.3, opacity: 0 }}
         animate={{ scaleX: 1, opacity: 1 }}
@@ -14608,41 +14609,42 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         </div>
 
         {/* BOOKMARK TABS on far right */}
-   {/* ✨ 1. 위쪽에 꽂히는 WORLD 탭 추가 ✨ */}
-{/* ✨ 1. 위쪽에 꽂히는 WORLD 탭 (데이터 의존 안 하고 강제로 그리기!) ✨ */}
-<motion.button
+        {/* WORLD 탭 — 월드 페이지에서는 숨김 (빈 인덱스/다이어리만 보이는 상태 제거) */}
+        {activeTab !== "world" && (
+        <motion.button
           onClick={() => handleTabChange("world")}
           className="absolute flex items-center justify-center"
           style={{
-            top: -30,       // 다이어리 위로 튀어나오게
-            right: 40,      // 다이어리 오른쪽 끝에서 위치
-            zIndex: 999,    // 🚨 무조건 최상단으로 끌어올림!
-            width: 80,      
-            height: 30,     
-            borderRadius: "8px 8px 0 0", 
-            background: activeTab === "world"
-              ? "linear-gradient(180deg, #ffffff, #ffffffdd)"
-              : "linear-gradient(180deg, #ffffffee, #ffffffaa)",
-            borderTop: "2px solid #e0e0e0",
-            borderLeft: "1px solid #e0e0e0",
-            borderRight: "1px solid #e0e0e0",
-            boxShadow: activeTab === "world" ? "0 -2px 8px rgba(0,0,0,0.12)" : "none",
+            top: -30,
+            right: 40,
+            zIndex: 40,
+            width: 80,
+            height: 30,
+            borderRadius: "8px 8px 0 0",
+            background: "#ffffff",
+            borderTop: "2px solid #ffffff",
+            borderLeft: "1px solid #ffffff",
+            borderRight: "1px solid #ffffff",
+            boxShadow: "0 -2px 8px rgba(0,0,0,0.12)",
             cursor: "pointer",
             transition: "all 0.2s",
           }}
           whileHover={{ y: -2 }}
         >
-          <span style={{
-            fontFamily: FONT_UI,
-            fontSize: "0.5rem",
-            fontWeight: activeTab === "world" ? 700 : 500,
-            color: "#111",
-            letterSpacing: "0.05em",
-            userSelect: "none",
-          }}>
+          <span
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.5rem",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              userSelect: "none",
+              color: "#111",
+            }}
+          >
             WORLD
           </span>
         </motion.button>
+        )}
           
 
         {/* BOOKMARK TABS on far right */}
