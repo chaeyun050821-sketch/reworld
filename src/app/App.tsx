@@ -12016,12 +12016,13 @@ function BoardLikeButton({
         event.stopPropagation();
         onToggle(post.id, post.likedByMe);
       }}
-      className="self-start flex items-center gap-0.5"
+      className="self-start flex items-center gap-1"
       style={{
         fontFamily: FONT_UI,
-        fontSize: "0.52rem",
+        fontSize: "0.68rem",
         color: post.likedByMe ? "#ff2d78" : "var(--diary-mid)",
-        fontWeight: 600,
+        fontWeight: 700,
+        lineHeight: 1.2,
       }}
     >
       {post.likedByMe ? "♥" : "♡"} {post.likeCount}
@@ -12112,8 +12113,11 @@ function BoardPostCard({
         {!compact && (
           <button
             type="button"
-            onClick={() => setShowComments((v) => !v)}
-            style={{ fontFamily: FONT_UI, fontSize: "0.52rem", color: showComments ? "var(--diary-dark)" : "var(--diary-mid)", fontWeight: 600 }}
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowComments((v) => !v);
+            }}
+            style={{ fontFamily: FONT_UI, fontSize: "0.68rem", color: showComments ? "var(--diary-dark)" : "var(--diary-mid)", fontWeight: 700, lineHeight: 1.2 }}
           >
             💬 댓글 {post.comments.length}
           </button>
