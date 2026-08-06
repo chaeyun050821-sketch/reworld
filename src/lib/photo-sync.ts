@@ -1,5 +1,5 @@
 import { normalizePhotoDecorations, type PhotoDecoration } from "./photo-decorations";
-import type { StoredPhoto } from "./photo-storage";
+import { filterUsablePhotos, isUsablePhotoSrc, type StoredPhoto } from "./photo-storage";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
@@ -17,15 +17,39 @@ const MAX_IMAGE_EDGE = 1280;
 const JPEG_QUALITY = 0.82;
 const MAX_DATA_URL_CHARS = 900_000;
 
-function rowToPhoto(row: PhotoRow): StoredPhoto {
+function rowToPhoto(row: PhotoRow): StoredPhoto | null {
+  if (!isUsablePhotoSrc(row.src_value)) return null;
   const decorations = normalizePhotoDecorations(row.decorations);
   return {
     id: row.id,
-    src: row.src_value,
+    src: row.src_value.trim(),
     kind: row.kind === "gradient" ? "gradient" : "upload",
     createdAt: row.created_at,
     ...(decorations.length > 0 ? { decorations } : {}),
   };
+}
+
+function mapRows(rows: PhotoRow[]): StoredPhoto[] {
+  return rows
+    .map(rowToPhoto)
+    .filter((photo): photo is StoredPhoto => !!photo);
+}
+
+/** Delete remote rows whose src is empty/broken so they stop resurfacing. */
+async function purgeUnusableRemoteRows(userId: string, rows: PhotoRow[]) {
+  const orphanIds = rows
+    .filter((row) => !isUsablePhotoSrc(row.src_value))
+    .map((row) => row.id);
+  if (orphanIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("user_photos")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", orphanIds);
+  if (error) {
+    console.error("[photos] orphan purge failed:", error.message, error.code);
+  }
 }
 
 export async function fetchUserPhotos(userId: string): Promise<StoredPhoto[]> {
@@ -49,13 +73,17 @@ export async function fetchUserPhotos(userId: string): Promise<StoredPhoto[]> {
         console.error("[photos] fetch failed:", error.message, error.code);
         return [];
       }
-      return (fallback.data as PhotoRow[]).map(rowToPhoto);
+      const rows = fallback.data as PhotoRow[];
+      void purgeUnusableRemoteRows(userId, rows);
+      return mapRows(rows);
     }
     console.error("[photos] fetch failed:", error.message, error.code);
     return [];
   }
   if (!data) return [];
-  return (data as PhotoRow[]).map(rowToPhoto);
+  const rows = data as PhotoRow[];
+  void purgeUnusableRemoteRows(userId, rows);
+  return mapRows(rows);
 }
 
 export async function updatePhotoDecorations(
@@ -256,6 +284,8 @@ export async function upsertLocalPhoto(
   photo: StoredPhoto,
 ): Promise<SyncResult> {
   if (!isSupabaseConfigured()) return { ok: true };
+  // Never re-create rows with missing/broken sources (causes black tiles)
+  if (!isUsablePhotoSrc(photo.src)) return { ok: true };
 
   const payload: Record<string, unknown> = {
     id: photo.id,
@@ -290,17 +320,19 @@ export async function upsertLocalPhoto(
 export async function deleteUserPhoto(userId: string, photo: StoredPhoto): Promise<SyncResult> {
   if (!isSupabaseConfigured()) return { ok: true };
 
+  // Delete the DB row entirely (do not clear src_value and leave an empty record)
   const { error } = await supabase
     .from("user_photos")
     .delete()
     .eq("id", photo.id)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select("id");
 
   if (error) {
     return { ok: false, error: mapSupabaseError(error.message, error.code) };
   }
 
-  if (photo.kind === "upload" && !photo.src.startsWith("data:")) {
+  if (photo.kind === "upload" && !photo.src.startsWith("data:") && !photo.src.startsWith("linear-gradient(")) {
     const path = `${userId}/${photo.id}.jpg`;
     await supabase.storage.from("user-photos").remove([path]);
   }
@@ -308,10 +340,20 @@ export async function deleteUserPhoto(userId: string, photo: StoredPhoto): Promi
   return { ok: true };
 }
 
-export function mergePhotoLists(local: StoredPhoto[], remote: StoredPhoto[]): StoredPhoto[] {
+export function mergePhotoLists(
+  local: StoredPhoto[],
+  remote: StoredPhoto[],
+  excludeIds?: ReadonlySet<string>,
+): StoredPhoto[] {
   const byId = new Map<string, StoredPhoto>();
-  for (const photo of remote) byId.set(photo.id, photo);
+  for (const photo of remote) {
+    if (excludeIds?.has(photo.id)) continue;
+    if (!isUsablePhotoSrc(photo.src)) continue;
+    byId.set(photo.id, photo);
+  }
   for (const photo of local) {
+    if (excludeIds?.has(photo.id)) continue;
+    if (!isUsablePhotoSrc(photo.src)) continue;
     const existing = byId.get(photo.id);
     if (!existing) {
       byId.set(photo.id, photo);
@@ -324,7 +366,7 @@ export function mergePhotoLists(local: StoredPhoto[], remote: StoredPhoto[]): St
       byId.set(photo.id, { ...existing, decorations: localDecor });
     }
   }
-  return Array.from(byId.values()).sort(
+  return filterUsablePhotos(Array.from(byId.values())).sort(
     (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
   );
 }

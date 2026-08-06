@@ -4056,6 +4056,7 @@ function AlbumPhotoDetailSurface({
   style,
   border = true,
   rounded = true,
+  onImageError,
 }: {
   src: string;
   surfaceRef?: RefObject<HTMLDivElement | null>;
@@ -4064,6 +4065,7 @@ function AlbumPhotoDetailSurface({
   style?: CSSProperties;
   border?: boolean;
   rounded?: boolean;
+  onImageError?: () => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const isGradient = src.startsWith("linear-gradient(");
@@ -4097,6 +4099,7 @@ function AlbumPhotoDetailSurface({
             className="absolute inset-0 w-full h-full select-none"
             style={{ objectFit: "fill" }}
             draggable={false}
+            onError={() => onImageError?.()}
           />
         )}
         {children}
@@ -4644,6 +4647,7 @@ function PhotoPage({
     error: photoError,
     addUpload,
     removePhoto,
+    dropBrokenPhoto,
     saveDecorations,
   } = usePhotoAlbum(user.id);
   const albumOwnerId = user.id;
@@ -5055,7 +5059,12 @@ function PhotoPage({
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: i * 0.05 }}
                 >
-                  <AlbumPhotoDetailSurface src={photo.src} border={false} rounded={false}>
+                  <AlbumPhotoDetailSurface
+                    src={photo.src}
+                    border={false}
+                    rounded={false}
+                    onImageError={() => dropBrokenPhoto(photo.id)}
+                  >
                     <PhotoDecorationsOverlay
                       decorations={photoDecorations[photo.id] ?? photo.decorations ?? []}
                       avatar={avatar}
@@ -5372,7 +5381,14 @@ function PhotoPage({
             )}
 
             <div className="relative flex-1 min-h-0">
-              <AlbumPhotoDetailSurface src={selectedPhoto.src} surfaceRef={selectedPhotoSurfaceRef}>
+              <AlbumPhotoDetailSurface
+                src={selectedPhoto.src}
+                surfaceRef={selectedPhotoSurfaceRef}
+                onImageError={() => {
+                  dropBrokenPhoto(selectedPhoto.id);
+                  setSelectedIndex(null);
+                }}
+              >
               <PhotoDecorationsOverlay
                 decorations={selectedDecorations}
                 editable={isEditingPhoto}
@@ -10131,7 +10147,17 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.04 }}
               >
-                <AlbumPhotoDetailSurface src={photo.src} border={false} rounded={false}>
+                <AlbumPhotoDetailSurface
+                  src={photo.src}
+                  border={false}
+                  rounded={false}
+                  onImageError={() => {
+                    setPhotos((current) => current.filter((item) => item.id !== photo.id));
+                    if (selectedIndex !== null && photos[selectedIndex]?.id === photo.id) {
+                      setSelectedIndex(null);
+                    }
+                  }}
+                >
                   <PhotoDecorationsOverlay
                     decorations={photo.decorations ?? []}
                     avatar={nb.avatarProfile ?? undefined}
@@ -10319,7 +10345,13 @@ function FriendPhotoAlbum({ nb, user }: { nb: FriendNeighbor; user: User }) {
               </AnimatePresence>
             </div>
             <div className="relative flex-1 min-h-0">
-              <AlbumPhotoDetailSurface src={selectedPhoto.src}>
+              <AlbumPhotoDetailSurface
+                src={selectedPhoto.src}
+                onImageError={() => {
+                  setPhotos((current) => current.filter((item) => item.id !== selectedPhoto.id));
+                  setSelectedIndex(null);
+                }}
+              >
                 <PhotoDecorationsOverlay
                   decorations={selectedPhoto.decorations ?? []}
                   avatar={nb.avatarProfile ?? undefined}
