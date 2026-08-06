@@ -204,8 +204,8 @@
     <div id="svgOutput" style="margin-top: 22px; width: 640px; min-height: 200px; border: 2px dashed #C9B6F5; border-radius: 18px; display: flex; justify-content: center; align-items: center; background-color: #ffffffcc; padding: 20px; box-sizing: border-box;">
         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
             1. 허공에 그림을 먼저 그리세요.<br>
-            2. <b>✨ AI 도트 변환</b>은 형태 그대로 픽셀화만 합니다.<br>
-            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면, 캔버스 그림을 바로 픽셀화하면서 요청도 반영됩니다!
+            2. <b>✨ 도트 변환</b>은 그린 그림을 그대로 로컬 픽셀화합니다 (AI·크레딧 없음).<br>
+            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면 AI가 도트 그림을 다듬습니다!
         </p>
     </div>
     <div class="inventory-container" id="inventory">
@@ -811,6 +811,86 @@
             return true;
         }
 
+        // 도트 변환: AI 없이 캔버스 획만 격자 샘플링 → SVG <rect>
+        function pixelateDrawingToSvg(sourceCanvas, mirror = true, cellSize = 4) {
+            const w = sourceCanvas.width;
+            const h = sourceCanvas.height;
+            const prep = document.createElement('canvas');
+            prep.width = w;
+            prep.height = h;
+            const prepCtx = prep.getContext('2d');
+            if (mirror) {
+                prepCtx.translate(w, 0);
+                prepCtx.scale(-1, 1);
+            }
+            prepCtx.drawImage(sourceCanvas, 0, 0);
+            const { data } = prepCtx.getImageData(0, 0, w, h);
+
+            const cols = Math.ceil(w / cellSize);
+            const rows = Math.ceil(h / cellSize);
+            const parts = [
+                `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${cols} ${rows}" width="100%" height="100%" shape-rendering="crispEdges">`,
+            ];
+
+            for (let gy = 0; gy < rows; gy++) {
+                let runX = -1;
+                let runColor = '';
+                let runLen = 0;
+
+                const flushRun = () => {
+                    if (runLen <= 0) return;
+                    parts.push(`<rect x="${runX}" y="${gy}" width="${runLen}" height="1" fill="${runColor}"/>`);
+                    runX = -1;
+                    runColor = '';
+                    runLen = 0;
+                };
+
+                for (let gx = 0; gx < cols; gx++) {
+                    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+                    const x0 = gx * cellSize;
+                    const y0 = gy * cellSize;
+                    const x1 = Math.min(w, x0 + cellSize);
+                    const y1 = Math.min(h, y0 + cellSize);
+                    const cellArea = (x1 - x0) * (y1 - y0);
+
+                    for (let y = y0; y < y1; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            const i = (y * w + x) * 4;
+                            if (data[i + 3] < 40) continue;
+                            rSum += data[i];
+                            gSum += data[i + 1];
+                            bSum += data[i + 2];
+                            count++;
+                        }
+                    }
+
+                    // 칸의 일정 비율 이상 칠해져야 픽셀로 인정
+                    if (count < Math.max(2, cellArea * 0.12)) {
+                        flushRun();
+                        continue;
+                    }
+
+                    const r = Math.round(rSum / count);
+                    const g = Math.round(gSum / count);
+                    const b = Math.round(bSum / count);
+                    const hex = `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
+                    if (runLen > 0 && hex === runColor && gx === runX + runLen) {
+                        runLen += 1;
+                    } else {
+                        flushRun();
+                        runX = gx;
+                        runColor = hex;
+                        runLen = 1;
+                    }
+                }
+                flushRun();
+            }
+
+            parts.push('</svg>');
+            return parts.join('');
+        }
+
         async function generateAIImage(isCustomRefine) {
             if (isProcessingAI) return;
 
@@ -820,44 +900,58 @@
                 return;
             }
 
+            // 기본 도트 변환: 로컬 픽셀화만 (API / 크레딧 미사용)
+            if (!isCustomRefine) {
+                if (isCanvasBlank()) {
+                    alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
+                    return;
+                }
+                isProcessingAI = true;
+                try {
+                    const svgMarkup = pixelateDrawingToSvg(canvasElement, true, 4);
+                    lastDotSvgMarkup = svgMarkup;
+                    svgOutput.innerHTML = svgMarkup;
+                } catch (error) {
+                    console.error('픽셀화 오류:', error);
+                    const message = error instanceof Error ? error.message : '알 수 없는 오류';
+                    svgOutput.innerHTML = `<p style="color: #e07a9e; line-height: 1.6;">❌ 변환에 실패했습니다.<br><span style="font-size: 13px;">${message}</span></p>`;
+                } finally {
+                    isProcessingAI = false;
+                }
+                return;
+            }
+
             let imageBase64 = null;
             let refineFromSketch = false;
-            let loadingLabel = '✨ 캔버스 그림을 픽셀 변환 중입니다...';
-            if (isCustomRefine) {
-                const existingSvg = svgOutput.querySelector('svg');
-                if (existingSvg) {
-                    try {
-                        imageBase64 = await captureSvgBase64(existingSvg);
-                    } catch (error) {
-                        alert(error instanceof Error ? error.message : '그림을 불러오지 못했어요.');
-                        return;
-                    }
-                    loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
-                } else if (selectedSticker) {
-                    imageBase64 = captureImageElementBase64(selectedSticker);
-                    loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
-                } else {
-                    if (isCanvasBlank()) {
-                        alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
-                        return;
-                    }
-                    imageBase64 = captureCanvasBase64();
-                    refineFromSketch = true;
-                    loadingLabel = '✨ 캔버스 그림을 픽셀화하고 요청을 반영 중입니다...';
+            let loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
+            const existingSvg = svgOutput.querySelector('svg');
+            if (existingSvg) {
+                try {
+                    imageBase64 = await captureSvgBase64(existingSvg);
+                } catch (error) {
+                    alert(error instanceof Error ? error.message : '그림을 불러오지 못했어요.');
+                    return;
                 }
+            } else if (selectedSticker) {
+                imageBase64 = captureImageElementBase64(selectedSticker);
             } else {
                 if (isCanvasBlank()) {
                     alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
                     return;
                 }
                 imageBase64 = captureCanvasBase64();
+                refineFromSketch = true;
+                loadingLabel = '✨ 캔버스 그림을 픽셀화하고 요청을 반영 중입니다...';
             }
 
             isProcessingAI = true;
-            let svgMarkup = lastDotSvgMarkup; 
+            let svgMarkup = lastDotSvgMarkup;
+            if (!svgMarkup && existingSvg) {
+                svgMarkup = new XMLSerializer().serializeToString(existingSvg);
+            }
             svgOutput.innerHTML = `
                 <div style="text-align: center; width: 100%;">
-                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">✨ AI가 도트 그림을 수정 중...</p>
+                    <p style="color: #a3729c; font-size: 17px; font-weight: bold;">${loadingLabel}</p>
                     <div class="loading-container"><div class="loading-bar"></div></div>
                     <p style="color: #a89bc0; font-size: 14px;">(유료 Gemini · 도트 변환 결과 기준 · 보통 5~15초)</p>
                 </div>
@@ -870,8 +964,8 @@
                     body: JSON.stringify({
                         svgMarkup,
                         imageBase64,
-                        customPrompt: isCustomRefine ? userText : undefined,
-                        isCustomRefine: isCustomRefine && userText !== '',
+                        customPrompt: userText,
+                        isCustomRefine: true,
                         refineFromSketch
                     }),
                 });
@@ -1216,8 +1310,8 @@
                     svgOutput.innerHTML = `
                         <p style="color: #8a7ba3; text-align: center; line-height: 1.7; font-size: 15px;">
                             1. 허공에 그림을 먼저 그리세요.<br>
-                            2. <b>✨ AI 도트 변환</b>은 형태 그대로 픽셀화만 합니다.<br>
-                            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면, 캔버스 그림을 바로 픽셀화하면서 요청도 반영됩니다!
+                            2. <b>✨ 도트 변환</b>은 그린 그림을 그대로 로컬 픽셀화합니다 (AI·크레딧 없음).<br>
+                            3. 수정 요청을 적고 <b>💬 수정하기</b>를 누르면 AI가 도트 그림을 다듬습니다!
                         </p>`;
                 }
             }
