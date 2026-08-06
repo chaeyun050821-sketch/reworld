@@ -14621,12 +14621,12 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             height: 30,     
             borderRadius: "8px 8px 0 0", 
             background: activeTab === "world"
-              ? "linear-gradient(180deg, #a8c0ff, #a8c0ffdd)" 
-              : "linear-gradient(180deg, #a8c0ff88, #a8c0ff66)",
-            borderTop: "2px solid #a8c0ff",
-            borderLeft: "1px solid #a8c0ff",
-            borderRight: "1px solid #a8c0ff",
-            boxShadow: activeTab === "world" ? "0 -2px 8px #a8c0ff66" : "none",
+              ? "linear-gradient(180deg, #ffffff, #ffffffdd)"
+              : "linear-gradient(180deg, #ffffffee, #ffffffaa)",
+            borderTop: "2px solid #e0e0e0",
+            borderLeft: "1px solid #e0e0e0",
+            borderRight: "1px solid #e0e0e0",
+            boxShadow: activeTab === "world" ? "0 -2px 8px rgba(0,0,0,0.12)" : "none",
             cursor: "pointer",
             transition: "all 0.2s",
           }}
@@ -14636,11 +14636,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             fontFamily: FONT_UI,
             fontSize: "0.5rem",
             fontWeight: activeTab === "world" ? 700 : 500,
-            color: "#fff",
+            color: "#111",
             letterSpacing: "0.05em",
             userSelect: "none",
           }}>
-            world
+            WORLD
           </span>
         </motion.button>
           
