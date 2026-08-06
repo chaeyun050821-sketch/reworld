@@ -3,16 +3,35 @@
 -- Safe to skip — app falls back to realtime broadcast + local notifications.
 
 do $$
+declare
+  r record;
 begin
-  if to_regclass('public.user_notifications') is not null then
-    alter table public.user_notifications drop constraint if exists user_notifications_type_check;
-    alter table public.user_notifications add constraint user_notifications_type_check check (
+  if to_regclass('public.user_notifications') is null then
+    return;
+  end if;
+
+  for r in
+    select c.conname
+    from pg_constraint c
+    join pg_class t on c.conrelid = t.oid
+    join pg_namespace n on t.relnamespace = n.oid
+    where n.nspname = 'public'
+      and t.relname = 'user_notifications'
+      and c.contype = 'c'
+      and pg_get_constraintdef(c.oid) ~* '\ytype\y'
+  loop
+    execute format('alter table public.user_notifications drop constraint %I', r.conname);
+  end loop;
+
+  alter table public.user_notifications
+    add constraint user_notifications_type_check check (
       type in (
         'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
         'guestbook', 'gift', 'gift_beg'
       )
     );
-  end if;
+exception
+  when duplicate_object then null;
 end $$;
 
 create or replace function public.send_gift_beg(

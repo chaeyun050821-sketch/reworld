@@ -40,6 +40,54 @@ function notifyCloverChanged(userId: string) {
   window.dispatchEvent(new CustomEvent("reworld-clover-changed", { detail: { userId } }));
 }
 
+function notifyNotificationsChanged(userId: string) {
+  window.dispatchEvent(new CustomEvent("reworld-notifications-changed", { detail: { userId } }));
+}
+
+async function ensureGiftNotification(args: {
+  recipientId: string;
+  senderId: string;
+  senderNickname: string;
+  message: string;
+  content?: string;
+  sourceKey?: string;
+  preferRemote: boolean;
+}): Promise<void> {
+  const content = args.content?.trim() || undefined;
+  const sourceKey =
+    args.sourceKey?.trim() ||
+    `gift-client:${args.senderId}:${args.recipientId}:${crypto.randomUUID()}`;
+
+  let remoteOk = false;
+  if (args.preferRemote && supportsRemoteGift(args.senderId) && supportsRemoteGift(args.recipientId)) {
+    const { error } = await supabase.rpc("notify_gift_received", {
+      p_recipient_id: args.recipientId,
+      p_message: args.message,
+      p_content: content ?? null,
+      p_source_key: sourceKey,
+    });
+    if (!error) {
+      remoteOk = true;
+    } else if (!error.message.toLowerCase().includes("could not find the function")) {
+      console.warn("[unified-gifts] notify_gift_received:", error.message);
+    }
+  }
+
+  // Remote insert covers cross-device. Local is a same-browser fallback when RPC is missing/fails.
+  if (!remoteOk) {
+    await saveLocalNotification(args.recipientId, {
+      type: "gift",
+      actorId: args.senderId,
+      actorNickname: args.senderNickname,
+      message: args.message,
+      content,
+      createdAt: new Date().toISOString(),
+      id: sourceKey,
+    });
+  }
+  notifyNotificationsChanged(args.recipientId);
+}
+
 function catalogItemId(itemId: string): string {
   return parseOriginalItemIdFromPurchasedId(itemId) ?? itemId;
 }
@@ -174,10 +222,28 @@ export async function sendUnifiedItemGift(args: {
     });
     if (error) return { ok: false, error: mapGiftRpcError(error.message) };
 
-    const payload = data as { ok?: boolean; error?: string } | null;
+    const payload = data as {
+      ok?: boolean;
+      error?: string;
+      sourceKey?: string;
+      notificationMessage?: string;
+    } | null;
     if (payload && payload.ok === false) {
       return { ok: false, error: mapGiftRpcError(payload.error || "선물에 실패했어요.") };
     }
+
+    const notifMessage =
+      payload?.notificationMessage ||
+      `${args.senderNickname}님이 ${item.label}을(를) 선물했어요 🎁`;
+    await ensureGiftNotification({
+      recipientId: args.recipientId,
+      senderId: args.senderId,
+      senderNickname: args.senderNickname,
+      message: notifMessage,
+      content: args.message.trim() || undefined,
+      sourceKey: payload?.sourceKey,
+      preferRemote: true,
+    });
 
     await refreshSenderAfterGift(args.senderId);
     notifyInventoryChanged(args.senderId);
@@ -192,13 +258,13 @@ export async function sendUnifiedItemGift(args: {
     await upsertUserInventory(args.senderId, getInventorySnapshot(args.senderId));
   }
 
-  await saveLocalNotification(args.recipientId, {
-    type: "gift",
-    actorId: args.senderId,
-    actorNickname: args.senderNickname,
+  await ensureGiftNotification({
+    recipientId: args.recipientId,
+    senderId: args.senderId,
+    senderNickname: args.senderNickname,
     message: `${args.senderNickname}님이 ${item.label}을(를) 선물했어요 🎁`,
     content: args.message.trim() || undefined,
-    createdAt: new Date().toISOString(),
+    preferRemote: false,
   });
   notifyInventoryChanged(args.senderId);
   notifyInventoryChanged(args.recipientId);
@@ -230,12 +296,35 @@ export async function sendUnifiedCloverGift(args: {
       return { ok: false, error: push.error || "클로버 동기화에 실패했어요." };
     }
 
-    const { error } = await supabase.rpc("send_unified_clover_gift", {
+    const { data, error } = await supabase.rpc("send_unified_clover_gift", {
       p_recipient_id: args.recipientId,
       p_amount: amount,
       p_message: args.message.trim() || null,
     });
     if (error) return { ok: false, error: mapGiftRpcError(error.message) };
+
+    const payload = data as {
+      ok?: boolean;
+      error?: string;
+      sourceKey?: string;
+      notificationMessage?: string;
+    } | null;
+    if (payload && payload.ok === false) {
+      return { ok: false, error: mapGiftRpcError(payload.error || "선물에 실패했어요.") };
+    }
+
+    const notifMessage =
+      payload?.notificationMessage ||
+      `${args.senderNickname}님이 ${amount} 클로버를 선물했어요 🍀`;
+    await ensureGiftNotification({
+      recipientId: args.recipientId,
+      senderId: args.senderId,
+      senderNickname: args.senderNickname,
+      message: notifMessage,
+      content: args.message.trim() || undefined,
+      sourceKey: payload?.sourceKey,
+      preferRemote: true,
+    });
 
     await refreshSenderAfterGift(args.senderId);
     notifyCloverChanged(args.senderId);
@@ -251,13 +340,13 @@ export async function sendUnifiedCloverGift(args: {
     await upsertUserInventory(args.senderId, getInventorySnapshot(args.senderId));
   }
 
-  await saveLocalNotification(args.recipientId, {
-    type: "gift",
-    actorId: args.senderId,
-    actorNickname: args.senderNickname,
+  await ensureGiftNotification({
+    recipientId: args.recipientId,
+    senderId: args.senderId,
+    senderNickname: args.senderNickname,
     message: `${args.senderNickname}님이 ${amount} 클로버를 선물했어요 🍀`,
     content: args.message.trim() || undefined,
-    createdAt: new Date().toISOString(),
+    preferRemote: false,
   });
   notifyCloverChanged(args.senderId);
   notifyCloverChanged(args.recipientId);

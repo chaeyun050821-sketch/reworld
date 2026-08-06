@@ -590,20 +590,19 @@ export async function sendGiftBegRequest(args: {
       target_item_id: args.itemId,
       beg_message: args.message?.trim() || null,
     });
-    if (!error) {
-      const payload = data as { ok?: boolean; error?: string };
-      if (payload?.ok) {
-        return { ok: true, message: `${itemLabel} 조르기를 보냈어요.`, beg };
+    if (error) {
+      if (
+        !error.message.toLowerCase().includes("does not exist") &&
+        !error.message.toLowerCase().includes("could not find the function")
+      ) {
+        // RPC exists but failed for another reason — still fall through to local so World broadcast can deliver.
+        console.warn("[commerce] send_gift_beg:", error.message);
       }
-      if (payload?.error && !String(payload.error).toLowerCase().includes("does not exist")) {
+    } else {
+      const payload = data as { ok?: boolean; error?: string };
+      if (payload?.ok === false && payload?.error && !String(payload.error).toLowerCase().includes("does not exist")) {
         return { ok: false, error: payload.error };
       }
-    } else if (
-      !error.message.toLowerCase().includes("does not exist") &&
-      !error.message.toLowerCase().includes("could not find the function")
-    ) {
-      // RPC exists but failed for another reason — still fall through to local so World broadcast can deliver.
-      console.warn("[commerce] send_gift_beg:", error.message);
     }
   }
 
@@ -617,6 +616,9 @@ export async function sendGiftBegRequest(args: {
     createdAt: beg.createdAt,
     id: beg.id,
   });
+  window.dispatchEvent(
+    new CustomEvent("reworld-notifications-changed", { detail: { userId: args.toUserId } }),
+  );
 
   return { ok: true, message: `${itemLabel} 조르기를 보냈어요.`, beg };
 }

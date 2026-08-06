@@ -244,7 +244,20 @@ export async function loadNotifications(userId: string): Promise<AppNotification
     return loadLocal(userId);
   }
 
-  const notifications = (data as NotificationRow[]).map(mapRow);
+  const remote = (data as NotificationRow[]).map(mapRow);
+  const remoteIds = new Set(remote.map((row) => row.id));
+  const remoteFingerprints = new Set(
+    remote.map((row) => `${row.type}|${row.actorId ?? ""}|${row.message}`),
+  );
+  // Keep same-browser gift / gift_beg rows that are not yet visible from Supabase.
+  const localExtras = loadLocal(userId).filter((row) => {
+    if (row.type !== "gift" && row.type !== "gift_beg") return false;
+    if (remoteIds.has(row.id)) return false;
+    return !remoteFingerprints.has(`${row.type}|${row.actorId ?? ""}|${row.message}`);
+  });
+  const notifications = [...remote, ...localExtras]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 50);
   saveLocal(userId, notifications);
   return notifications;
 }

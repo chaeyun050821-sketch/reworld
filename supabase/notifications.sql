@@ -5,7 +5,8 @@ create table if not exists public.user_notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
   type text not null check (type in (
-    'friend_request', 'ilchon_request', 'photo_like', 'photo_comment', 'guestbook'
+    'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
+    'guestbook', 'gift', 'gift_beg'
   )),
   actor_id uuid references public.profiles (id) on delete set null,
   actor_nickname text not null,
@@ -24,6 +25,35 @@ create index if not exists user_notifications_user_created_idx
 grant select, delete on public.user_notifications to authenticated;
 
 alter table public.user_notifications enable row level security;
+
+-- 기존 DB: type CHECK 이름이 달라도 gift / gift_beg 허용하도록 교체
+do $$
+declare
+  r record;
+begin
+  for r in
+    select c.conname
+    from pg_constraint c
+    join pg_class t on c.conrelid = t.oid
+    join pg_namespace n on t.relnamespace = n.oid
+    where n.nspname = 'public'
+      and t.relname = 'user_notifications'
+      and c.contype = 'c'
+      and pg_get_constraintdef(c.oid) ~* '\ytype\y'
+  loop
+    execute format('alter table public.user_notifications drop constraint %I', r.conname);
+  end loop;
+
+  alter table public.user_notifications
+    add constraint user_notifications_type_check check (
+      type in (
+        'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
+        'guestbook', 'gift', 'gift_beg'
+      )
+    );
+exception
+  when duplicate_object then null;
+end $$;
 
 drop policy if exists "user_notifications_select_own" on public.user_notifications;
 create policy "user_notifications_select_own"

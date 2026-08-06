@@ -12396,11 +12396,6 @@ function HomeNotificationsSection({ user }: { user: User }) {
   };
 
   const refresh = async () => {
-    if (!isSupabaseConfigured()) {
-      setNotifications([]);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     const next = await loadNotifications(user.id);
     setNotifications(next);
@@ -12420,9 +12415,16 @@ function HomeNotificationsSection({ user }: { user: User }) {
   useEffect(() => {
     void refresh();
     const unsubscribe = subscribeNotifications(user.id, () => void refresh());
+    const onLocalChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId && detail.userId !== user.id) return;
+      void refresh();
+    };
+    window.addEventListener("reworld-notifications-changed", onLocalChange);
     const interval = window.setInterval(() => void refresh(), 60_000);
     return () => {
       unsubscribe();
+      window.removeEventListener("reworld-notifications-changed", onLocalChange);
       window.clearInterval(interval);
     };
   }, [user.id]);

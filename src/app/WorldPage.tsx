@@ -13,12 +13,31 @@ import {
   type GiftBegPayload,
 } from "../lib/commerce";
 import { fetchUserInventory } from "../lib/user-sync";
-import { type ShopCatalogItem } from "./shop-catalog";
+import { loadNotifications, subscribeNotifications } from "../lib/notifications";
+import { getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
 import BegGiftModal from "./BegGiftModal";
-import GiftModal from "./GiftModal";
+import GiftModal, { type GiftSuccessInfo } from "./GiftModal";
 
 const WORLD_AVATAR_WIDTH = 52;
 const WORLD_AVATAR_HEIGHT = avatarPreviewHeightForWidth(WORLD_AVATAR_WIDTH);
+
+type GiftReceivedToast = {
+  id: string;
+  fromNickname: string;
+  text: string;
+  note?: string;
+};
+
+type GiftReceivedBroadcast = {
+  recipientId?: string;
+  fromUserId?: string;
+  fromNickname?: string;
+  kind?: "item" | "clover";
+  itemLabel?: string;
+  amount?: number;
+  note?: string;
+  message?: string;
+};
 
 /** Equipped overlay items the local player can share for peer AvatarWithCompanions. */
 function loadEquippedWearables(userId: string, equipped: string[] | undefined | null): HandMadeItem[] {
@@ -83,11 +102,18 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     itemId: string;
   } | null>(null);
   const [begSentToast, setBegSentToast] = useState<string | null>(null);
+  const [giftReceivedToast, setGiftReceivedToast] = useState<GiftReceivedToast | null>(null);
+  const [showMyItems, setShowMyItems] = useState(false);
+  const [myItems, setMyItems] = useState<ShopCatalogItem[]>([]);
+  const [myItemsLoading, setMyItemsLoading] = useState(false);
 
   const moveTimeout = useRef<NodeJS.Timeout | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const peerWearFetchRef = useRef<Set<string>>(new Set());
+  const seenGiftNotifIdsRef = useRef<Set<string>>(new Set());
+  const giftToastTimerRef = useRef<number | null>(null);
+  const recentGiftToastKeysRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -186,6 +212,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
   const openBegForPlayer = useCallback(async (player: PlayerData) => {
     setSelectedPlayerId(null);
+    setShowMyItems(false);
     setBegTarget({ userId: player.id, name: player.name });
     setBegItemsLoading(true);
 
@@ -208,6 +235,63 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       setBegItemsLoading(false);
     }, 1800);
   }, [peerInventories, requestPeerInventory]);
+
+  const showGiftToast = useCallback((toast: Omit<GiftReceivedToast, "id"> & { id?: string }) => {
+    const key = `${toast.fromNickname}|${toast.text}`;
+    const now = Date.now();
+    const last = recentGiftToastKeysRef.current.get(key) ?? 0;
+    if (now - last < 5000) return;
+    recentGiftToastKeysRef.current.set(key, now);
+
+    if (giftToastTimerRef.current) window.clearTimeout(giftToastTimerRef.current);
+    const next = { ...toast, id: toast.id ?? crypto.randomUUID() };
+    setGiftReceivedToast(next);
+    giftToastTimerRef.current = window.setTimeout(() => {
+      setGiftReceivedToast((prev) => (prev?.id === next.id ? null : prev));
+      giftToastTimerRef.current = null;
+    }, 4200);
+  }, []);
+
+  const openMyItems = useCallback(async () => {
+    setSelectedPlayerId(null);
+    setBegTarget(null);
+    setShowMyItems(true);
+    setMyItemsLoading(true);
+    try {
+      const items = await loadOwnGiftableItems(user.id);
+      setMyItems(items);
+    } catch (error) {
+      console.warn("[world] load own items failed:", error);
+      setMyItems([]);
+    } finally {
+      setMyItemsLoading(false);
+    }
+  }, [user?.id]);
+
+  const handleGiftReceivedRealtime = useCallback(
+    (payload: GiftReceivedBroadcast) => {
+      if (!payload?.recipientId || payload.recipientId !== user.id) return;
+      void import("../lib/unified-gifts").then(({ pullGiftedInventory }) =>
+        pullGiftedInventory(user.id),
+      );
+      void broadcastMyInventory();
+
+      const fromNickname = payload.fromNickname?.trim() || "친구";
+      const text =
+        payload.message?.trim() ||
+        (payload.kind === "clover" && payload.amount
+          ? `${fromNickname}님이 ${payload.amount} 클로버를 선물했어요 🍀`
+          : payload.itemLabel
+            ? `${fromNickname}님이 ${payload.itemLabel}을(를) 선물했어요 🎁`
+            : `${fromNickname}님이 선물을 보냈어요 🎁`);
+      showGiftToast({
+        fromNickname,
+        text,
+        note: payload.note,
+      });
+    },
+    [user?.id, broadcastMyInventory, showGiftToast],
+  );
 
   useEffect(() => {
     const channel = supabase.channel("meeting_square");
@@ -268,12 +352,8 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     channel.on(
       "broadcast",
       { event: "gift_received" },
-      ({ payload }: { payload: { recipientId?: string; fromUserId?: string } }) => {
-        if (!payload?.recipientId || payload.recipientId !== user.id) return;
-        void import("../lib/unified-gifts").then(({ pullGiftedInventory }) =>
-          pullGiftedInventory(user.id),
-        );
-        void broadcastMyInventory(channel);
+      ({ payload }: { payload: GiftReceivedBroadcast }) => {
+        handleGiftReceivedRealtime(payload);
       },
     );
 
@@ -310,6 +390,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         e.preventDefault();
         setSelectedPlayerId(null);
+        setShowMyItems(false);
       }
 
       setMyPos((prev) => {
@@ -370,7 +451,59 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         payload: { id: user.id, name: user.nickname, x, y, direction, isMoving, avatar: myAvatar },
       });
     }
-  }, [user, myAvatar, broadcastMyInventory, ensurePeerWearables, applyPeerWearItems]);
+  }, [user, myAvatar, broadcastMyInventory, ensurePeerWearables, applyPeerWearItems, handleGiftReceivedRealtime]);
+
+  // Seed known gift notification ids, then toast on new gift rows while in WORLD.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    let seeded = false;
+
+    void loadNotifications(user.id).then((rows) => {
+      if (cancelled) return;
+      rows
+        .filter((row) => row.type === "gift")
+        .forEach((row) => seenGiftNotifIdsRef.current.add(row.id));
+      seeded = true;
+    });
+
+    const handleGiftRows = (rows: Awaited<ReturnType<typeof loadNotifications>>) => {
+      if (cancelled || !seeded) return;
+      const gifts = rows.filter((row) => row.type === "gift");
+      for (const row of gifts) {
+        if (seenGiftNotifIdsRef.current.has(row.id)) continue;
+        seenGiftNotifIdsRef.current.add(row.id);
+        void import("../lib/unified-gifts").then(({ pullGiftedInventory }) =>
+          pullGiftedInventory(user.id),
+        );
+        void broadcastMyInventory();
+        showGiftToast({
+          id: row.id,
+          fromNickname: row.actorNickname,
+          text: row.message,
+          note: row.content,
+        });
+      }
+    };
+
+    const unsubscribe = subscribeNotifications(user.id, () => {
+      void loadNotifications(user.id).then(handleGiftRows);
+    });
+
+    const onLocalChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId && detail.userId !== user.id) return;
+      void loadNotifications(user.id).then(handleGiftRows);
+    };
+    window.addEventListener("reworld-notifications-changed", onLocalChange);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      window.removeEventListener("reworld-notifications-changed", onLocalChange);
+      if (giftToastTimerRef.current) window.clearTimeout(giftToastTimerRef.current);
+    };
+  }, [user?.id, broadcastMyInventory, showGiftToast]);
 
   // Re-share giftable + equipped wearables when closet / shop purchases change.
   useEffect(() => {
@@ -425,7 +558,10 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     <div
       className="relative w-full h-full overflow-hidden rounded-lg flex flex-col select-none cursor-default"
       style={{ backgroundColor: "#FDF6E3" }}
-      onClick={() => setSelectedPlayerId(null)}
+      onClick={() => {
+        setSelectedPlayerId(null);
+        setShowMyItems(false);
+      }}
     >
       <style>{`
         @keyframes walk {
@@ -464,6 +600,28 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       {begSentToast && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-amber-900/85 text-white text-xs font-bold shadow-lg">
           🥺 {begSentToast}
+        </div>
+      )}
+
+      {giftReceivedToast && (
+        <div
+          className="absolute top-20 left-1/2 -translate-x-1/2 z-[70] w-[min(320px,calc(100%-24px))] rounded-2xl border border-pink-200 bg-white shadow-2xl overflow-hidden animate-pop-in"
+          style={{ transform: "translateX(-50%)" }}
+        >
+          <div className="bg-gradient-to-r from-pink-50 to-rose-50 px-4 py-3 border-b border-pink-100">
+            <p className="text-sm font-bold text-pink-700">🎁 선물 도착!</p>
+            <p className="text-[12px] text-pink-900/85 mt-1 leading-snug">{giftReceivedToast.text}</p>
+            {giftReceivedToast.note && (
+              <p className="text-[11px] text-pink-700/70 mt-1 italic">&ldquo;{giftReceivedToast.note}&rdquo;</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="w-full py-2 text-xs font-bold text-pink-700 hover:bg-pink-50"
+            onClick={() => setGiftReceivedToast(null)}
+          >
+            확인
+          </button>
         </div>
       )}
 
@@ -552,16 +710,29 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         ))}
 
         <div
-          className="absolute transition-all duration-150 ease-out"
+          className="absolute transition-all duration-150 ease-out cursor-pointer group"
           style={{
             left: `${(myPos.x / 800) * 100}%`,
             top: `${(myPos.y / 450) * 100}%`,
             transform: "translate(-50%, -100%)",
-            zIndex: 20,
+            zIndex: showMyItems ? 50 : 20,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            void openMyItems();
           }}
         >
+          {showMyItems && (
+            <div
+              className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-white/95 border border-amber-200 rounded-lg shadow text-[10px] font-bold text-amber-800 whitespace-nowrap animate-pop-in"
+              onClick={(e) => e.stopPropagation()}
+            >
+              내 아이템 보는 중
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/95 border-b border-r border-amber-200 rotate-45" />
+            </div>
+          )}
           <div
-            className={myPos.isMoving ? "walking" : ""}
+            className={`${myPos.isMoving ? "walking" : ""} transition-transform group-hover:scale-110`}
             style={{ transform: myPos.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}
           >
             <AvatarWithCompanions
@@ -574,7 +745,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             />
           </div>
           <div className="bg-amber-900/80 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full text-center mt-1 shadow border border-amber-300">
-            {user?.nickname || "나"}
+            {user?.nickname || "나"} · 내 아이템
           </div>
         </div>
       </div>
@@ -701,7 +872,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           recipientId={giftReply.recipientId}
           recipientNickname={giftReply.recipientNickname}
           initialItemId={giftReply.itemId || null}
-          onSuccess={() => {
+          onSuccess={(info: GiftSuccessInfo) => {
             if (channelRef.current) {
               void channelRef.current.send({
                 type: "broadcast",
@@ -709,13 +880,101 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                 payload: {
                   recipientId: giftReply.recipientId,
                   fromUserId: user.id,
-                },
+                  fromNickname: user.nickname,
+                  kind: info.kind,
+                  itemLabel: info.itemLabel,
+                  amount: info.amount,
+                  note: info.note,
+                  message:
+                    info.kind === "clover" && info.amount
+                      ? `${user.nickname}님이 ${info.amount} 클로버를 선물했어요 🍀`
+                      : info.itemLabel
+                        ? `${user.nickname}님이 ${info.itemLabel}을(를) 선물했어요 🎁`
+                        : `${user.nickname}님이 선물을 보냈어요 🎁`,
+                } satisfies GiftReceivedBroadcast,
               });
             }
             void broadcastMyInventory();
           }}
           onClose={() => setGiftReply(null)}
         />
+      )}
+
+      {showMyItems && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-3"
+          style={{ background: "rgba(48,35,20,0.42)" }}
+          onClick={() => setShowMyItems(false)}
+        >
+          <div
+            className="rounded-2xl p-3 flex flex-col gap-2 overflow-hidden w-full"
+            style={{
+              maxWidth: 330,
+              maxHeight: "min(520px, calc(100vh - 24px))",
+              background: "linear-gradient(160deg,#fffdf6,#fff6e8)",
+              border: "2px solid rgba(220,160,60,0.32)",
+              boxShadow: "0 16px 48px rgba(70,45,20,0.22)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between flex-shrink-0">
+              <div>
+                <p className="text-[10px] font-bold text-amber-600 tracking-wide">MY ITEMS</p>
+                <p className="text-sm font-black text-amber-950">내 아이템</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMyItems(false)}
+                className="w-7 h-7 rounded-full text-amber-800/70 bg-amber-100/80 text-sm font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-800/70 flex-shrink-0">
+              월드에서 선물하거나 조르기 받을 수 있는 아이템이에요.
+            </p>
+            <div className="flex-1 overflow-y-auto no-scrollbar grid grid-cols-3 gap-2 content-start min-h-0">
+              {myItemsLoading ? (
+                <p className="col-span-3 text-center text-xs text-amber-700/60 py-8">불러오는 중...</p>
+              ) : myItems.length === 0 ? (
+                <p className="col-span-3 text-center text-xs text-amber-700/60 py-8">
+                  아직 선물 가능한 아이템이 없어요
+                </p>
+              ) : (
+                myItems.map((item) => {
+                  const src = getShopItemImage(item);
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-amber-200/80 bg-white/80 p-2 flex flex-col items-center gap-1"
+                    >
+                      <div
+                        className="w-12 h-12 rounded-lg flex items-center justify-center"
+                        style={{ background: `${item.color}22` }}
+                      >
+                        {src ? (
+                          <img
+                            src={src}
+                            alt={item.label}
+                            width={40}
+                            height={40}
+                            style={{ objectFit: "contain", imageRendering: "pixelated" }}
+                          />
+                        ) : (
+                          <span className="text-2xl">{item.preview}</span>
+                        )}
+                      </div>
+                      <p className="text-[10px] font-bold text-amber-950 text-center leading-tight line-clamp-2">
+                        {item.label}
+                      </p>
+                      <p className="text-[9px] text-amber-700/60">{item.category}</p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
