@@ -480,39 +480,68 @@ function peekLocalInventory(userId: string): InventoryEntry[] | null {
   return readJson<InventoryEntry[] | null>(key, null);
 }
 
+/** Map 내 아이템(HandMade) → World/조르기용 카탈로그 셰이프 (실제 전송은 unified-gifts). */
+function handMadeToGiftableCatalog(item: {
+  id: string;
+  label: string;
+  type: string;
+  cat: string;
+  color: string;
+  icon?: string;
+  templateId?: string;
+}): ShopCatalogItem {
+  const kind =
+    item.type === "emoticon" ? "emoticon" : item.type === "room" ? "interior" : "avatar";
+  return {
+    id: item.id,
+    label: item.label,
+    kind,
+    category: item.cat || "아이템",
+    color: item.color || "#c090a0",
+    preview: item.icon || (kind === "emoticon" ? "😊" : kind === "interior" ? "🪑" : "👕"),
+    price: 0,
+    contentId: item.templateId || item.id,
+    giftable: true,
+  };
+}
+
 /**
- * Load another player's giftable "내 아이템" list.
- * Prefers remote commerce inventory; falls back to existing local rows only (never seeds).
+ * Load another player's giftable "내 아이템" list from user_inventory / local HandMade.
  * Returns null when peer inventory is not available on this client.
  */
 export async function loadPeerGiftableItems(userId: string): Promise<ShopCatalogItem[] | null> {
+  const { getGiftableInventoryItems } = await import("./unified-gifts");
+  const { syncBuyerInventoryFromServer } = await import("./shop-sync");
+  const { fetchUserInventory } = await import("./user-sync");
+
   if (isSupabaseConfigured() && !userId.startsWith("demo-")) {
-    const remote = await loadRemoteSnapshot(userId);
+    const remote = await fetchUserInventory(userId);
     if (remote) {
-      return getAvailableInventoryItems({
-        balance: 0,
-        inventory: remote.inventory,
-        listings: remote.listings,
-        remote: true,
-      }).filter((item) => item.giftable);
+      // Apply peer row into a temporary read via ids already on this device if same browser;
+      // otherwise map remote items directly (no local seed).
+      return remote.items
+        .filter((item) => item?.id)
+        .map((item) => handMadeToGiftableCatalog(item))
+        .filter((item) => item.giftable);
     }
   }
 
-  const inventory = peekLocalInventory(userId);
-  if (!inventory) return null;
-  const listings = loadAllLocalListings().filter((listing) => listing.sellerId === userId);
-  return getAvailableInventoryItems({
-    balance: 0,
-    inventory,
-    listings,
-    remote: false,
-  }).filter((item) => item.giftable);
+  // Same-browser fallback (demo / local-only peers).
+  try {
+    await syncBuyerInventoryFromServer(userId);
+  } catch {
+    /* ignore */
+  }
+  const local = getGiftableInventoryItems(userId);
+  if (!local.length && !peekLocalInventory(userId)) return null;
+  return local.map(handMadeToGiftableCatalog);
 }
 
 /** Own giftable inventory (for World broadcast of "내 아이템"). */
 export async function loadOwnGiftableItems(userId: string): Promise<ShopCatalogItem[]> {
-  const snapshot = await loadCommerceSnapshot(userId);
-  return getAvailableInventoryItems(snapshot).filter((item) => item.giftable);
+  const { getGiftableInventoryItems, loadUnifiedGiftSnapshot } = await import("./unified-gifts");
+  await loadUnifiedGiftSnapshot(userId);
+  return getGiftableInventoryItems(userId).map(handMadeToGiftableCatalog);
 }
 
 export type GiftBegPayload = {
@@ -535,10 +564,13 @@ export async function sendGiftBegRequest(args: {
   fromNickname: string;
   toUserId: string;
   itemId: string;
+  itemLabel?: string;
   message?: string;
 }): Promise<CommerceResult & { beg?: GiftBegPayload }> {
-  const item = getShopCatalogItem(args.itemId);
-  if (!item?.giftable) return { ok: false, error: "조를 수 없는 아이템이에요." };
+  const catalog = getShopCatalogItem(args.itemId);
+  const itemLabel = (args.itemLabel || catalog?.label || "").trim();
+  if (!itemLabel) return { ok: false, error: "조를 수 없는 아이템이에요." };
+  if (catalog && catalog.giftable === false) return { ok: false, error: "조를 수 없는 아이템이에요." };
   if (args.fromUserId === args.toUserId) return { ok: false, error: "나에게는 조를 수 없어요." };
 
   const beg: GiftBegPayload = {
@@ -547,7 +579,7 @@ export async function sendGiftBegRequest(args: {
     fromNickname: args.fromNickname,
     toUserId: args.toUserId,
     itemId: args.itemId,
-    itemLabel: item.label,
+    itemLabel,
     message: args.message?.trim() || undefined,
     createdAt: new Date().toISOString(),
   };
@@ -561,7 +593,7 @@ export async function sendGiftBegRequest(args: {
     if (!error) {
       const payload = data as { ok?: boolean; error?: string };
       if (payload?.ok) {
-        return { ok: true, message: `${item.label} 조르기를 보냈어요.`, beg };
+        return { ok: true, message: `${itemLabel} 조르기를 보냈어요.`, beg };
       }
       if (payload?.error && !String(payload.error).toLowerCase().includes("does not exist")) {
         return { ok: false, error: payload.error };
@@ -579,12 +611,12 @@ export async function sendGiftBegRequest(args: {
     type: "gift_beg",
     actorId: args.fromUserId,
     actorNickname: args.fromNickname,
-    message: `${args.fromNickname}님이 ${item.label}을(를) 조르고 있어요 🥺`,
+    message: `${args.fromNickname}님이 ${itemLabel}을(를) 조르고 있어요 🥺`,
     content: args.message?.trim() || undefined,
     itemId: args.itemId,
     createdAt: beg.createdAt,
     id: beg.id,
   });
 
-  return { ok: true, message: `${item.label} 조르기를 보냈어요.`, beg };
+  return { ok: true, message: `${itemLabel} 조르기를 보냈어요.`, beg };
 }

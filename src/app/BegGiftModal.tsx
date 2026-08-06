@@ -72,6 +72,7 @@ export default function BegGiftModal({
       fromNickname: user.nickname,
       toUserId: targetId,
       itemId: selectedItemId,
+      itemLabel: items.find((entry) => entry.id === selectedItemId)?.label,
       message,
     });
     setBusy(false);

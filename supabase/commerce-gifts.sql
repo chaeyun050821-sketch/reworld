@@ -1,3 +1,3 @@
 -- 이 파일의 구형 user_wallets/수량형 인벤토리 선물 스키마는 더 이상 사용하지 않습니다.
--- 현재 앱은 user_inventory.items/coins를 단일 데이터로 사용합니다.
--- 선물 기능은 같은 폴더의 unified-gifts.sql을 Supabase SQL Editor에서 실행해 주세요.
+-- 현재 앱은 user_inventory.items/coins 를 단일 데이터로 사용합니다.
+-- 선물 기능은 supabase/gift-transfer.sql 을 Supabase SQL Editor에서 실행해 주세요.

@@ -13,7 +13,7 @@ import {
   type GiftBegPayload,
 } from "../lib/commerce";
 import { fetchUserInventory } from "../lib/user-sync";
-import { getShopCatalogItem, type ShopCatalogItem } from "./shop-catalog";
+import { type ShopCatalogItem } from "./shop-catalog";
 import BegGiftModal from "./BegGiftModal";
 import GiftModal from "./GiftModal";
 
@@ -256,14 +256,25 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       }) => {
         if (!payload?.userId || payload.userId === user.id) return;
         const items = (payload.items ?? [])
-          .map((entry) => getShopCatalogItem(entry.id) ?? entry)
-          .filter((item): item is ShopCatalogItem => Boolean(item?.giftable !== false && item?.id));
+          .filter((item): item is ShopCatalogItem => Boolean(item?.giftable !== false && item?.id && item?.label));
         setPeerInventories((prev) => ({ ...prev, [payload.userId]: items }));
         if (payload.wearItems?.length) {
           applyPeerWearItems(payload.userId, payload.wearItems);
         }
         setBegItemsLoading(false);
       }
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "gift_received" },
+      ({ payload }: { payload: { recipientId?: string; fromUserId?: string } }) => {
+        if (!payload?.recipientId || payload.recipientId !== user.id) return;
+        void import("../lib/unified-gifts").then(({ pullGiftedInventory }) =>
+          pullGiftedInventory(user.id),
+        );
+        void broadcastMyInventory(channel);
+      },
     );
 
     channel.on(
@@ -690,6 +701,19 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           recipientId={giftReply.recipientId}
           recipientNickname={giftReply.recipientNickname}
           initialItemId={giftReply.itemId || null}
+          onSuccess={() => {
+            if (channelRef.current) {
+              void channelRef.current.send({
+                type: "broadcast",
+                event: "gift_received",
+                payload: {
+                  recipientId: giftReply.recipientId,
+                  fromUserId: user.id,
+                },
+              });
+            }
+            void broadcastMyInventory();
+          }}
           onClose={() => setGiftReply(null)}
         />
       )}
