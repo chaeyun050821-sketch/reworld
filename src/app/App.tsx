@@ -14636,7 +14636,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             fontFamily: FONT_UI,
             fontSize: "0.5rem",
             fontWeight: activeTab === "world" ? 700 : 500,
-            color: activeTab === "world" ? "#fff" : "rgba(80,30,60,0.75)",
+            color: "#fff",
             letterSpacing: "0.05em",
             userSelect: "none",
           }}>
