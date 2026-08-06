@@ -934,30 +934,17 @@
                 return;
             }
 
-            let imageBase64 = null;
-            let refineFromSketch = false;
-            let loadingLabel = '✨ 요청대로 도트 그림을 수정 중입니다...';
-            const existingSvg = svgOutput.querySelector('svg');
-            if (existingSvg) {
-                try {
-                    imageBase64 = await captureSvgBase64(existingSvg);
-                } catch (error) {
-                    alert(error instanceof Error ? error.message : '그림을 불러오지 못했어요.');
-                    return;
-                }
-            } else if (selectedSticker) {
-                imageBase64 = captureImageElementBase64(selectedSticker);
-            } else {
-                if (isCanvasBlank()) {
-                    alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
-                    return;
-                }
-                imageBase64 = captureCanvasBase64();
-                refineFromSketch = true;
-                loadingLabel = '✨ 캔버스 그림을 픽셀화하고 요청을 반영 중입니다...';
+            // 수정하기: 도트 SVG가 아니라 원본 캔버스(#output_canvas) 획을 전송
+            if (isCanvasBlank()) {
+                alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
+                return;
             }
+            const imageBase64 = captureCanvasBase64();
+            const refineFromSketch = true;
+            const loadingLabel = '✨ 원본 그림을 기준으로 수정 중입니다...';
 
             isProcessingAI = true;
+            const existingSvg = svgOutput.querySelector('svg');
             let svgMarkup = lastDotSvgMarkup;
             if (!svgMarkup && existingSvg) {
                 svgMarkup = new XMLSerializer().serializeToString(existingSvg);
@@ -966,7 +953,7 @@
                 <div style="text-align: center; width: 100%;">
                     <p style="color: #a3729c; font-size: 17px; font-weight: bold;">${loadingLabel}</p>
                     <div class="loading-container"><div class="loading-bar"></div></div>
-                    <p style="color: #a89bc0; font-size: 14px;">(유료 Gemini · 도트 변환 결과 기준 · 보통 5~15초)</p>
+                    <p style="color: #a89bc0; font-size: 14px;">(유료 Gemini · 원본 스케치 기준 · 보통 5~15초)</p>
                 </div>
             `;
 
@@ -1003,7 +990,7 @@
                 if (beforeKey === afterKey) {
                     const note = document.createElement('p');
                     note.style.cssText = 'color:#c48b3a;line-height:1.6;margin-top:12px;font-size:13px;';
-                    note.textContent = '⚠️ 결과가 이전과 같아요. 요청을 더 구체적으로 적어보거나, 도트 변환을 다시 한 뒤 수정해 주세요.';
+                    note.textContent = '⚠️ 결과가 이전과 같아요. 요청을 더 구체적으로 적어보거나, 원본 그림을 조금 고친 뒤 다시 수정해 주세요.';
                     svgOutput.appendChild(note);
                 }
             } catch (error) {

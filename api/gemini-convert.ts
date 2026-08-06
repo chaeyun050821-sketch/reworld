@@ -18,6 +18,7 @@ export default async function handler(req: Request) {
     
     const svg = await convertDrawingWithGemini({
       imageBase64: body.imageBase64 || "",
+      svgMarkup: body.svgMarkup || "",
       customPrompt: body.customPrompt || "",
       isCustomRefine: body.isCustomRefine || false,
       refineFromSketch: body.refineFromSketch || false,

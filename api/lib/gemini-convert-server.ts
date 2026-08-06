@@ -714,23 +714,25 @@ function needsGeminiRefine(_userText: string, localOps: RefineOp[]): boolean {
   return false;
 }
 
-function buildCreativeRefinePrompt(userText: string, viewBox?: { w: number; h: number } | null): string {
-  const w = Math.max(32, Math.round(viewBox?.w ?? 160));
-  const h = Math.max(32, Math.round(viewBox?.h ?? 120));
-  return (
-    "당신은 픽셀 아트 색/스타일 편집자입니다. 첨부 이미지는 사용자가 도트 변환으로 만든 결과물입니다.\n"
-    + "아래 수정 요청을 반영한 도트 SVG를 만드세요.\n\n"
-    + "반드시 지킬 것:\n"
-    + "- 첨부 그림이 무엇인지(별·하트·캐릭터 등) 파악하고 같은 대상으로 남기세요.\n"
-    + "- 실루엣·비율·방향·위치를 유지하세요. 큰 사각형 덩어리/통짜 fill로 다시 그리지 마세요.\n"
-    + "- 색·그라데이션·빛남·테두리 요청이면 기존 픽셀 위치를 기준으로 색만 바꾸세요.\n"
-    + "- 빈 배경을 채우거나 도형을 뭉툭한 방울/얼룩으로 바꾸지 마세요.\n"
-    + `- 중요: viewBox는 반드시 "0 0 ${w} ${h}" 로 고정. 1×1에 가까운 작은 <rect> 픽셀을 유지하세요.\n`
-    + `- ${w}×${h} 격자 밀도를 유지하고, 48×48 이하로 줄이거나 width/height≥4인 큰 블록으로 뭉개지 마세요.\n`
-    + "- width/height='100%', 배경 투명, 정수 좌표 <rect>만 사용. path/circle/gradient 태그 금지.\n"
-    + "- 설명 없이 <svg>…</svg>만 출력하세요.\n\n"
-    + `[수정 요청]: ${userText}`
-  );
+/** 수정하기 기본 프롬프트: 원본 스케치 → 레트로 8비트 픽셀 SVG */
+const REFINE_SKETCH_BASE_PROMPT =
+  "첨부된 이미지는 사용자가 직접 그린 스케치입니다. "
+  + "원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, "
+  + "전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. "
+  + "선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 "
+  + "투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. "
+  + "완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. "
+  + "응답에는 어떠한 설명이나 마크다운 기호도 쓰지 말고, "
+  + "오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. "
+  + "크기는 width='100%' height='100%'로 설정해주세요. "
+  + "배경을 하얀색이나 특정 색으로 채우지 마세요. "
+  + "배경은 반드시 투명(Transparent)하게 처리하세요. "
+  + "SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
+
+function buildCreativeRefinePrompt(userText: string, _viewBox?: { w: number; h: number } | null): string {
+  const custom = userText.trim();
+  if (!custom) return REFINE_SKETCH_BASE_PROMPT;
+  return REFINE_SKETCH_BASE_PROMPT + `\n\n[사용자 수정 요청]: ${custom}`;
 }
 
 /**
@@ -872,9 +874,12 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
   const svgMarkup = payload.svgMarkup?.trim() ?? "";
   const imageBase64 = payload.imageBase64?.trim() ?? "";
 
-  // 수정하기: 단순 ops는 로컬(형태 보존), 그 외는 Gemini + 실루엣 락
+  // 수정하기: 원본 스케치 이미지 + 레트로 8비트 프롬프트(+사용자 요청). 도트 SVG 실루엣 락은 스케치 refine에서 끔.
   if (payload.isCustomRefine && userText) {
-    if (svgMarkup.includes("<svg")) {
+    const fromSketch = Boolean(payload.refineFromSketch);
+
+    // 스케치 refine이 아닐 때만(레거시) 단순 ops 로컬 처리
+    if (!fromSketch && svgMarkup.includes("<svg")) {
       const localOps = detectLocalOps(userText);
       if (!needsGeminiRefine(userText, localOps) && localOps.length > 0) {
         try {
@@ -887,7 +892,11 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
     }
 
     if (!imageBase64) {
-      throw new Error("AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.");
+      throw new Error(
+        fromSketch
+          ? "AI 수정을 위해 원본 그림이 필요해요. 캔버스에 그림을 그려 주세요."
+          : "AI 수정을 위해 도트 그림이 필요해요. 먼저 ✨ 도트 변환을 해 주세요.",
+      );
     }
 
     const sourceVb = svgMarkup.includes("<svg") ? parseViewBox(svgMarkup) : null;
@@ -931,7 +940,8 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
         }
       }
 
-      if (svgMarkup.includes("<svg")) {
+      // 원본 스케치 refine: AI 결과를 로컬 도트 SVG 마스크에 강제 매핑하지 않음
+      if (!fromSketch && svgMarkup.includes("<svg")) {
         refined = finalizeRefineSvg(svgMarkup, refined, userText);
       }
       return refined;
