@@ -52,12 +52,12 @@ export function ensureDemoMarketplaceListings() {
   const seeds: MarketplaceListing[] = [
     { id: "demo-listing-1", sellerId: "demo-starlight", sellerNickname: "별빛소녀", itemId: "avatar-ribbon", price: 140, listedAt: "2026-08-01T09:00:00.000Z" },
     { id: "demo-listing-2", sellerId: "demo-starlight", sellerNickname: "별빛소녀", itemId: "emoticon-party", price: 100, listedAt: "2026-08-01T08:00:00.000Z" },
-    { id: "demo-listing-3", sellerId: "demo-starlight", sellerNickname: "별빛소녀", itemId: "interior-moon-light", price: 310, listedAt: "2026-08-01T07:00:00.000Z" },
-    { id: "demo-listing-4", sellerId: "demo-sky", sellerNickname: "하늘이", itemId: "avatar-sailor", price: 330, listedAt: "2026-08-02T09:00:00.000Z" },
+    { id: "demo-listing-3", sellerId: "demo-starlight", sellerNickname: "별빛소녀", itemId: "interior-moon-light", price: 140, listedAt: "2026-08-01T07:00:00.000Z" },
+    { id: "demo-listing-4", sellerId: "demo-sky", sellerNickname: "하늘이", itemId: "avatar-sailor", price: 120, listedAt: "2026-08-02T09:00:00.000Z" },
     { id: "demo-listing-5", sellerId: "demo-sky", sellerNickname: "하늘이", itemId: "emoticon-cry", price: 80, listedAt: "2026-08-02T08:00:00.000Z" },
-    { id: "demo-listing-6", sellerId: "demo-mint", sellerNickname: "민트초코", itemId: "interior-monstera", price: 190, listedAt: "2026-08-03T09:00:00.000Z" },
+    { id: "demo-listing-6", sellerId: "demo-mint", sellerNickname: "민트초코", itemId: "interior-monstera", price: 100, listedAt: "2026-08-03T09:00:00.000Z" },
     { id: "demo-listing-7", sellerId: "demo-mint", sellerNickname: "민트초코", itemId: "emoticon-best", price: 90, listedAt: "2026-08-03T08:00:00.000Z" },
-    { id: "demo-listing-8", sellerId: "demo-cream", sellerNickname: "크림몽", itemId: "interior-teddy", price: 230, listedAt: "2026-08-04T09:00:00.000Z" },
+    { id: "demo-listing-8", sellerId: "demo-cream", sellerNickname: "크림몽", itemId: "interior-teddy", price: 110, listedAt: "2026-08-04T09:00:00.000Z" },
   ];
   saveAllLocalListings([...seeds, ...current]);
 }

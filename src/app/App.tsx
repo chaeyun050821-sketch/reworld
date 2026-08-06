@@ -9,7 +9,6 @@ import {
 } from "../lib/photo-decorations";
 import AuthPage from "./AuthPage";
 import NicknameSetupPage from "./NicknameSetupPage";
-import MarketplacePage from "./MarketplacePage";
 import GiftModal from "./GiftModal";
 import { FONT_KR, FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import { bootstrapAuth, signOut, updateUserNickname, type User } from "../lib/auth";
@@ -173,6 +172,8 @@ import {
   getDecorLayer,
   getMyListingsWithItems,
   GLOBAL_SHOP_LISTINGS,
+  GLOBAL_SHOP_PRICE_MAX,
+  GLOBAL_SHOP_PRICE_MIN,
   inventoryItemTypeLabel,
   isDecorItem,
   shouldShowDecorOnAvatar,
@@ -188,7 +189,9 @@ import {
   hasPurchasedShopListing,
   ensureDevPreownedOfficialShopItems,
   mergePublicShopListings,
+  markCreatedMyItemsResetComplete,
   normalizeItemPlacement,
+  resetCreatedMyItemsForMigration,
   resolveHandMadeItemImageUrl,
   reorderEquippedDecorLayer,
   resolveDecorPlacement,
@@ -1024,7 +1027,9 @@ const DEFAULT_DIARY_PROFILE: DiaryProfile = {
   bgmTitle: DEFAULT_BGM_TITLE,
 };
 
-const AVATAR_ITEM_CATEGORIES = ["전체", "내 아이템", "헤어", "얼굴", "의상", "악세사리", "기타"] as const;
+const AVATAR_ITEM_COLLECTIONS = ["전체", "기본아이템", "내 아이템"] as const;
+const AVATAR_ITEM_CATEGORIES = ["전체", "헤어", "얼굴", "의상", "악세사리", "기타"] as const;
+type AvatarItemCollection = typeof AVATAR_ITEM_COLLECTIONS[number];
 type AvatarItemCategory = typeof AVATAR_ITEM_CATEGORIES[number];
 
 type MiniRoomPickerTab = RoomCategoryId | "my-items";
@@ -5814,7 +5819,14 @@ function AvatarPixelCanvas({
 
 function PixelItemIcon({ id, color, size = 30 }: { id: string; color: string; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" style={{ imageRendering: "pixelated" }}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      shapeRendering="crispEdges"
+      aria-hidden
+      style={{ imageRendering: "pixelated", filter: "drop-shadow(1px 2px 0 rgba(65,45,75,0.16))" }}
+    >
       {id === "hair-basic" && (
         <>
           <rect x="5" y="3" width="10" height="2" fill="#5a3a28" />
@@ -6605,7 +6617,7 @@ function ItemCreatorLeftPage({
   const previewHeight = avatarPreviewHeightForWidth(previewWidth);
   const framePad = Math.max(6, Math.round(previewWidth * 0.095));
   const equippedItems = useMemo(
-    () => getEquippedCompanions(creatorAvatar.equipped, loadMyInventory(userId), { showUnplacedPurchased: true }),
+    () => getEquippedCompanions(creatorAvatar.equipped, loadAvatarCreatorItems(userId)),
     [creatorAvatar.equipped, userId, inventoryRevision],
   );
   const { back: backEquippedItems, front: frontEquippedItems } = splitDecorItemsByLayer(equippedItems);
@@ -6836,7 +6848,7 @@ function ItemCreatorRightPage({
           <div className="h-full flex flex-col items-center justify-center gap-2 py-8">
             <span style={{ fontSize: 28 }}>✋</span>
             <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "rgba(247,239,217,0.72)", lineHeight: 1.5, textAlign: "center" }}>
-              아직 보유한 아이템이 없어요.<br />상점에서 구매하거나 하단 「직접 만들기」로 만들어 보세요!
+              아직 보유한 아이템이 없어요.<br />상점에서 구매하거나 하단에서 직접 만들어 보세요!
             </p>
           </div>
         ) : (
@@ -6844,7 +6856,6 @@ function ItemCreatorRightPage({
             {myAvatarItems.map((item) => {
               const selected = selectedCreatorItemId === item.id;
               const equipped = creatorEquippedItemIds?.has(item.id);
-              const needsPlacement = item.source === "purchased" && !item.avatarPlaced;
               return (
                 <div key={item.id} className="relative">
                   <button
@@ -6860,12 +6871,6 @@ function ItemCreatorRightPage({
                     <span style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#f7efd9", fontWeight: 600, lineHeight: 1.2, textAlign: "center", padding: "0 4px" }}>
                       {item.label}
                     </span>
-                    {item.source === "purchased" && (
-                      <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.26rem", color: "#d8c49b" }}>구매</span>
-                    )}
-                    {needsPlacement && !equipped && (
-                      <span style={{ fontFamily: FONT_UI, fontSize: "0.3rem", color: "rgba(247,239,217,0.72)", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>탭해서 배치</span>
-                    )}
                     {equipped && (
                       <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.26rem", color: "#b08a4a" }}>착용</span>
                     )}
@@ -6927,6 +6932,7 @@ function ProfileAvatarPage({
 }) {
   const [draft, setDraft] = useState<AvatarProfile>(avatar);
   const [showPixelEditor, setShowPixelEditor] = useState(false);
+  const [activeCollection, setActiveCollection] = useState<AvatarItemCollection>("전체");
   const [activeCategory, setActiveCategory] = useState<AvatarItemCategory>("전체");
   const [saved, setSaved] = useState(false);
   const [myInventory, setMyInventory] = useState<HandMadeItem[]>(() => loadMyInventory(userId));
@@ -6940,13 +6946,20 @@ function ProfileAvatarPage({
   }, [userId, inventoryRevision]);
 
   const equipped = new Set(draft.equipped);
-  const catalogItems = activeCategory === "전체"
-    ? AVATAR_ITEMS
-    : activeCategory === "내 아이템"
-      ? []
-      : AVATAR_ITEMS.filter(item => item.cat === activeCategory);
   const avatarInventoryItems = myInventory.filter(item => canEquipOnAvatar(item));
-  const studioInventoryItems = avatarInventoryItems.filter(item => canEquipFromAvatarStudio(item));
+  const catalogPool = activeCollection === "내 아이템" ? [] : AVATAR_ITEMS;
+  const inventoryPool = activeCollection === "기본아이템"
+    ? []
+    : activeCollection === "내 아이템"
+      ? avatarInventoryItems
+      : avatarInventoryItems;
+  const catalogItems = activeCategory === "전체"
+    ? catalogPool
+    : catalogPool.filter(item => item.cat === activeCategory);
+  const visibleInventoryItems = (activeCategory === "전체"
+    ? inventoryPool
+    : inventoryPool.filter(item => item.cat === activeCategory));
+  const studioInventoryItems = visibleInventoryItems.filter(item => canEquipFromAvatarStudio(item));
   const allItems = [...AVATAR_ITEMS, ...avatarInventoryItems.map(item => ({
     id: item.id,
     cat: item.cat,
@@ -6954,9 +6967,7 @@ function ProfileAvatarPage({
     label: item.label,
     color: item.color,
   }))];
-  const visibleEquipIds = activeCategory === "내 아이템"
-    ? studioInventoryItems.map(item => item.id)
-    : catalogItems.map(item => item.id);
+  const visibleEquipIds = [...catalogItems.map(item => item.id), ...studioInventoryItems.map(item => item.id)];
 
   const openItemCreator = () => {
     onOpenItemCreator();
@@ -6992,7 +7003,7 @@ function ProfileAvatarPage({
       equipped: activeCategory === "헤어"
         ? [
             ...prev.equipped.filter(id => !allItems.some(item => item.cat === "헤어" && item.id === id)),
-            ...(catalogItems[0] ? [catalogItems[0].id] : []),
+            ...(visibleEquipIds[0] ? [visibleEquipIds[0]] : []),
           ]
         : Array.from(new Set([...prev.equipped, ...visibleEquipIds])),
     }));
@@ -7034,14 +7045,17 @@ function ProfileAvatarPage({
             className="flex items-center gap-1 overflow-x-auto flex-1 min-w-0"
             style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}
           >
-            {AVATAR_ITEM_CATEGORIES.map(category => {
-              const active = activeCategory === category;
-              const isMyItems = category === "내 아이템";
+            {AVATAR_ITEM_COLLECTIONS.map(collection => {
+              const active = activeCollection === collection;
+              const isMyItems = collection === "내 아이템";
               return (
                 <button
-                  key={category}
+                  key={collection}
                   type="button"
-                  onClick={() => setActiveCategory(category)}
+                  onClick={() => {
+                    setActiveCollection(collection);
+                    setActiveCategory("전체");
+                  }}
                   className="rounded-full flex-shrink-0"
                   style={{
                     height: 22,
@@ -7060,7 +7074,7 @@ function ProfileAvatarPage({
                     boxShadow: active ? (isMyItems ? "0 1px 6px rgba(124,58,237,0.3)" : ACCENT_BTN_SHADOW) : "none",
                   }}
                 >
-                  {category}
+                  {collection}
                 </button>
               );
             })}
@@ -7071,18 +7085,72 @@ function ProfileAvatarPage({
           </div>
         </div>
 
+        <div
+          className="flex items-center gap-1 overflow-x-auto flex-shrink-0"
+          style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}
+        >
+          {AVATAR_ITEM_CATEGORIES.map(category => {
+            const active = activeCategory === category;
+            return (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setActiveCategory(category)}
+                className="rounded-full flex-shrink-0"
+                style={{
+                  height: 20,
+                  padding: "0 7px",
+                  fontFamily: FONT_UI,
+                  fontSize: "0.4rem",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  background: active ? "rgba(124,58,237,0.14)" : "rgba(255,255,255,0.58)",
+                  color: active ? "#6a4090" : "#8c7898",
+                  border: active ? "1px solid rgba(124,58,237,0.28)" : "1px solid rgba(139,154,114,0.12)",
+                }}
+              >
+                {category}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-          {activeCategory === "내 아이템" ? (
-            avatarInventoryItems.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center gap-1 opacity-60 py-6">
-                <span style={{ fontSize: 24 }}>✋</span>
-                <p style={{ fontFamily: FONT_UI, fontSize: "0.5rem", color: "#9070b0", textAlign: "center" }}>
-                  아직 보유한 아이템이 없어요<br />상점에서 구매하거나 핸드트래킹으로 만들어 보세요
-                </p>
-              </div>
-            ) : (
-              <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-                {avatarInventoryItems.map((item, i) => {
+          {catalogItems.length === 0 && visibleInventoryItems.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-1 opacity-60 py-6">
+              <span style={{ fontSize: 24 }}>✋</span>
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.5rem", color: "#9070b0", textAlign: "center", lineHeight: 1.45 }}>
+                {activeCollection === "내 아이템"
+                  ? <>이 분류에 만든 아이템이 없어요<br />아이템 생성하기에서 분류와 함께 저장해 보세요</>
+                  : "이 분류에 아이템이 없어요"}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+              {catalogItems.map((item, i) => {
+                const on = equipped.has(item.id);
+                return (
+                  <motion.button
+                    key={item.id}
+                    type="button"
+                    onClick={() => toggle(item.id)}
+                    className="flex flex-col items-center gap-0.5 rounded-xl py-2"
+                    style={{ background: on ? "linear-gradient(135deg, " + item.color + "44, " + item.color + "22)" : "rgba(255,255,255,0.72)", border: on ? "1.5px solid " + item.color : "1px solid rgba(139,154,114,0.14)", boxShadow: on ? "0 2px 8px " + item.color + "44" : "0 2px 7px rgba(80,60,100,0.05)", transition: "all 0.15s" }}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.025 }}
+                    whileTap={{ scale: 0.93 }}
+                  >
+                    <div className="flex items-center justify-center rounded-lg" style={{ width: 42, height: 42, background: "linear-gradient(145deg,#fff,#f4efff)", border: "1px solid rgba(124,58,237,0.1)", boxShadow: "inset 0 -2px 0 rgba(124,58,237,0.05)" }}>
+                      <PixelItemIcon id={item.id} color={item.color} size={36} />
+                    </div>
+                    <span style={{ fontFamily: FONT_UI, fontSize: "0.42rem", color: on ? "#6040a0" : "#9060b0", fontWeight: 700 }}>{item.label}</span>
+                    <span style={{ fontFamily: FONT_UI, fontSize: "0.3rem", color: "#a090b0" }}>기본 제공</span>
+                    {on && <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#b08a4a" }}>ON</span>}
+                  </motion.button>
+                );
+              })}
+              {visibleInventoryItems.map((item, i) => {
                   const canEquip = canEquipFromAvatarStudio(item);
                   const on = equipped.has(item.id);
                   const needsCreatorPlacement = item.source === "purchased" && !item.avatarPlaced;
@@ -7102,14 +7170,18 @@ function ProfileAvatarPage({
                       }}
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.04 }}
+                      transition={{ delay: (catalogItems.length + i) * 0.025 }}
                       whileTap={canEquip ? { scale: 0.93 } : undefined}
                     >
-                      <HandMadeItemPreview item={item} size={30} />
+                      <div className="flex items-center justify-center rounded-lg" style={{ width: 42, height: 42, background: "linear-gradient(145deg,#fff,#f4efff)", border: "1px solid rgba(124,58,237,0.1)" }}>
+                        <HandMadeItemPreview item={item} size={36} />
+                      </div>
                       <span style={{ fontFamily: FONT_UI, fontSize: "0.42rem", color: on ? "#6040a0" : "#9060b0", fontWeight: 600 }}>{item.label}</span>
                       <span style={{ fontFamily: FONT_UI, fontSize: "0.34rem", color: "#9070b0" }}>{inventoryItemTypeLabel(item)}</span>
-                      {item.source === "purchased" && (
+                      {item.source === "purchased" ? (
                         <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.26rem", color: "#8a6334" }}>구매</span>
+                      ) : (
+                        <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.26rem", color: "#7c3aed" }}>MY</span>
                       )}
                       {needsCreatorPlacement && (
                         <span style={{ fontFamily: FONT_UI, fontSize: "0.3rem", color: "#9070b0", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>생성기에서 배치</span>
@@ -7117,30 +7189,6 @@ function ProfileAvatarPage({
                       {on && <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#b08a4a" }}>ON</span>}
                     </motion.button>
                   );
-                })}
-              </div>
-            )
-          ) : (
-            <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-              {catalogItems.map((item, i) => {
-                const on = equipped.has(item.id);
-                return (
-                  <motion.button
-                    key={item.id}
-                    type="button"
-                    onClick={() => toggle(item.id)}
-                    className="flex flex-col items-center gap-0.5 rounded-xl py-2"
-                    style={{ background: on ? "linear-gradient(135deg, " + item.color + "44, " + item.color + "22)" : "rgba(255,255,255,0.65)", border: on ? "1.5px solid " + item.color : "1px solid rgba(139,154,114,0.12)", boxShadow: on ? "0 2px 8px " + item.color + "44" : "none", transition: "all 0.15s" }}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    whileTap={{ scale: 0.93 }}
-                  >
-                    <PixelItemIcon id={item.id} color={item.color} />
-                    <span style={{ fontFamily: FONT_UI, fontSize: "0.42rem", color: on ? "#6040a0" : "#9060b0", fontWeight: 600 }}>{item.label}</span>
-                    {on && <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#b08a4a" }}>ON</span>}
-                  </motion.button>
-                );
               })}
             </div>
           )}
@@ -8516,10 +8564,12 @@ function MiniRoomPage({
   userId,
   miniroomData,
   setMiniroomData,
+  inventoryRevision = 0,
 }: {
   userId: string;
   miniroomData: MiniroomData;
   setMiniroomData: Dispatch<SetStateAction<MiniroomData>>;
+  inventoryRevision?: number;
 }) {
   const selections = miniroomData.selections;
   const [activeCategory, setActiveCategory] = useState<MiniRoomPickerTab>("sofa");
@@ -8530,7 +8580,7 @@ function MiniRoomPage({
 
   useEffect(() => {
     setInventoryRoomItems(loadMyInventory(userId));
-  }, [userId]);
+  }, [userId, inventoryRevision]);
 
   const inventoryById = useMemo(
     () => new Map(inventoryRoomItems.map(item => [item.id, item])),
@@ -13127,6 +13177,12 @@ function ShopPage({
   const [expandMine, setExpandMine] = useState(false);
   const [expandGlobal, setExpandGlobal] = useState(false);
   const [globalShopQuery, setGlobalShopQuery] = useState("");
+  const [friends, setFriends] = useState<StoredFriend[]>([]);
+  const [friendShopQuery, setFriendShopQuery] = useState("");
+  const [showFriendResults, setShowFriendResults] = useState(false);
+  const [friendShopOwner, setFriendShopOwner] = useState<StoredFriend | null>(null);
+  const [friendShopListings, setFriendShopListings] = useState<ShopListingWithItem[]>([]);
+  const [friendShopLoading, setFriendShopLoading] = useState(false);
   const [coins, setCoins] = useState(() => loadCoins(user.id));
   const [ownedIds, setOwnedIds] = useState<Set<string>>(() => {
     const owned = loadOwnedListingIds(user.id);
@@ -13163,13 +13219,27 @@ function ShopPage({
     () => filterShopListingsByQuery(GLOBAL_SHOP_LISTINGS, globalShopQuery),
     [globalShopQuery],
   );
-  const hasMoreMine = unlistedItems.length + activeListings.length > PREVIEW_LIMIT;
   const hasMoreGlobal = filteredGlobalListings.length > PREVIEW_LIMIT;
   const isGlobalShopSearching = globalShopQuery.trim().length > 0;
+  const friendShopMatches = useMemo(() => {
+    const query = friendShopQuery.normalize("NFC").trim().toLowerCase();
+    if (!query) return [];
+    return friends
+      .filter(friend => friend.nickname.normalize("NFC").toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [friendShopQuery, friends]);
 
   const showToast = (message: string) => setToast(message);
 
   useEffect(() => subscribeCloverRewards(user.id, () => setCoins(getCloverBalance(user.id))), [user.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadFriends(user.id).then(next => {
+      if (!cancelled) setFriends(next);
+    });
+    return () => { cancelled = true; };
+  }, [user.id]);
 
   const refreshPublicListings = async () => {
     const next = await fetchActiveShopListings();
@@ -13199,6 +13269,38 @@ function ShopPage({
       setOwnedIds(loadOwnedListingIds(user.id));
     });
   }, [user.id, inventoryRevision]);
+
+  const openFriendShop = async (friend: StoredFriend) => {
+    setFriendShopOwner(friend);
+    setFriendShopQuery("");
+    setShowFriendResults(false);
+    setFriendShopListings([]);
+    setFriendShopLoading(true);
+    setExpandMine(false);
+    setExpandGlobal(false);
+    const catalog = await fetchFriendShopCatalog(friend.friendUserId, friend.nickname);
+    setFriendShopListings(catalog.listed);
+    setFriendShopLoading(false);
+  };
+
+  const handleFriendShopSearch = () => {
+    const normalized = friendShopQuery.normalize("NFC").trim().toLowerCase();
+    if (!normalized) {
+      showToast("친구 닉네임을 입력해 주세요");
+      return;
+    }
+    const exact = friends.find(friend => friend.nickname.normalize("NFC").toLowerCase() === normalized);
+    if (exact) {
+      void openFriendShop(exact);
+      return;
+    }
+    if (friendShopMatches.length === 1) {
+      void openFriendShop(friendShopMatches[0]);
+      return;
+    }
+    setShowFriendResults(true);
+    if (friendShopMatches.length === 0) showToast("검색되는 친구가 없어요");
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -13231,13 +13333,13 @@ function ShopPage({
 
   const handleListItem = async (item: HandMadeItem) => {
     if (!canListInMyShop(item)) {
-      showToast("구매한 아이템은 판매할 수 없어요");
+      showToast("픽셀 이미지로 만든 내 아이템만 판매할 수 있어요");
       return;
     }
     const raw = priceDrafts[item.id] ?? "";
     const price = Number(raw);
-    if (!Number.isFinite(price) || price <= 0) {
-      showToast("가격을 올바르게 입력해 주세요");
+    if (!Number.isFinite(price) || price < GLOBAL_SHOP_PRICE_MIN || price > GLOBAL_SHOP_PRICE_MAX) {
+      showToast(`가격은 ${GLOBAL_SHOP_PRICE_MIN}~${GLOBAL_SHOP_PRICE_MAX} 클로버로 입력해 주세요`);
       return;
     }
     const listing = {
@@ -13369,8 +13471,9 @@ function ShopPage({
       <div className="flex items-center gap-1 flex-shrink-0">
         <input
           type="number"
-          min={1}
-          placeholder="가격"
+          min={GLOBAL_SHOP_PRICE_MIN}
+          max={GLOBAL_SHOP_PRICE_MAX}
+          placeholder={`${GLOBAL_SHOP_PRICE_MIN}~${GLOBAL_SHOP_PRICE_MAX}`}
           value={priceDrafts[item.id] ?? ""}
           onChange={e => setPriceDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}
           className="rounded-lg outline-none text-center"
@@ -13558,38 +13661,38 @@ function ShopPage({
   };
 
   const renderMyShopContent = (compact: boolean, limit?: number) => {
-    if (shopSourceItems.length === 0) {
+    if (compact && activeListings.length === 0) {
       return (
         <div className="h-full flex flex-col items-center justify-center gap-1 opacity-60">
-          <span style={{ fontSize: compact ? 20 : 28 }}>✋</span>
-          <p style={{ fontFamily: FONT_UI, fontSize: compact ? "0.44rem" : "0.55rem", color: "#b07080", textAlign: "center" }}>
-            {compact ? "아이템이 없어요" : <>아직 등록할 아이템이 없어요<br />아바타 탭에서 핸드트래킹으로 만들어 보세요</>}
+          <span style={{ fontSize: 20 }}>🏷️</span>
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.44rem", color: "#b07080", textAlign: "center", lineHeight: 1.45 }}>
+            판매 중인 아이템이 없어요<br />등록하기에서 만든 아이템을 골라 보세요
           </p>
         </div>
       );
     }
 
-    const previewUnlisted = limit !== undefined ? unlistedItems.slice(0, limit) : unlistedItems;
-    const remaining = limit !== undefined ? Math.max(0, limit - previewUnlisted.length) : activeListings.length;
-    const previewListings = limit !== undefined ? activeListings.slice(0, remaining) : activeListings;
+    if (compact) {
+      const previewListings = limit !== undefined ? activeListings.slice(0, limit) : activeListings;
+      return <div className="flex flex-col gap-1.5">{previewListings.map(listing => renderListingItem(listing, true))}</div>;
+    }
 
     return (
       <div className="flex flex-col gap-1.5">
-        {previewUnlisted.length > 0 && (
+        <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.3rem", color: "#ff6080" }}>판매할 아이템 선택</span>
+        {unlistedItems.length > 0 ? (
           <>
-            {!compact && <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.3rem", color: "#ff6080" }}>등록 대기</span>}
-            {previewUnlisted.map(item => renderUnlistedItem(item, compact))}
+            {unlistedItems.map(item => renderUnlistedItem(item, false))}
           </>
+        ) : (
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#c090a0", textAlign: "center", padding: "10px 0" }}>
+            등록 가능한 만든 아이템이 없어요<br />아바타의 아이템 생성하기에서 먼저 만들어 보세요
+          </p>
         )}
-        {(previewListings.length > 0 || (!compact && activeListings.length > 0)) && (
+        {activeListings.length > 0 && (
           <>
-            {!compact && <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.3rem", color: "#ff6080" }}>판매 중</span>}
-            {(compact ? previewListings : activeListings).map(listing => renderListingItem(listing, compact))}
-            {!compact && activeListings.length === 0 && (
-              <p style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#c090a0", textAlign: "center", padding: "8px 0" }}>
-                판매 중인 아이템이 없어요
-              </p>
-            )}
+            <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.3rem", color: "#ff6080", marginTop: 6 }}>판매 중</span>
+            {activeListings.map(listing => renderListingItem(listing, false))}
           </>
         )}
       </div>
@@ -13644,22 +13747,24 @@ function ShopPage({
     }
 
     if (limit !== undefined) {
+      const officialPreview = filteredOfficialListings.slice(0, limit);
+      const playerPreview = filteredPlayerShopListings.slice(0, Math.max(0, limit - officialPreview.length));
       return (
         <div className="flex flex-col gap-1.5">
-          {filteredOfficialListings.length > 0 && (
+          {officialPreview.length > 0 && (
             <>
               <p style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, color: "#7c3aed" }}>
                 Re:world 공식 상점
               </p>
-              {filteredOfficialListings.map(listing => renderGlobalItem(listing, compact))}
+              {officialPreview.map(listing => renderGlobalItem(listing, compact))}
             </>
           )}
-          {filteredPlayerShopListings.length > 0 && (
+          {playerPreview.length > 0 && (
             <>
               <p style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, color: "#ff6080", marginTop: filteredOfficialListings.length > 0 ? 4 : 0 }}>
                 유저 상점
               </p>
-              {filteredPlayerShopListings.slice(0, limit).map(listing => renderPlayerListing(listing, compact))}
+              {playerPreview.map(listing => renderPlayerListing(listing, compact))}
             </>
           )}
         </div>
@@ -13698,6 +13803,109 @@ function ShopPage({
     );
   };
 
+  const renderFriendShopSearch = () => (
+    <div className="relative px-3 py-2 flex-shrink-0" style={{ borderBottom: "1px solid rgba(124,58,237,0.12)", background: "rgba(255,255,255,0.32)", zIndex: 30 }}>
+      {friendShopOwner ? (
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setFriendShopOwner(null);
+              setFriendShopListings([]);
+              setFriendShopQuery("");
+              setShowFriendResults(false);
+            }}
+            className="px-2.5 py-1 rounded-full flex-shrink-0"
+            style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 800, color: "#7c3aed", background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.2)" }}
+          >
+            ← 내 상점으로
+          </button>
+          <p className="min-w-0" style={{ fontFamily: FONT_UI, fontSize: "0.54rem", fontWeight: 900, color: "#4a3060", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {friendShopOwner.nickname}의 친구 상점
+          </p>
+        </div>
+      ) : (
+        <div className="flex gap-1">
+          <input
+            type="search"
+            value={friendShopQuery}
+            onChange={event => {
+              setFriendShopQuery(event.target.value);
+              setShowFriendResults(event.target.value.trim().length > 0);
+            }}
+            onKeyDown={event => {
+              if (event.key === "Enter") handleFriendShopSearch();
+              if (event.key === "Escape") setShowFriendResults(false);
+            }}
+            onFocus={() => {
+              if (friendShopQuery.trim()) setShowFriendResults(true);
+            }}
+            placeholder="친구 닉네임으로 상점 검색"
+            className="flex-1 min-w-0 rounded-xl outline-none"
+            style={{ padding: "6px 10px", fontFamily: FONT_UI, fontSize: "0.48rem", color: "#4a3060", background: "rgba(255,255,255,0.92)", border: "1.5px solid rgba(124,58,237,0.2)" }}
+          />
+          <button
+            type="button"
+            onClick={handleFriendShopSearch}
+            className="px-3 rounded-xl text-white flex-shrink-0"
+            style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 800, background: "linear-gradient(135deg,#7c3aed,#9b6dff)" }}
+          >
+            검색
+          </button>
+        </div>
+      )}
+
+      {!friendShopOwner && showFriendResults && friendShopQuery.trim() && (
+        <div
+          className="absolute left-3 right-3 top-full mt-1 rounded-xl overflow-hidden"
+          style={{ background: "#fffdfb", border: "1px solid rgba(124,58,237,0.2)", boxShadow: "0 8px 20px rgba(74,48,96,0.16)" }}
+        >
+          {friendShopMatches.length === 0 ? (
+            <p className="px-3 py-3 text-center" style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "#9070b0" }}>
+              검색되는 친구가 없어요
+            </p>
+          ) : friendShopMatches.map(friend => (
+            <button
+              key={friend.friendUserId}
+              type="button"
+              onClick={() => void openFriendShop(friend)}
+              className="w-full px-3 py-2 flex items-center justify-between text-left"
+              style={{ borderBottom: "1px solid rgba(124,58,237,0.08)" }}
+            >
+              <span style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 800, color: "#4a3060" }}>{friend.nickname}</span>
+              <span style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#7c3aed" }}>상점 보기 →</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderFriendShop = () => (
+    <div className="flex-1 min-h-0 overflow-y-auto p-3" style={{ background: "linear-gradient(180deg, rgba(244,240,255,0.45), transparent)" }}>
+      {friendShopLoading ? (
+        <div className="h-full flex items-center justify-center">
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.5rem", color: "#9070b0" }}>친구 상점을 불러오는 중...</p>
+        </div>
+      ) : friendShopListings.length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center gap-2 opacity-65">
+          <span style={{ fontSize: 28 }}>🏪</span>
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.52rem", color: "#9070b0", textAlign: "center", lineHeight: 1.5 }}>
+            {friendShopOwner?.nickname}님이<br />판매 중인 아이템이 없어요
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.34rem", color: "#7c3aed" }}>FRIEND SHOP</p>
+            <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#9070b0" }}>판매 상품 {friendShopListings.length}개</p>
+          </div>
+          {friendShopListings.map(listing => renderPlayerListing(listing, false))}
+        </div>
+      )}
+    </div>
+  );
+
   const expandButtonStyle: CSSProperties = {
     width: 22,
     height: 22,
@@ -13729,6 +13937,9 @@ function ShopPage({
         </div>
       </div>
 
+      {renderFriendShopSearch()}
+
+      {friendShopOwner ? renderFriendShop() : (
       <div className="flex-1 flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
         {/* 내 상점 — 상단 50% */}
         <div
@@ -13745,10 +13956,11 @@ function ShopPage({
             <button
               type="button"
               onClick={() => setExpandMine(true)}
-              style={{ ...expandButtonStyle, background: "linear-gradient(135deg, #ff6080, #ff80a0)", opacity: hasMoreMine || shopSourceItems.length > 0 ? 1 : 0.45 }}
-              aria-label="내 상점 더보기"
+              className="px-2.5"
+              style={{ ...expandButtonStyle, width: "auto", fontSize: "0.42rem", background: "linear-gradient(135deg, #ff6080, #ff80a0)" }}
+              aria-label="내 상점에 아이템 등록하기"
             >
-              ＋
+              등록하기
             </button>
           </div>
           <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
@@ -13782,6 +13994,7 @@ function ShopPage({
           </div>
         </div>
       </div>
+      )}
 
       <AnimatePresence>
         {expandMine && (
@@ -13793,7 +14006,7 @@ function ShopPage({
             exit={{ opacity: 0, y: -12 }}
           >
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <span style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 800, color: "#ff6080" }}>내 상점</span>
+              <span style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 800, color: "#ff6080" }}>내 상점 · 등록하기</span>
               <button
                 type="button"
                 onClick={() => setExpandMine(false)}
@@ -13804,7 +14017,7 @@ function ShopPage({
               </button>
             </div>
             <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "#b07080", marginBottom: 8, flexShrink: 0 }}>
-              핸드트래킹으로 만든 아이템을 가격을 정해 판매해 보세요
+              내가 만든 픽셀 아이템을 골라 {GLOBAL_SHOP_PRICE_MIN}~{GLOBAL_SHOP_PRICE_MAX} 클로버로 판매해 보세요
             </p>
             <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
               {renderMyShopContent(false)}
@@ -13953,7 +14166,15 @@ function RightPage({
       />
     );
   }
-  if (activeTab === "shop") return <MarketplacePage user={user} />;
+  if (activeTab === "shop") {
+    return (
+      <ShopPage
+        user={user}
+        inventoryRevision={inventoryRevision}
+        onPurchaseComplete={onShopPurchase}
+      />
+    );
+  }
   if (activeTab === "board") {
     return <BoardExpandPage user={user} onBack={() => onNavigateTab("home")} />;
   }
@@ -13992,7 +14213,7 @@ function RightPage({
       />
     );
   }
-  if (activeTab === "miniroom") return <MiniRoomPage userId={user.id} miniroomData={miniroomData} setMiniroomData={setMiniroomData} />;
+  if (activeTab === "miniroom") return <MiniRoomPage userId={user.id} miniroomData={miniroomData} setMiniroomData={setMiniroomData} inventoryRevision={inventoryRevision} />;
   //if (activeTab === "world") return <WorldPage user={user} myAvatar={avatar} />;
   return null;
 }
@@ -14045,12 +14266,23 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   const [inventoryRevision, setInventoryRevision] = useState(0);
   const [creatorDirty, setCreatorDirty] = useState(false);
 
+  useEffect(() => {
+    const handleInventoryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId && detail.userId !== user.id) return;
+      setInventoryRevision(revision => revision + 1);
+      setCreatorInventoryTick(revision => revision + 1);
+    };
+    window.addEventListener("reworld-inventory-changed", handleInventoryChanged);
+    return () => window.removeEventListener("reworld-inventory-changed", handleInventoryChanged);
+  }, [user.id]);
+
   const myAvatarItemsForPreview = useMemo(
     () => loadAvatarCreatorItems(user.id),
     [user.id, showItemCreator, creatorInventoryTick],
   );
   const selectedCreatorItem = myAvatarItemsForPreview.find((item) => item.id === selectedCreatorItemId)
-    ?? (selectedCreatorItemId ? loadMyInventory(user.id).find(item => item.id === selectedCreatorItemId) ?? null : null);
+    ?? (selectedCreatorItemId ? loadAvatarCreatorItems(user.id).find(item => item.id === selectedCreatorItemId) ?? null : null);
 
   const handleOpenItemCreator = () => {
     const saved = loadAvatarProfile(user.id);
@@ -14093,7 +14325,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorOverlayEditing(true);
     setCreatorDirty(true);
     const creatorPreviewHeight = avatarPreviewHeightForWidth(ITEM_CREATOR_AVATAR_WIDTH);
-    const existing = loadMyInventory(user.id).find(entry => entry.id === itemId);
+    const existing = loadAvatarCreatorItems(user.id).find(entry => entry.id === itemId);
     if (existing && !existing.placement?.referenceWidth) {
       updateHandMadeItem(user.id, itemId, {
         placement: withPlacementReference(
@@ -14125,7 +14357,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   const handleCreatorPlacementChange = (placement: HandMadeItemPlacement) => {
     if (!selectedCreatorItemId) return;
     const creatorPreviewHeight = avatarPreviewHeightForWidth(ITEM_CREATOR_AVATAR_WIDTH);
-    const existing = loadMyInventory(user.id).find(entry => entry.id === selectedCreatorItemId);
+    const existing = loadAvatarCreatorItems(user.id).find(entry => entry.id === selectedCreatorItemId);
     updateHandMadeItem(user.id, selectedCreatorItemId, {
       placement: withPlacementReference(
         normalizeItemPlacement({
@@ -14142,7 +14374,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   };
 
   const handleSetDecorLayer = (itemId: string, layer: "front" | "back") => {
-    const existing = loadMyInventory(user.id).find(entry => entry.id === itemId);
+    const existing = loadAvatarCreatorItems(user.id).find(entry => entry.id === itemId);
     if (!existing) return;
     const creatorPreviewHeight = avatarPreviewHeightForWidth(ITEM_CREATOR_AVATAR_WIDTH);
     updateHandMadeItem(user.id, itemId, {
@@ -14286,6 +14518,22 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
+      const reset = resetCreatedMyItemsForMigration(user.id);
+      if (reset.required) {
+        const removedIds = new Set(reset.removedItemIds);
+        const stripRemoved = (profile: AvatarProfile): AvatarProfile => ({
+          ...profile,
+          equipped: profile.equipped.filter(id => !removedIds.has(id)),
+        });
+        setAvatar(prev => stripRemoved(prev));
+        setCreatorAvatar(prev => stripRemoved(prev));
+        const savedAvatar = loadAvatarProfile(user.id);
+        if (savedAvatar) saveAvatarProfile(user.id, stripRemoved(savedAvatar));
+        markCreatedMyItemsResetComplete(user.id);
+        setSelectedCreatorItemId(null);
+        setCreatorInventoryTick(tick => tick + 1);
+        setInventoryRevision(revision => revision + 1);
+      }
       setRemoteReady(true);
       return;
     }
@@ -14300,6 +14548,18 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
       const tableCheck = await checkUserDataTables();
       if (cancelled) return;
       if (!tableCheck.ok) {
+        const reset = resetCreatedMyItemsForMigration(user.id);
+        if (reset.required) {
+          const removedIds = new Set(reset.removedItemIds);
+          setAvatar(prev => ({ ...prev, equipped: prev.equipped.filter(id => !removedIds.has(id)) }));
+          const savedAvatar = loadAvatarProfile(user.id);
+          if (savedAvatar) {
+            saveAvatarProfile(user.id, { ...savedAvatar, equipped: savedAvatar.equipped.filter(id => !removedIds.has(id)) });
+          }
+          markCreatedMyItemsResetComplete(user.id);
+          setCreatorInventoryTick(tick => tick + 1);
+          setInventoryRevision(revision => revision + 1);
+        }
         setSyncError(tableCheck.error);
         setRemoteReady(true);
         return;
@@ -14342,7 +14602,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             item => !remoteInventory.items.some(remoteItem => remoteItem.id === item.id),
           )
         ) {
-          void upsertUserInventory(user.id, {
+          await upsertUserInventory(user.id, {
             ...getInventorySnapshot(user.id),
             cloverRewards: undefined,
           });
@@ -14350,7 +14610,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
       } else if (localInventory.items.length > 0 || localInventory.coins !== DEFAULT_SHOP_COINS) {
         ensureDevPreownedOfficialShopItems(user.id);
         await hydrateCloverFromServer(user.id, null);
-        void upsertUserInventory(user.id, getInventorySnapshot(user.id));
+        await upsertUserInventory(user.id, getInventorySnapshot(user.id));
       } else {
         await hydrateCloverFromServer(user.id, null);
         if (ensureDevPreownedOfficialShopItems(user.id)) {
@@ -14358,13 +14618,55 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         }
       }
 
-      if (remoteAvatar) {
-        setAvatar(storedToAvatarProfile(remoteAvatar) ?? DEFAULT_AVATAR_PROFILE);
-        saveAvatarProfile(user.id, remoteAvatar);
-      } else if (localAvatar) {
-        const uploaded = await upsertUserAvatar(user.id, localAvatar);
-        if (!uploaded.ok && !cancelled) setSyncError(uploaded.error);
+      const reset = resetCreatedMyItemsForMigration(user.id);
+      const resetRemovedIds = new Set(reset.removedItemIds);
+      let resetSyncOk = true;
+      if (reset.required) {
+        const listingResults = await Promise.all(
+          reset.removedItemIds.map(itemId => removeShopListingsForItem(user.id, itemId)),
+        );
+        const listingError = listingResults.find(result => !result.ok);
+        if (listingError && !listingError.ok) {
+          resetSyncOk = false;
+          setSyncError(listingError.error);
+        }
+        const inventoryResult = await upsertUserInventory(user.id, getInventorySnapshot(user.id));
+        if (!inventoryResult.ok) {
+          resetSyncOk = false;
+          setSyncError(inventoryResult.error);
+        }
+        setSelectedCreatorItemId(null);
+        setCreatorInventoryTick(tick => tick + 1);
+        setInventoryRevision(revision => revision + 1);
       }
+
+      if (remoteAvatar) {
+        const cleanedRemoteAvatar = reset.required
+          ? { ...remoteAvatar, equipped: remoteAvatar.equipped.filter(id => !resetRemovedIds.has(id)) }
+          : remoteAvatar;
+        setAvatar(storedToAvatarProfile(cleanedRemoteAvatar) ?? DEFAULT_AVATAR_PROFILE);
+        saveAvatarProfile(user.id, cleanedRemoteAvatar);
+        if (reset.required) {
+          const avatarResult = await upsertUserAvatar(user.id, cleanedRemoteAvatar);
+          if (!avatarResult.ok) {
+            resetSyncOk = false;
+            setSyncError(avatarResult.error);
+          }
+        }
+      } else if (localAvatar) {
+        const cleanedLocalAvatar = reset.required
+          ? { ...localAvatar, equipped: localAvatar.equipped.filter(id => !resetRemovedIds.has(id)) }
+          : localAvatar;
+        if (reset.required) {
+          setAvatar(storedToAvatarProfile(cleanedLocalAvatar) ?? DEFAULT_AVATAR_PROFILE);
+          saveAvatarProfile(user.id, cleanedLocalAvatar);
+        }
+        const uploaded = await upsertUserAvatar(user.id, cleanedLocalAvatar);
+        if (!uploaded.ok && !cancelled) setSyncError(uploaded.error);
+        if (!uploaded.ok && reset.required) resetSyncOk = false;
+      }
+
+      if (reset.required && resetSyncOk) markCreatedMyItemsResetComplete(user.id);
 
       const mergedRoom = mergeMiniroomData(localRoom, remoteRoom);
       setMiniroomData(mergedRoom);

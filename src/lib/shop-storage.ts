@@ -4,8 +4,6 @@ import {
   measureImageContentBounds,
   type HandMadeItemContentBounds,
 } from "./image-content-bounds";
-import heartBalloonImg from "../assets/shop-heart-balloon.png";
-import miniroomCatImg from "../assets/miniroom-cat.png";
 import pinkDressImg from "../assets/shop-pink-dress.png";
 import brownPigtailHairImg from "../assets/shop-brown-pigtail-hair.png";
 import brownLongHairImg from "../assets/shop-brown-long-hair.png";
@@ -159,6 +157,8 @@ export type HandMadeItem = {
   cat: string;
   color: string;
   source?: HandMadeItemSource;
+  /** Marketplace artwork style. User-created sellable items are always pixel art. */
+  artStyle?: "pixel";
   templateId?: string;
   icon?: string;
   roomCategory?: RoomCategoryId;
@@ -353,93 +353,50 @@ export type ShopListingWithItem = ShopListing & { item: HandMadeItem };
 
 const HANDMADE_KEY_PREFIX = "reworld_handmade_";
 const LISTINGS_KEY_PREFIX = "reworld_shop_listings_";
+const MY_ITEMS_RESET_KEY_PREFIX = "reworld_my_items_reset_v1_";
+
+const officialShopAsset = (file: string) => `${import.meta.env.BASE_URL}assets/shop/${file}`;
+
+function officialListing(
+  id: string,
+  item: Omit<HandMadeItem, "id" | "createdAt" | "artStyle"> & { imageDataUrl: string },
+  price: number,
+  listedAt: string,
+): ShopListingWithItem {
+  const itemId = `shop-item-${id}`;
+  return {
+    id: `global-listing-${id}`,
+    itemId,
+    sellerId: "reworld-shop",
+    sellerNickname: "Re:world",
+    price,
+    listedAt,
+    item: {
+      ...item,
+      id: itemId,
+      artStyle: "pixel",
+      createdAt: listedAt,
+    },
+  };
+}
 
 export const GLOBAL_SHOP_LISTINGS: ShopListingWithItem[] = [
-  {
-    id: "global-listing-calico-cat",
-    itemId: "shop-item-calico-cat",
-    sellerId: "reworld-shop",
-    sellerNickname: "Re:world",
-    price: 10,
-    listedAt: "2026-07-23",
-    item: {
-      id: "shop-item-calico-cat",
-      type: "companion",
-      label: "삼색 고양이",
-      cat: "컴패니언",
-      color: "#f0a868",
-      imageDataUrl: miniroomCatImg,
-      createdAt: "2026-07-23",
-    },
-  },
-  {
-    id: "global-listing-heart-balloon",
-    itemId: "shop-item-heart-balloon",
-    sellerId: "reworld-shop",
-    sellerNickname: "Re:world",
-    price: 5,
-    listedAt: "2026-07-24",
-    item: {
-      id: "shop-item-heart-balloon",
-      type: "companion",
-      label: "하트 풍선",
-      cat: "컴패니언",
-      color: "#e85888",
-      imageDataUrl: heartBalloonImg,
-      createdAt: "2026-07-24",
-    },
-  },
-  {
-    id: "global-listing-pink-dress",
-    itemId: "shop-item-pink-dress",
-    sellerId: "reworld-shop",
-    sellerNickname: "Re:world",
-    price: 40,
-    listedAt: "2026-07-27",
-    item: {
-      id: "shop-item-pink-dress",
-      type: "avatar",
-      label: "핑크 리본 원피스",
-      cat: "의상",
-      color: "#f080b0",
-      imageDataUrl: pinkDressImg,
-      createdAt: "2026-07-27",
-    },
-  },
-  {
-    id: "global-listing-brown-pigtail-hair",
-    itemId: "shop-item-brown-pigtail-hair",
-    sellerId: "reworld-shop",
-    sellerNickname: "Re:world",
-    price: 30,
-    listedAt: "2026-07-27",
-    item: {
-      id: "shop-item-brown-pigtail-hair",
-      type: "avatar",
-      label: "갈색 양갈래 머리",
-      cat: "헤어",
-      color: "#8a5a3a",
-      imageDataUrl: brownPigtailHairImg,
-      createdAt: "2026-07-27",
-    },
-  },
-  {
-    id: "global-listing-brown-long-hair",
-    itemId: "shop-item-brown-long-hair",
-    sellerId: "reworld-shop",
-    sellerNickname: "Re:world",
-    price: 30,
-    listedAt: "2026-07-27",
-    item: {
-      id: "shop-item-brown-long-hair",
-      type: "avatar",
-      label: "갈색 긴생머리",
-      cat: "헤어",
-      color: "#7a4a2a",
-      imageDataUrl: brownLongHairImg,
-      createdAt: "2026-07-27",
-    },
-  },
+  officialListing("calico-cat", { type: "room", label: "삼색 고양이", cat: "소품", color: "#f0a868", roomCategory: "left-prop", imageDataUrl: officialShopAsset("tricolor-cat.png") }, 130, "2026-07-23"),
+  officialListing("heart-balloon", { type: "room", label: "하트 풍선", cat: "소품", color: "#e85888", roomCategory: "right-prop", imageDataUrl: officialShopAsset("heart-balloon.png") }, 80, "2026-07-24"),
+  officialListing("pink-dress", { type: "avatar", label: "핑크 리본 원피스", cat: "의상", color: "#f080b0", imageDataUrl: pinkDressImg }, 120, "2026-07-27"),
+  officialListing("brown-pigtail-hair", { type: "avatar", label: "갈색 양갈래 머리", cat: "헤어", color: "#8a5a3a", imageDataUrl: brownPigtailHairImg }, 95, "2026-07-27"),
+  officialListing("brown-long-hair", { type: "avatar", label: "갈색 긴생머리", cat: "헤어", color: "#7a4a2a", imageDataUrl: brownLongHairImg }, 105, "2026-07-27"),
+  officialListing("mushroom-lamp", { type: "room", label: "버섯 조명", cat: "소품", color: "#ff8068", roomCategory: "right-prop", imageDataUrl: officialShopAsset("mushroom-lamp.png") }, 90, "2026-08-01"),
+  officialListing("record-player", { type: "room", label: "빈티지 턴테이블", cat: "소품", color: "#b08050", roomCategory: "left-prop", imageDataUrl: officialShopAsset("record-player.png") }, 125, "2026-08-01"),
+  officialListing("aquarium", { type: "room", label: "미니 어항", cat: "소품", color: "#5bc0d8", roomCategory: "left-prop", imageDataUrl: officialShopAsset("aquarium.png") }, 150, "2026-08-01"),
+  officialListing("pink-hoodie", { type: "avatar", label: "핑크 후드티", cat: "의상", color: "#e58aa8", imageDataUrl: officialShopAsset("pink-hoodie.png") }, 105, "2026-08-01"),
+  officialListing("sailor-outfit", { type: "avatar", label: "세일러복", cat: "의상", color: "#6f8fb8", imageDataUrl: officialShopAsset("sailor-outfit.png") }, 120, "2026-08-01"),
+  officialListing("ivory-cardigan", { type: "avatar", label: "아이보리 가디건", cat: "의상", color: "#ead8b5", imageDataUrl: officialShopAsset("ivory-cardigan.png") }, 110, "2026-08-01"),
+  officialListing("denim-overalls", { type: "avatar", label: "데님 멜빵", cat: "의상", color: "#6f8fb8", imageDataUrl: officialShopAsset("denim-overalls.png") }, 115, "2026-08-01"),
+  officialListing("emoticon-laugh", { type: "emoticon", label: "빵터짐", cat: "감정", color: "#ffe060", imageDataUrl: officialShopAsset("emoticon-laugh.png") }, 70, "2026-08-01"),
+  officialListing("emoticon-cry", { type: "emoticon", label: "주르륵", cat: "감정", color: "#80c8ff", imageDataUrl: officialShopAsset("emoticon-cry.png") }, 70, "2026-08-01"),
+  officialListing("emoticon-angry", { type: "emoticon", label: "부글부글", cat: "감정", color: "#ff8068", imageDataUrl: officialShopAsset("emoticon-angry.png") }, 75, "2026-08-01"),
+  officialListing("emoticon-shock", { type: "emoticon", label: "깜짝", cat: "감정", color: "#c8a0ff", imageDataUrl: officialShopAsset("emoticon-shock.png") }, 75, "2026-08-01"),
 ];
 
 const FRIEND_SHOP_SEED: Record<string, ShopListingWithItem[]> = {
@@ -588,10 +545,11 @@ function normalizeInventoryItem(item: HandMadeItem): HandMadeItem {
       color: catalogItem.color,
       imageDataUrl: catalogItem.imageDataUrl,
       source: item.source ?? "purchased",
-      roomCategory: undefined,
+      roomCategory: catalogItem.roomCategory,
+      artStyle: "pixel",
     };
-  } else if (!item.source && item.id.startsWith("custom-")) {
-    normalized = { ...item, source: "handmade" };
+  } else if ((!item.source || !item.artStyle) && item.id.startsWith("custom-")) {
+    normalized = { ...item, source: item.source ?? "handmade", artStyle: "pixel" };
   } else {
     normalized = item;
   }
@@ -616,7 +574,7 @@ export function loadHandMadeItems(userId: string): HandMadeItem[] {
     const normalized = parsed.map(normalizeInventoryItem);
     const needsPersist = parsed.some((item, index) => {
       const next = normalized[index];
-      return item.imageDataUrl !== next.imageDataUrl || item.source !== next.source;
+      return item.imageDataUrl !== next.imageDataUrl || item.source !== next.source || item.artStyle !== next.artStyle;
     });
     if (needsPersist) {
       saveHandMadeItems(userId, normalized);
@@ -632,6 +590,8 @@ const COINS_KEY_PREFIX = "reworld_shop_coins_";
 const COINS_UPDATED_AT_PREFIX = "reworld_shop_coins_updated_at_";
 
 export const DEFAULT_SHOP_COINS = 500;
+export const GLOBAL_SHOP_PRICE_MIN = 70;
+export const GLOBAL_SHOP_PRICE_MAX = 150;
 
 export function loadCoins(userId: string): number {
   try {
@@ -712,12 +672,8 @@ export function hasPurchasedShopListing(
   });
 }
 
-/** Official listings granted free in local/dev so you can test without buying. Production users must purchase. */
-export const DEV_PREOWNED_GLOBAL_LISTING_IDS = [
-  "global-listing-pink-dress",
-  "global-listing-brown-pigtail-hair",
-  "global-listing-brown-long-hair",
-] as const;
+/** Kept for storage compatibility; official items now start in the global shop for every environment. */
+export const DEV_PREOWNED_GLOBAL_LISTING_IDS = [] as const;
 
 /** Grant an official shop listing copy to this user (inventory + owned flag). Returns true if newly granted. */
 export function grantOfficialShopListing(userId: string, listingId: string): boolean {
@@ -740,14 +696,10 @@ export function grantOfficialShopListing(userId: string, listingId: string): boo
   return true;
 }
 
-/** Local/dev only: give tester accounts free copies of selected official items. */
+/** No-op retained for callers from older app builds. */
 export function ensureDevPreownedOfficialShopItems(userId: string): boolean {
-  if (!import.meta.env.DEV) return false;
-  let changed = false;
-  for (const listingId of DEV_PREOWNED_GLOBAL_LISTING_IDS) {
-    if (grantOfficialShopListing(userId, listingId)) changed = true;
-  }
-  return changed;
+  void userId;
+  return false;
 }
 
 /** Re-add global shop purchases that were owned but missing from inventory. */
@@ -790,7 +742,7 @@ export function loadMyInventory(userId: string): HandMadeItem[] {
 }
 
 export function canListInMyShop(item: HandMadeItem): boolean {
-  return item.source !== "purchased";
+  return item.source !== "purchased" && !!resolveHandMadeItemImageUrl(item);
 }
 
 /** Items the user can list in 내 상점 (handmade only, not shop purchases). */
@@ -798,9 +750,47 @@ export function loadShopSourceItems(userId: string): HandMadeItem[] {
   return loadHandMadeItems(userId).filter(item => canListInMyShop(item));
 }
 
-/** Items shown in item creator (handmade + purchased, equippable on avatar). */
+/** 아이템 생성기·아바타 내 아이템이 공유하는 보유 아이템 중 아바타에서 사용할 수 있는 목록. */
 export function loadAvatarCreatorItems(userId: string): HandMadeItem[] {
-  return loadMyInventory(userId).filter(item => canEquipOnAvatar(item) && !!resolveHandMadeItemImageUrl(item));
+  return loadMyInventory(userId).filter(item => canEquipOnAvatar(item));
+}
+
+export type MyItemsResetResult = {
+  required: boolean;
+  removedItemIds: string[];
+};
+
+/**
+ * 2026-08 내 아이템 통합을 위한 1회 초기화.
+ * 완료 표시는 서버 동기화 성공 뒤 별도로 기록해 실패 시 다음 실행에서 재시도한다.
+ */
+export function resetCreatedMyItemsForMigration(userId: string): MyItemsResetResult {
+  try {
+    if (localStorage.getItem(`${MY_ITEMS_RESET_KEY_PREFIX}${userId}`)) {
+      return { required: false, removedItemIds: [] };
+    }
+  } catch {
+    /* private mode: perform the safe in-memory-compatible reset */
+  }
+
+  const inventory = loadHandMadeItems(userId);
+  const removedItemIds = inventory.filter(item => canListInMyShop(item)).map(item => item.id);
+  saveHandMadeItems(userId, inventory.filter(item => !canListInMyShop(item)));
+  saveMyListings(userId, []);
+  try {
+    localStorage.removeItem(`myArStickers_v2:${userId}`);
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return { required: true, removedItemIds };
+}
+
+export function markCreatedMyItemsResetComplete(userId: string) {
+  try {
+    localStorage.setItem(`${MY_ITEMS_RESET_KEY_PREFIX}${userId}`, "1");
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 /** @deprecated Use loadAvatarCreatorItems */
@@ -945,7 +935,9 @@ export function loadMyListings(userId: string): ShopListing[] {
     const raw = localStorage.getItem(`${LISTINGS_KEY_PREFIX}${userId}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ShopListing[];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(listing => listing.price >= GLOBAL_SHOP_PRICE_MIN && listing.price <= GLOBAL_SHOP_PRICE_MAX)
+      : [];
   } catch {
     return [];
   }

@@ -2,6 +2,8 @@ import type { HandMadeItem, ShopListing, ShopListingWithItem } from "./shop-stor
 import {
   applyInventorySnapshot,
   canListInMyShop,
+  GLOBAL_SHOP_PRICE_MAX,
+  GLOBAL_SHOP_PRICE_MIN,
   loadMyListings,
   loadShopSourceItems,
   saveMyListings,
@@ -51,6 +53,8 @@ export async function fetchActiveShopListings(): Promise<ShopListingWithItem[]> 
   if (!data) return [];
   return (data as ShopListingRow[])
     .filter((row) => row.item_snapshot && typeof row.item_snapshot === "object")
+    .filter((row) => canListInMyShop(row.item_snapshot))
+    .filter((row) => row.price >= GLOBAL_SHOP_PRICE_MIN && row.price <= GLOBAL_SHOP_PRICE_MAX)
     .map(rowToListing);
 }
 
@@ -72,6 +76,8 @@ export async function fetchSellerShopListings(sellerId: string): Promise<ShopLis
   if (!data) return [];
   return (data as ShopListingRow[])
     .filter((row) => row.item_snapshot && typeof row.item_snapshot === "object")
+    .filter((row) => canListInMyShop(row.item_snapshot))
+    .filter((row) => row.price >= GLOBAL_SHOP_PRICE_MIN && row.price <= GLOBAL_SHOP_PRICE_MAX)
     .map(rowToListing);
 }
 
@@ -168,9 +174,17 @@ export async function purchaseShopListing(
   };
 }
 
-export async function syncBuyerInventoryFromServer(userId: string): Promise<number | null> {
+export async function syncBuyerInventoryFromServer(
+  userId: string,
+  options?: { authoritativeCoins?: boolean },
+): Promise<number | null> {
   const remote = await fetchUserInventory(userId);
   if (!remote) return null;
+  if (options?.authoritativeCoins) {
+    applyInventorySnapshot(userId, remote.items, remote.ownedListingIds, remote.coins);
+    window.dispatchEvent(new CustomEvent("reworld-clover-changed", { detail: { userId } }));
+    return remote.coins;
+  }
   applyInventorySnapshot(userId, remote.items, remote.ownedListingIds);
   return hydrateCloverFromServer(userId, {
     coins: remote.coins,
@@ -240,7 +254,7 @@ export async function completePlayerShopPurchase(
   const purchase = await purchaseShopListing(listingId);
   if (!purchase.ok) return purchase;
 
-  const buyerCoins = (await syncBuyerInventoryFromServer(buyerId)) ?? purchase.result.buyerCoins;
+  const buyerCoins = (await syncBuyerInventoryFromServer(buyerId, { authoritativeCoins: true })) ?? purchase.result.buyerCoins;
   return {
     ok: true,
     listing: purchase.result.listing,
@@ -254,6 +268,12 @@ export async function publishShopListing(
   listing: ShopListing,
   item: HandMadeItem,
 ): Promise<SyncResult> {
+  if (!canListInMyShop(item)) {
+    return { ok: false, error: "픽셀 이미지로 만든 내 아이템만 등록할 수 있어요." };
+  }
+  if (listing.price < GLOBAL_SHOP_PRICE_MIN || listing.price > GLOBAL_SHOP_PRICE_MAX) {
+    return { ok: false, error: `가격은 ${GLOBAL_SHOP_PRICE_MIN}~${GLOBAL_SHOP_PRICE_MAX} 클로버로 입력해 주세요.` };
+  }
   if (!isSupabaseConfigured()) {
     return { ok: false, error: "Supabase 연결이 필요해요. 로컬에만 임시 저장됐어요." };
   }

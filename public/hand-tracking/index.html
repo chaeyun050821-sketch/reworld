@@ -129,6 +129,9 @@
         #brushSizeValue { min-width: 40px; font-weight: bold; color: #e07a9e; }
         #eraserSizeValue { min-width: 40px; font-weight: bold; color: #7c9ec9; }
         .controls { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 640px; }
+        .item-category-control { width: 640px; margin-top: 14px; padding: 12px 16px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; border: 2px solid #E4D9F5; border-radius: 16px; background: #ffffffcc; box-shadow: 0 4px 12px rgba(150, 130, 190, 0.14); }
+        .item-category-control label { font-size: 14px; font-weight: 700; color: #6a5d85; white-space: nowrap; }
+        #itemCategory { flex: 1; padding: 9px 12px; border: 1px solid #D8C8EE; border-radius: 12px; background: white; color: #5b5470; font-family: 'Gowun Dodum', sans-serif; font-weight: 700; outline: none; }
         .action-btn {
             padding: 13px 24px; font-family: 'Gowun Dodum', sans-serif; font-size: 15px; font-weight: bold;
             cursor: pointer; border: none; border-radius: 16px; transition: 0.2s; box-shadow: 0 4px 10px rgba(150, 130, 190, 0.25); color: white;
@@ -196,6 +199,16 @@
         <button class="action-btn" id="aiRefineBtn">✨ 도트 변환</button>
         <button class="action-btn" id="saveAiBtn">🖼️ 도트 그림 저장</button>
         <button class="action-btn" id="addToInventoryBtn" style="background-color: #FFD6A5;">🎒 보관함에 넣기</button>
+    </div>
+    <div class="item-category-control">
+        <label for="itemCategory">내 아이템 분류</label>
+        <select id="itemCategory" aria-label="생성 아이템 분류">
+            <option value="헤어">헤어</option>
+            <option value="얼굴">얼굴</option>
+            <option value="의상">의상</option>
+            <option value="악세사리" selected>악세사리</option>
+            <option value="기타">기타</option>
+        </select>
     </div>
     <div class="prompt-container">
         <input type="text" id="customPrompt" placeholder="예: 테두리 다듬어줘 / 그라데이션 / 안을 분홍으로">
@@ -1104,13 +1117,15 @@
                 const key = HANDMADE_KEY_PREFIX + diaryUserId;
                 const existing = JSON.parse(localStorage.getItem(key) || '[]');
                 const avatarCount = existing.filter((entry) => entry.type === 'avatar').length;
+                const category = document.getElementById('itemCategory').value || '기타';
                 const item = {
                     id: 'custom-' + Date.now(),
                     type: 'avatar',
                     label: '만든 아이템 ' + (avatarCount + 1),
-                    cat: '악세사리',
+                    cat: category,
                     color: '#b08a4a',
                     source: 'handmade',
+                    artStyle: 'pixel',
                     imageDataUrl: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData),
                     createdAt: new Date().toISOString(),
                 };
@@ -1186,10 +1201,9 @@
             };
 
             addList(readJsonArray(getStickerStorageKey()), 'user');
-            if (diaryUserId) {
-                addList(readJsonArray(STICKER_STORAGE_KEY), 'shared');
+            if (!diaryUserId) {
+                addList(readJsonArray(LEGACY_STICKER_STORAGE_KEY), 'legacy');
             }
-            addList(readJsonArray(LEGACY_STICKER_STORAGE_KEY), 'legacy');
             if (diaryUserId) {
                 const handmade = readJsonArray(HANDMADE_KEY_PREFIX + diaryUserId);
                 const fromDiary = handmade

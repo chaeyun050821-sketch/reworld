@@ -1,25 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import type { User } from "../lib/auth";
-import {
-  getAvailableInventoryItems,
-  loadCommerceSnapshot,
-  sendCloverGift,
-  sendItemGift,
-  type CommerceSnapshot,
-} from "../lib/commerce";
 import { getCloverBalance, subscribeCloverRewards } from "../lib/clover-rewards";
-import { getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
+import {
+  loadUnifiedGiftSnapshot,
+  sendUnifiedCloverGift,
+  sendUnifiedItemGift,
+  type UnifiedGiftSnapshot,
+} from "../lib/unified-gifts";
+import { resolveHandMadeItemImageUrl, type HandMadeItem } from "../lib/shop-storage";
 import { FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import shopCoinImage from "../../coin-transparent.png";
 
-function GiftItemPreview({ item }: { item: ShopCatalogItem }) {
+function GiftItemPreview({ item }: { item: HandMadeItem }) {
   const [broken, setBroken] = useState(false);
-  const src = getShopItemImage(item);
+  const src = resolveHandMadeItemImageUrl(item);
   if (src && !broken) {
     return <img src={src} alt={item.label} width={38} height={38} onError={() => setBroken(true)} style={{ objectFit: "contain", imageRendering: "pixelated" }} />;
   }
-  return <span style={{ fontSize: 24 }}>{item.preview}</span>;
+  const fallback = item.type === "emoticon" ? (item.icon || "🙂") : item.type === "room" ? "🪑" : item.type === "companion" ? "🐾" : "👕";
+  return <span style={{ fontSize: 24 }}>{fallback}</span>;
 }
 
 export default function GiftModal({
@@ -34,7 +34,7 @@ export default function GiftModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"item" | "clover">("item");
-  const [snapshot, setSnapshot] = useState<CommerceSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<UnifiedGiftSnapshot | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [amount, setAmount] = useState("100");
   const [message, setMessage] = useState("");
@@ -43,19 +43,19 @@ export default function GiftModal({
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadCommerceSnapshot(user.id).then(setSnapshot);
+    void loadUnifiedGiftSnapshot(user.id).then(setSnapshot);
   }, [user.id]);
 
   useEffect(() => {
     return subscribeCloverRewards(user.id, () => {
       setSnapshot((prev) =>
-        prev ? { ...prev, balance: getCloverBalance(user.id) } : prev,
+        prev ? { ...prev, coins: getCloverBalance(user.id) } : prev,
       );
     });
   }, [user.id]);
 
   const availableItems = useMemo(
-    () => (snapshot ? getAvailableInventoryItems(snapshot).filter((item) => item.giftable) : []),
+    () => snapshot?.items ?? [],
     [snapshot],
   );
 
@@ -66,7 +66,7 @@ export default function GiftModal({
     setBusy(true);
     const result = tab === "item"
       ? selectedItemId
-        ? await sendItemGift({
+        ? await sendUnifiedItemGift({
             senderId: user.id,
             senderNickname: user.nickname,
             recipientId,
@@ -75,7 +75,7 @@ export default function GiftModal({
             preferRemote: snapshot.remote,
           })
         : { ok: false as const, error: "선물할 아이템을 골라 주세요." }
-      : await sendCloverGift({
+      : await sendUnifiedCloverGift({
           senderId: user.id,
           senderNickname: user.nickname,
           recipientId,
@@ -89,7 +89,7 @@ export default function GiftModal({
       return;
     }
     setSuccess(result.message);
-    setSnapshot(await loadCommerceSnapshot(user.id));
+    setSnapshot(await loadUnifiedGiftSnapshot(user.id));
     if (tab === "item") setSelectedItemId(null);
   };
 
@@ -142,7 +142,7 @@ export default function GiftModal({
           <div className="flex-1 min-h-0 rounded-xl p-3 flex flex-col gap-3" style={{ background: "rgba(255,255,255,0.72)", border: "1px solid rgba(255,180,80,0.2)" }}>
             <div className="flex items-center justify-between">
               <span style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 800, color: "#8a6030" }}>내 클로버</span>
-              <span className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.56rem", fontWeight: 900, color: "#a06010" }}><img src={shopCoinImage} alt="" width={14} height={14} />{snapshot?.balance ?? "..."}</span>
+              <span className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.56rem", fontWeight: 900, color: "#a06010" }}><img src={shopCoinImage} alt="" width={14} height={14} />{snapshot?.coins ?? "..."}</span>
             </div>
             <div className="grid grid-cols-4 gap-1">
               {[50, 100, 300, 500].map((value) => <button key={value} type="button" onClick={() => setAmount(String(value))} className="py-1 rounded-lg" style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 800, color: amount === String(value) ? "white" : "#a06010", background: amount === String(value) ? "linear-gradient(135deg,#e0a020,#f0c050)" : "rgba(255,210,80,0.15)" }}>{value}</button>)}
