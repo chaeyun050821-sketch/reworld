@@ -1,18 +1,45 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { AvatarWithCompanions, PixelAvatar } from "./App";
-import { avatarPreviewHeightForWidth } from "../lib/shop-storage";
+import { AvatarWithCompanions } from "./App";
+import {
+  avatarPreviewHeightForWidth,
+  canEquipOnAvatar,
+  loadMyInventory,
+  type HandMadeItem,
+} from "../lib/shop-storage";
 import {
   loadOwnGiftableItems,
   loadPeerGiftableItems,
   type GiftBegPayload,
 } from "../lib/commerce";
+import { fetchUserInventory } from "../lib/user-sync";
 import { getShopCatalogItem, type ShopCatalogItem } from "./shop-catalog";
 import BegGiftModal from "./BegGiftModal";
 import GiftModal from "./GiftModal";
 
 const WORLD_AVATAR_WIDTH = 52;
 const WORLD_AVATAR_HEIGHT = avatarPreviewHeightForWidth(WORLD_AVATAR_WIDTH);
+
+/** Equipped overlay items the local player can share for peer AvatarWithCompanions. */
+function loadEquippedWearables(userId: string, equipped: string[] | undefined | null): HandMadeItem[] {
+  const equippedSet = new Set(equipped ?? []);
+  if (equippedSet.size === 0) return [];
+  return loadMyInventory(userId).filter(
+    (item) => equippedSet.has(item.id) && canEquipOnAvatar(item),
+  );
+}
+
+function mergePeerWearInventory(
+  prev: HandMadeItem[] | undefined,
+  next: HandMadeItem[],
+): HandMadeItem[] {
+  if (!prev?.length) return next;
+  const map = new Map(prev.map((item) => [item.id, item]));
+  for (const item of next) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
 
 interface PlayerData {
   id: string;
@@ -45,6 +72,8 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const [chatInput, setChatInput] = useState("");
 
   const [peerInventories, setPeerInventories] = useState<Record<string, ShopCatalogItem[]>>({});
+  /** Handmade/purchased overlays for peer AvatarWithCompanions (not giftable shop catalog). */
+  const [peerWearInventories, setPeerWearInventories] = useState<Record<string, HandMadeItem[]>>({});
   const [begTarget, setBegTarget] = useState<BegTarget | null>(null);
   const [begItemsLoading, setBegItemsLoading] = useState(false);
   const [incomingBeg, setIncomingBeg] = useState<GiftBegPayload | null>(null);
@@ -58,6 +87,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const moveTimeout = useRef<NodeJS.Timeout | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const peerWearFetchRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -69,6 +99,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     if (!channel || !user?.id) return;
     try {
       const items = await loadOwnGiftableItems(user.id);
+      const wearItems = loadEquippedWearables(user.id, myAvatar?.equipped);
       void channel.send({
         type: "broadcast",
         event: "inventory_share",
@@ -86,12 +117,31 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             imageFile: item.imageFile,
             giftable: item.giftable,
           })),
+          // Equipped handmade overlays so peers can render AvatarWithCompanions.
+          wearItems: wearItems.map((item) => ({
+            id: item.id,
+            type: item.type,
+            label: item.label,
+            cat: item.cat,
+            color: item.color,
+            source: item.source,
+            artStyle: item.artStyle,
+            templateId: item.templateId,
+            icon: item.icon,
+            roomCategory: item.roomCategory,
+            placement: item.placement,
+            contentBounds: item.contentBounds,
+            avatarPlaced: item.avatarPlaced,
+            imageDataUrl: item.imageDataUrl,
+            createdAt: item.createdAt,
+          })),
+          equipped: myAvatar?.equipped ?? [],
         },
       });
     } catch (error) {
       console.warn("[world] inventory share failed:", error);
     }
-  }, [user?.id]);
+  }, [user?.id, myAvatar?.equipped]);
 
   const requestPeerInventory = useCallback((targetUserId: string) => {
     if (!channelRef.current || !user?.id) return;
@@ -101,6 +151,38 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       payload: { fromUserId: user.id, toUserId: targetUserId },
     });
   }, [user?.id]);
+
+  const applyPeerWearItems = useCallback((peerId: string, items: HandMadeItem[]) => {
+    if (!peerId || peerId === user?.id || !items?.length) return;
+    setPeerWearInventories((prev) => ({
+      ...prev,
+      [peerId]: mergePeerWearInventory(prev[peerId], items),
+    }));
+  }, [user?.id]);
+
+  const ensurePeerWearables = useCallback((peerId: string) => {
+    if (!peerId || peerId === user?.id) return;
+
+    requestPeerInventory(peerId);
+
+    if (peerWearFetchRef.current.has(peerId)) return;
+    peerWearFetchRef.current.add(peerId);
+
+    void (async () => {
+      try {
+        const remote = await fetchUserInventory(peerId);
+        if (!remote?.items?.length) return;
+        // Keep all equipable items; AvatarWithCompanions filters by avatar.equipped.
+        applyPeerWearItems(
+          peerId,
+          remote.items.filter((item) => canEquipOnAvatar(item)),
+        );
+      } catch (error) {
+        console.warn("[world] peer wearables fetch failed:", error);
+        peerWearFetchRef.current.delete(peerId);
+      }
+    })();
+  }, [user?.id, requestPeerInventory, applyPeerWearItems]);
 
   const openBegForPlayer = useCallback(async (player: PlayerData) => {
     setSelectedPlayerId(null);
@@ -135,9 +217,14 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       "broadcast",
       { event: "player_moved" },
       ({ payload }) => {
-        if (payload.id !== user.id) {
-          setPlayers((prev) => ({ ...prev, [payload.id]: payload }));
-        }
+        if (payload.id === user.id) return;
+        setPlayers((prev) => {
+          if (!prev[payload.id]) {
+            // Defer so we don't run async work inside the state updater.
+            queueMicrotask(() => ensurePeerWearables(payload.id));
+          }
+          return { ...prev, [payload.id]: payload };
+        });
       }
     );
 
@@ -157,12 +244,24 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     channel.on(
       "broadcast",
       { event: "inventory_share" },
-      ({ payload }: { payload: { userId: string; items: ShopCatalogItem[] } }) => {
+      ({
+        payload,
+      }: {
+        payload: {
+          userId: string;
+          items: ShopCatalogItem[];
+          wearItems?: HandMadeItem[];
+          equipped?: string[];
+        };
+      }) => {
         if (!payload?.userId || payload.userId === user.id) return;
         const items = (payload.items ?? [])
           .map((entry) => getShopCatalogItem(entry.id) ?? entry)
           .filter((item): item is ShopCatalogItem => Boolean(item?.giftable !== false && item?.id));
         setPeerInventories((prev) => ({ ...prev, [payload.userId]: items }));
+        if (payload.wearItems?.length) {
+          applyPeerWearItems(payload.userId, payload.wearItems);
+        }
         setBegItemsLoading(false);
       }
     );
@@ -260,12 +359,12 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         payload: { id: user.id, name: user.nickname, x, y, direction, isMoving, avatar: myAvatar },
       });
     }
-  }, [user, myAvatar, broadcastMyInventory]);
+  }, [user, myAvatar, broadcastMyInventory, ensurePeerWearables, applyPeerWearItems]);
 
-  // Re-share inventory when closet / shop purchases change.
+  // Re-share giftable + equipped wearables when closet / shop purchases change.
   useEffect(() => {
     void broadcastMyInventory();
-  }, [inventoryRevision, broadcastMyInventory]);
+  }, [inventoryRevision, myAvatar?.equipped, broadcastMyInventory]);
 
   const sendChatMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -385,7 +484,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             }}
           >
             {selectedPlayerId === player.id && (
-              <div className="absolute bottom-[80px] left-1/2 flex gap-1.5 p-2 bg-white/95 backdrop-blur-md border border-amber-200 rounded-xl shadow-lg animate-pop-in whitespace-nowrap">
+              <div className="absolute bottom-[calc(100%+10px)] left-1/2 flex gap-1.5 p-2 bg-white/95 backdrop-blur-md border border-amber-200 rounded-xl shadow-lg animate-pop-in whitespace-nowrap">
                 <button
                   className="px-3 py-1.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-lg hover:bg-blue-100 transition-colors"
                   onClick={(e) => {
@@ -427,7 +526,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               className={`${player.isMoving ? "walking" : ""} transition-transform group-hover:scale-110`}
               style={{ transform: player.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}
             >
-              <PixelAvatar avatar={player.avatar} width={WORLD_AVATAR_WIDTH} height={WORLD_AVATAR_HEIGHT} />
+              <AvatarWithCompanions
+                avatar={player.avatar}
+                inventory={peerWearInventories[player.id] ?? []}
+                width={WORLD_AVATAR_WIDTH}
+                height={WORLD_AVATAR_HEIGHT}
+                companionScale={0.42}
+              />
             </div>
             <div className="bg-black/60 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full text-center mt-1 shadow whitespace-nowrap">
               {player.name}
