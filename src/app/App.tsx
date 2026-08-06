@@ -11891,7 +11891,7 @@ function HomeRightPage({
   onVisitFriend: (nb: FriendNeighbor) => void;
   onLeaveFriend: () => void;
   onProfileFocus: (nb: FriendNeighbor) => void;
-  onOpenBoard: () => void;
+  onOpenBoard: (focusPostId?: string) => void;
   onOpenMyItems: () => void;
   onCreateItem: () => void;
   onRenameItem: (itemId: string, label: string) => void;
@@ -11980,7 +11980,10 @@ function BoardLikeButton({
   return (
     <button
       type="button"
-      onClick={() => onToggle(post.id, post.likedByMe)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(post.id, post.likedByMe);
+      }}
       className="self-start flex items-center gap-0.5"
       style={{
         fontFamily: FONT_UI,
@@ -12504,7 +12507,15 @@ function HomeNotificationsSection({ user }: { user: User }) {
   );
 }
 
-function HomeBoardSection({ user, onOpenBoard, className = "" }: { user: User; onOpenBoard: () => void; className?: string }) {
+function HomeBoardSection({
+  user,
+  onOpenBoard,
+  className = "",
+}: {
+  user: User;
+  onOpenBoard: (focusPostId?: string) => void;
+  className?: string;
+}) {
   const [posts, setPosts] = useState<BoardPostRecord[]>([]);
   const [loading, setLoading] = useState(isSupabaseConfigured());
 
@@ -12559,7 +12570,7 @@ function HomeBoardSection({ user, onOpenBoard, className = "" }: { user: User; o
         borderBottom: "1px solid rgba(var(--diary-mid-rgb),0.12)",
       }}>
         <span style={{ fontFamily: FONT_UI, fontSize: "0.55rem", fontWeight: 700, color: "var(--diary-mid)" }}>게시판 💬</span>
-        <button type="button" onClick={onOpenBoard}
+        <button type="button" onClick={() => onOpenBoard()}
           className="w-5 h-5 rounded-full flex items-center justify-center text-white"
           style={{ background: "linear-gradient(135deg, #ff4757, #ff6b81)", fontSize: 12, fontWeight: 700 }}>+</button>
       </div>
@@ -12574,7 +12585,19 @@ function HomeBoardSection({ user, onOpenBoard, className = "" }: { user: User; o
         posts.map((post, i) => (
           <div
             key={post.id}
-            style={{ borderBottom: i < posts.length - 1 ? "1px solid rgba(var(--diary-mid-rgb),0.08)" : "none" }}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpenBoard(post.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onOpenBoard(post.id);
+              }
+            }}
+            style={{
+              borderBottom: i < posts.length - 1 ? "1px solid rgba(var(--diary-mid-rgb),0.08)" : "none",
+              cursor: "pointer",
+            }}
           >
             <BoardPostCard
               post={post}
@@ -12810,7 +12833,7 @@ function HomeBoardShopRow({
 }: {
   user: User;
   inventoryRevision: number;
-  onOpenBoard: () => void;
+  onOpenBoard: (focusPostId?: string) => void;
   onOpenMyItems: () => void;
   onCreateItem: () => void;
   onRenameItem: (itemId: string, label: string) => void;
@@ -12906,7 +12929,15 @@ function MyItemsExpandPage({
   );
 }
 
-function BoardExpandPage({ user, onBack }: { user: User; onBack: () => void }) {
+function BoardExpandPage({
+  user,
+  onBack,
+  focusPostId = null,
+}: {
+  user: User;
+  onBack: () => void;
+  focusPostId?: string | null;
+}) {
   const [posts, setPosts] = useState<BoardPostRecord[]>([]);
   const [newPost, setNewPost] = useState("");
   const [loading, setLoading] = useState(true);
@@ -12928,6 +12959,13 @@ function BoardExpandPage({ user, onBack }: { user: User; onBack: () => void }) {
   useEffect(() => {
     void loadPosts();
   }, [user.id]);
+
+  useEffect(() => {
+    if (!focusPostId || loading || posts.length === 0) return;
+    const el = document.getElementById(`board-post-${focusPostId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusPostId, loading, posts]);
 
   const handleToggleLike = async (postId: string, liked: boolean) => {
     const result = await toggleBoardLike(user.id, postId, liked);
@@ -13024,6 +13062,7 @@ function BoardExpandPage({ user, onBack }: { user: User; onBack: () => void }) {
           posts.map((post, i) => (
             <motion.div
               key={post.id}
+              id={`board-post-${post.id}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
@@ -13045,7 +13084,7 @@ function BoardExpandPage({ user, onBack }: { user: User; onBack: () => void }) {
 /* ═══════════════════════════════════════════
    HOME LEFT PAGE (with board)
 ═══════════════════════════════════════════ */
-function HomeLeftPage({ user, onOpenBoard }: { user: User; onOpenBoard: () => void }) {
+function HomeLeftPage({ user, onOpenBoard }: { user: User; onOpenBoard: (focusPostId?: string) => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const profile = getUserProfile(user.id, user.nickname);
@@ -14124,6 +14163,13 @@ function RightPage({
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
   onShopPurchase?: () => void;
 }) {
+  const [boardFocusPostId, setBoardFocusPostId] = useState<string | null>(null);
+
+  const openBoard = (focusPostId?: string) => {
+    setBoardFocusPostId(focusPostId ?? null);
+    onNavigateTab("board");
+  };
+
   if (activeTab === "profile") {
     if (showItemCreator) {
       return (
@@ -14181,7 +14227,16 @@ function RightPage({
     );
   }
   if (activeTab === "board") {
-    return <BoardExpandPage user={user} onBack={() => onNavigateTab("home")} />;
+    return (
+      <BoardExpandPage
+        user={user}
+        focusPostId={boardFocusPostId}
+        onBack={() => {
+          setBoardFocusPostId(null);
+          onNavigateTab("home");
+        }}
+      />
+    );
   }
   if (activeTab === "myitems") {
     return (
@@ -14209,7 +14264,7 @@ function RightPage({
         onVisitFriend={onVisitFriend}
         onLeaveFriend={onLeaveFriend}
         onProfileFocus={onProfileFocus}
-        onOpenBoard={() => onNavigateTab("board")}
+        onOpenBoard={openBoard}
         onOpenMyItems={() => onNavigateTab("myitems")}
         onCreateItem={() => openHandTrackingDrawPage(user.id)}
         onRenameItem={onRenameInventoryItem}
