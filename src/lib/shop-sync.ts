@@ -1,11 +1,19 @@
 import type { HandMadeItem, ShopListing, ShopListingWithItem } from "./shop-storage";
 import {
   applyInventorySnapshot,
+  backupHandMadeInventory,
   canListInMyShop,
+  findLocalHandmadeMissingFromRemote,
+  getInventorySnapshot,
   GLOBAL_SHOP_PRICE_MAX,
   GLOBAL_SHOP_PRICE_MIN,
+  loadCoins,
   loadMyListings,
   loadShopSourceItems,
+  mergeInventoryItems,
+  mergeInventoryWithRemoteSync,
+  clearHandMadeInventoryBackup,
+  restoreHandMadeInventoryFromBackup,
   saveMyListings,
 } from "./shop-storage";
 import { hydrateCloverFromServer } from "./clover-rewards";
@@ -174,23 +182,112 @@ export async function purchaseShopListing(
   };
 }
 
+export type SyncBuyerInventoryOptions = {
+  /** After purchase/gift RPC: trust server coin balance. */
+  authoritativeCoins?: boolean;
+  /**
+   * After a successful inventory-mutating RPC (gift/purchase): trust server items as-is.
+   * Default false — merge/union so empty or stale remote rows cannot wipe local inventory.
+   */
+  authoritativeItems?: boolean;
+};
+
+/**
+ * Pull server inventory into localStorage with merge semantics (never blank-slate replace).
+ * Empty remote rows do not wipe local items unless authoritativeItems is set.
+ */
 export async function syncBuyerInventoryFromServer(
   userId: string,
-  options?: { authoritativeCoins?: boolean },
+  options?: SyncBuyerInventoryOptions,
 ): Promise<number | null> {
   const remote = await fetchUserInventory(userId);
-  if (!remote) return null;
-  if (options?.authoritativeCoins) {
-    applyInventorySnapshot(userId, remote.items, remote.ownedListingIds, remote.coins);
-    window.dispatchEvent(new CustomEvent("reworld-clover-changed", { detail: { userId } }));
-    return remote.coins;
+  if (!remote) {
+    // No remote row — try local backup recovery, then keep local as-is.
+    restoreHandMadeInventoryFromBackup(userId);
+    return null;
   }
-  applyInventorySnapshot(userId, remote.items, remote.ownedListingIds);
-  return hydrateCloverFromServer(userId, {
-    coins: remote.coins,
-    cloverRewards: remote.cloverRewards,
-    updatedAt: remote.updatedAt,
-  });
+
+  const localSnapshot = getInventorySnapshot(userId);
+  backupHandMadeInventory(userId, localSnapshot.items);
+
+  let mergedItems: HandMadeItem[];
+  let mergedOwned: string[];
+  let localRecoverable: HandMadeItem[] = [];
+
+  if (options?.authoritativeItems) {
+    mergedItems = remote.items;
+    mergedOwned = remote.ownedListingIds;
+  } else {
+    localRecoverable = findLocalHandmadeMissingFromRemote(userId, remote.items);
+    mergedItems = mergeInventoryWithRemoteSync(
+      localSnapshot.items,
+      remote.items,
+      remote.updatedAt,
+    );
+    if (localRecoverable.length > 0) {
+      mergedItems = mergeInventoryItems(localRecoverable, mergedItems);
+    }
+
+    // Recover listed handmade snapshots that vanished from inventory but still exist in shop.
+    const sellerListings = await fetchSellerShopListings(userId);
+    if (sellerListings && sellerListings.length > 0) {
+      const have = new Set(mergedItems.map((item) => item.id));
+      const fromListings: HandMadeItem[] = [];
+      for (const listing of sellerListings) {
+        if (!listing.item?.id || have.has(listing.item.id) || have.has(listing.itemId)) continue;
+        fromListings.push({ ...listing.item, id: listing.itemId || listing.item.id });
+        have.add(listing.itemId || listing.item.id);
+      }
+      if (fromListings.length > 0) {
+        mergedItems = mergeInventoryItems(fromListings, mergedItems);
+      }
+    }
+
+    if (mergedItems.length === 0) {
+      const restored = restoreHandMadeInventoryFromBackup(userId);
+      if (restored && restored.length > 0) {
+        mergedItems = restored;
+      }
+    }
+
+    mergedOwned = Array.from(
+      new Set([...localSnapshot.ownedListingIds, ...remote.ownedListingIds]),
+    );
+  }
+
+  if (options?.authoritativeCoins) {
+    applyInventorySnapshot(userId, mergedItems, mergedOwned, remote.coins);
+    window.dispatchEvent(new CustomEvent("reworld-clover-changed", { detail: { userId } }));
+  } else {
+    applyInventorySnapshot(userId, mergedItems, mergedOwned);
+    await hydrateCloverFromServer(userId, {
+      coins: remote.coins,
+      cloverRewards: remote.cloverRewards,
+      updatedAt: remote.updatedAt,
+    });
+  }
+
+  // Intentional post-RPC empty inventory must not be revived from backup.
+  if (options?.authoritativeItems && mergedItems.length === 0) {
+    clearHandMadeInventoryBackup(userId);
+  }
+
+  if (!options?.authoritativeItems) {
+    const remoteIds = new Set(remote.items.map((item) => item.id));
+    const shouldPush =
+      (remote.items.length === 0 && mergedItems.length > 0)
+      || localRecoverable.length > 0
+      || mergedItems.some((item) => !remoteIds.has(item.id));
+
+    if (shouldPush) {
+      const push = await upsertUserInventory(userId, getInventorySnapshot(userId));
+      if (!push.ok) {
+        console.error("[shop-sync] re-upsert after merge failed:", push.error);
+      }
+    }
+  }
+
+  return options?.authoritativeCoins ? remote.coins : loadCoins(userId);
 }
 
 function listingRowFromRemote(entry: ShopListingWithItem): ShopListing {
@@ -254,7 +351,10 @@ export async function completePlayerShopPurchase(
   const purchase = await purchaseShopListing(listingId);
   if (!purchase.ok) return purchase;
 
-  const buyerCoins = (await syncBuyerInventoryFromServer(buyerId, { authoritativeCoins: true })) ?? purchase.result.buyerCoins;
+  const buyerCoins = (await syncBuyerInventoryFromServer(buyerId, {
+    authoritativeCoins: true,
+    authoritativeItems: true,
+  })) ?? purchase.result.buyerCoins;
   return {
     ok: true,
     listing: purchase.result.listing,

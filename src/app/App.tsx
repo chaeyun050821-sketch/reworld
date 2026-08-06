@@ -192,6 +192,7 @@ import {
   markCreatedMyItemsResetComplete,
   normalizeItemPlacement,
   resetCreatedMyItemsForMigration,
+  restoreHandMadeInventoryFromBackup,
   resolveHandMadeItemImageUrl,
   reorderEquippedDecorLayer,
   resolveDecorPlacement,
@@ -14567,6 +14568,10 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 
       const localAvatar = loadAvatarProfile(user.id);
       const localRoom = loadMiniroomData(user.id);
+      // If a prior sync wiped localStorage, restore the last non-empty backup first.
+      if (getInventorySnapshot(user.id).items.length === 0) {
+        restoreHandMadeInventoryFromBackup(user.id);
+      }
       const localInventory = getInventorySnapshot(user.id);
       const [remoteAvatar, remoteRoom, remoteInventory] = await Promise.all([
         fetchUserAvatar(user.id),
@@ -14583,9 +14588,13 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           remoteInventory.items,
           remoteInventory.updatedAt,
         );
-        const finalItems = localRecoverable.length > 0
+        let finalItems = localRecoverable.length > 0
           ? mergeInventoryItems(localRecoverable, mergedItems)
           : mergedItems;
+        if (finalItems.length === 0) {
+          const restored = restoreHandMadeInventoryFromBackup(user.id);
+          if (restored?.length) finalItems = restored;
+        }
         const mergedOwned = Array.from(new Set([...localInventory.ownedListingIds, ...remoteInventory.ownedListingIds]));
         applyInventorySnapshot(user.id, finalItems, mergedOwned);
         await hydrateCloverFromServer(user.id, {

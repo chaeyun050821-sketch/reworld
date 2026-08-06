@@ -136,7 +136,11 @@ function applyLocalItemTransfer(
 /** After a successful gift, pull authoritative rows so syncPurchasedInventory cannot revive the item. */
 async function refreshSenderAfterGift(senderId: string): Promise<void> {
   if (!supportsRemoteGift(senderId)) return;
-  await syncBuyerInventoryFromServer(senderId, { authoritativeCoins: true });
+  await syncBuyerInventoryFromServer(senderId, {
+    authoritativeCoins: true,
+    // RPC already mutated server inventory — accept removals (including empty).
+    authoritativeItems: true,
+  });
 }
 
 export async function sendUnifiedItemGift(args: {

@@ -352,6 +352,8 @@ export type ShopListing = {
 export type ShopListingWithItem = ShopListing & { item: HandMadeItem };
 
 const HANDMADE_KEY_PREFIX = "reworld_handmade_";
+/** Last non-empty inventory snapshot — used to undo accidental empty remote sync wipes. */
+const HANDMADE_BACKUP_KEY_PREFIX = "reworld_handmade_bak_";
 const LISTINGS_KEY_PREFIX = "reworld_shop_listings_";
 const MY_ITEMS_RESET_KEY_PREFIX = "reworld_my_items_reset_v1_";
 
@@ -761,28 +763,19 @@ export type MyItemsResetResult = {
 };
 
 /**
- * 2026-08 내 아이템 통합을 위한 1회 초기화.
- * 완료 표시는 서버 동기화 성공 뒤 별도로 기록해 실패 시 다음 실행에서 재시도한다.
+ * Legacy one-shot migration that deleted handmade items — DISABLED.
+ * It previously wiped canListInMyShop items and upserted the empty result to Supabase,
+ * which caused real user inventory loss. We only mark the flag so callers stop retrying.
  */
 export function resetCreatedMyItemsForMigration(userId: string): MyItemsResetResult {
   try {
-    if (localStorage.getItem(`${MY_ITEMS_RESET_KEY_PREFIX}${userId}`)) {
-      return { required: false, removedItemIds: [] };
+    if (!localStorage.getItem(`${MY_ITEMS_RESET_KEY_PREFIX}${userId}`)) {
+      localStorage.setItem(`${MY_ITEMS_RESET_KEY_PREFIX}${userId}`, "1");
     }
-  } catch {
-    /* private mode: perform the safe in-memory-compatible reset */
-  }
-
-  const inventory = loadHandMadeItems(userId);
-  const removedItemIds = inventory.filter(item => canListInMyShop(item)).map(item => item.id);
-  saveHandMadeItems(userId, inventory.filter(item => !canListInMyShop(item)));
-  saveMyListings(userId, []);
-  try {
-    localStorage.removeItem(`myArStickers_v2:${userId}`);
   } catch {
     /* ignore quota / private mode */
   }
-  return { required: true, removedItemIds };
+  return { required: false, removedItemIds: [] };
 }
 
 export function markCreatedMyItemsResetComplete(userId: string) {
@@ -833,23 +826,68 @@ export function mergeInventoryItems(local: HandMadeItem[], remote: HandMadeItem[
   return [...map.values()].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
 }
 
-/** Prefer remote sync while keeping handmade originals that were wrongly removed from server. */
+/**
+ * Prefer remote sync while keeping handmade originals that were wrongly removed from server.
+ * Empty remote never wipes non-empty local (stale/default rows or accidental upserts).
+ */
 export function mergeInventoryWithRemoteSync(
   local: HandMadeItem[],
   remote: HandMadeItem[],
   remoteUpdatedAt?: string,
 ): HandMadeItem[] {
   const merged = mergeInventoryItems(local, remote);
+  // Empty remote has no evidence of intentional clear — keep union (local wins extras).
+  if (remote.length === 0) return merged;
+
   const remoteTime = Date.parse(remoteUpdatedAt ?? "") || 0;
   if (remoteTime <= 0) return merged;
 
   const remoteIds = new Set(remote.map(item => item.id));
   return merged.filter(item => {
     if (remoteIds.has(item.id)) return true;
+    // Always protect user-created / listable originals.
     if (isRecoverableHandmadeOriginal(item)) return true;
+    // Drop local-only purchased copies when remote is newer (e.g. gifted away).
     const created = Date.parse(item.createdAt) || 0;
     return created > remoteTime;
   });
+}
+
+/** Persist a non-empty inventory backup before sync writes that might shrink local data. */
+export function backupHandMadeInventory(userId: string, items?: HandMadeItem[]) {
+  const snapshot = items ?? loadHandMadeItems(userId);
+  if (snapshot.length === 0) return;
+  try {
+    localStorage.setItem(`${HANDMADE_BACKUP_KEY_PREFIX}${userId}`, JSON.stringify(snapshot));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Clear backup after an intentional authoritative empty sync (gift of last item, etc.). */
+export function clearHandMadeInventoryBackup(userId: string) {
+  try {
+    localStorage.removeItem(`${HANDMADE_BACKUP_KEY_PREFIX}${userId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Restore from backup when current inventory is empty but a prior non-empty snapshot exists. */
+export function restoreHandMadeInventoryFromBackup(userId: string): HandMadeItem[] | null {
+  try {
+    const current = loadHandMadeItems(userId);
+    if (current.length > 0) return null;
+    const raw = localStorage.getItem(`${HANDMADE_BACKUP_KEY_PREFIX}${userId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as HandMadeItem[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const restored = parsed.map(normalizeInventoryItem);
+    saveHandMadeItems(userId, restored);
+    return restored;
+  } catch {
+    return null;
+  }
 }
 
 export function isRecoverableHandmadeOriginal(item: HandMadeItem): boolean {
@@ -891,7 +929,13 @@ export function applyInventorySnapshot(
   ownedListingIds: string[],
   coins?: number,
 ) {
-  saveHandMadeItems(userId, items.map(normalizeInventoryItem));
+  const normalized = items.map(normalizeInventoryItem);
+  // Non-empty writes refresh the backup. Empty writes leave the prior backup
+  // intact so accidental wipes can be restored (authoritative empty clears it).
+  if (normalized.length > 0) {
+    backupHandMadeInventory(userId, normalized);
+  }
+  saveHandMadeItems(userId, normalized);
   saveOwnedListingIds(userId, ownedListingIds);
   if (typeof coins === "number" && Number.isFinite(coins)) {
     saveCoins(userId, coins);
@@ -901,6 +945,9 @@ export function applyInventorySnapshot(
 
 export function saveHandMadeItems(userId: string, items: HandMadeItem[]) {
   try {
+    if (items.length > 0) {
+      localStorage.setItem(`${HANDMADE_BACKUP_KEY_PREFIX}${userId}`, JSON.stringify(items));
+    }
     localStorage.setItem(`${HANDMADE_KEY_PREFIX}${userId}`, JSON.stringify(items));
   } catch {
     /* ignore quota errors */
