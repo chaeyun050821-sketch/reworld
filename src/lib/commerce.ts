@@ -1,4 +1,10 @@
 import { SHOP_CATALOG, getShopCatalogItem, type ShopCatalogItem } from "../app/shop-catalog";
+import {
+  getCloverBalance,
+  hydrateCloverFromServer,
+  setCloverBalance,
+  transferClovers,
+} from "./clover-rewards";
 import { saveLocalNotification } from "./notifications";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
@@ -28,10 +34,10 @@ export type CommerceResult =
   | { ok: true; message: string }
   | { ok: false; error: string };
 
-const WALLET_PREFIX = "reworld_wallet_v2_";
 const INVENTORY_PREFIX = "reworld_inventory_v2_";
 const LISTINGS_KEY = "reworld_marketplace_listings_v2";
-const DEFAULT_BALANCE = 1500;
+/** Legacy parallel wallet — migrated once into the shared clover store. */
+const LEGACY_WALLET_PREFIX = "reworld_wallet_v2_";
 
 export const DEMO_SHOP_USERS = [
   { id: "demo-starlight", nickname: "별빛소녀" },
@@ -74,15 +80,28 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-function loadLocalBalance(userId: string): number {
-  const value = Number(localStorage.getItem(`${WALLET_PREFIX}${userId}`));
-  if (Number.isFinite(value) && value >= 0) return Math.floor(value);
-  localStorage.setItem(`${WALLET_PREFIX}${userId}`, String(DEFAULT_BALANCE));
-  return DEFAULT_BALANCE;
-}
-
-function saveLocalBalance(userId: string, balance: number) {
-  localStorage.setItem(`${WALLET_PREFIX}${userId}`, String(Math.max(0, Math.floor(balance))));
+/**
+ * One-time: fold legacy marketplace wallet into the shared clover balance
+ * (same store as profile 네잎클로버) so shop ↔ profile stay in sync.
+ */
+function migrateLegacyWalletIntoClovers(userId: string) {
+  try {
+    const flagKey = `${LEGACY_WALLET_PREFIX}migrated_${userId}`;
+    if (localStorage.getItem(flagKey)) return;
+    const raw = localStorage.getItem(`${LEGACY_WALLET_PREFIX}${userId}`);
+    localStorage.setItem(flagKey, "1");
+    if (raw == null) return;
+    const wallet = Number(raw);
+    if (!Number.isFinite(wallet) || wallet < 0) return;
+    // Prefer the lower balance so prior shop spends aren't wiped by a higher default wallet.
+    const clover = getCloverBalance(userId);
+    const merged = Math.min(Math.floor(wallet), clover);
+    if (merged !== clover) {
+      setCloverBalance(userId, merged);
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 function seedInventory(): InventoryEntry[] {
@@ -122,7 +141,7 @@ function isMissingCommerceSchema(message: string): boolean {
   );
 }
 
-async function loadRemoteSnapshot(userId: string): Promise<CommerceSnapshot | null> {
+async function loadRemoteSnapshot(userId: string): Promise<Omit<CommerceSnapshot, "balance"> | null> {
   const { error: bootstrapError } = await supabase.rpc("bootstrap_commerce");
   if (bootstrapError) {
     if (!isMissingCommerceSchema(bootstrapError.message)) {
@@ -131,8 +150,7 @@ async function loadRemoteSnapshot(userId: string): Promise<CommerceSnapshot | nu
     return null;
   }
 
-  const [walletResult, inventoryResult, listingResult] = await Promise.all([
-    supabase.from("user_wallets").select("balance").eq("user_id", userId).maybeSingle(),
+  const [inventoryResult, listingResult] = await Promise.all([
     supabase.from("user_inventory").select("item_id, quantity, acquired_at").eq("user_id", userId),
     supabase
       .from("marketplace_listings")
@@ -141,10 +159,11 @@ async function loadRemoteSnapshot(userId: string): Promise<CommerceSnapshot | nu
       .order("listed_at", { ascending: false }),
   ]);
 
-  if (walletResult.error || inventoryResult.error || listingResult.error) return null;
+  if (inventoryResult.error || listingResult.error) return null;
 
+  // Balance always comes from shared clovers (user_inventory.coins / local shop coins),
+  // never from the parallel user_wallets table.
   return {
-    balance: Number(walletResult.data?.balance ?? DEFAULT_BALANCE),
     inventory: (inventoryResult.data ?? []).map((row) => ({
       itemId: String(row.item_id),
       quantity: Number(row.quantity),
@@ -163,13 +182,25 @@ async function loadRemoteSnapshot(userId: string): Promise<CommerceSnapshot | nu
 }
 
 export async function loadCommerceSnapshot(userId: string): Promise<CommerceSnapshot> {
+  migrateLegacyWalletIntoClovers(userId);
+  const balance = isSupabaseConfigured()
+    ? await hydrateCloverFromServer(userId)
+    : getCloverBalance(userId);
+
   if (isSupabaseConfigured()) {
     const remote = await loadRemoteSnapshot(userId);
-    if (remote) return remote;
+    if (remote) {
+      return {
+        balance,
+        inventory: remote.inventory,
+        listings: remote.listings,
+        remote: true,
+      };
+    }
   }
 
   return {
-    balance: loadLocalBalance(userId),
+    balance,
     inventory: loadLocalInventory(userId),
     listings: loadAllLocalListings().filter((listing) => listing.sellerId === userId),
     remote: false,
@@ -275,29 +306,10 @@ export async function cancelMarketplaceListing(
   return { ok: true, message: "판매를 중단했어요." };
 }
 
-export async function buyMarketplaceListing(
-  buyerId: string,
-  listing: MarketplaceListing,
-  preferRemote: boolean,
-): Promise<CommerceResult> {
-  if (buyerId === listing.sellerId) return { ok: false, error: "내 아이템은 구매할 수 없어요." };
-
-  if (preferRemote && isSupabaseConfigured()) {
-    const { data, error } = await supabase.rpc("buy_marketplace_listing", { listing_id: listing.id });
-    if (!error) {
-      const payload = data as { ok?: boolean; error?: string };
-      return payload?.ok
-        ? { ok: true, message: "구매가 완료됐어요." }
-        : { ok: false, error: payload?.error ?? "구매에 실패했어요." };
-    }
-    if (!isMissingCommerceSchema(error.message)) return { ok: false, error: error.message };
-  }
-
+function applyLocalItemTransfer(buyerId: string, listing: MarketplaceListing): CommerceResult {
   const allListings = loadAllLocalListings();
   const current = allListings.find((entry) => entry.id === listing.id);
   if (!current) return { ok: false, error: "이미 판매된 아이템이에요." };
-  const buyerBalance = loadLocalBalance(buyerId);
-  if (buyerBalance < current.price) return { ok: false, error: "클로버가 부족해요." };
 
   const sellerInventory = loadLocalInventory(current.sellerId);
   const sellerEntry = sellerInventory.find((entry) => entry.itemId === current.itemId);
@@ -311,9 +323,46 @@ export async function buyMarketplaceListing(
   else buyerInventory.unshift({ itemId: current.itemId, quantity: 1, acquiredAt: new Date().toISOString() });
   saveLocalInventory(buyerId, buyerInventory);
 
-  saveLocalBalance(buyerId, buyerBalance - current.price);
-  saveLocalBalance(current.sellerId, loadLocalBalance(current.sellerId) + current.price);
   saveAllLocalListings(allListings.filter((entry) => entry.id !== current.id));
+  return { ok: true, message: "구매가 완료됐어요." };
+}
+
+export async function buyMarketplaceListing(
+  buyerId: string,
+  listing: MarketplaceListing,
+  preferRemote: boolean,
+): Promise<CommerceResult> {
+  if (buyerId === listing.sellerId) return { ok: false, error: "내 아이템은 구매할 수 없어요." };
+
+  // Gate on the same clover balance the profile shows.
+  if (getCloverBalance(buyerId) < listing.price) {
+    return { ok: false, error: "클로버가 부족해요." };
+  }
+
+  let itemMoved = false;
+
+  if (preferRemote && isSupabaseConfigured()) {
+    const { data, error } = await supabase.rpc("buy_marketplace_listing", { listing_id: listing.id });
+    if (!error) {
+      const payload = data as { ok?: boolean; error?: string };
+      if (payload?.ok) {
+        itemMoved = true;
+      } else if (payload?.error && !String(payload.error).includes("클로버가 부족")) {
+        return { ok: false, error: payload.error };
+      }
+      // Wallet-table "insufficient" → fall through to local item path; clovers already checked.
+    } else if (!isMissingCommerceSchema(error.message)) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  if (!itemMoved) {
+    const local = applyLocalItemTransfer(buyerId, listing);
+    if (!local.ok) return local;
+  }
+
+  const paid = transferClovers(buyerId, listing.sellerId, listing.price);
+  if (!paid.ok) return { ok: false, error: "클로버가 부족해요." };
   return { ok: true, message: "구매가 완료됐어요." };
 }
 
@@ -384,6 +433,12 @@ export async function sendCloverGift(args: {
   }
   if (args.senderId === args.recipientId) return { ok: false, error: "나에게는 선물할 수 없어요." };
 
+  // Always enforce shared clover balance (profile + shop).
+  if (getCloverBalance(args.senderId) < amount) {
+    return { ok: false, error: "클로버가 부족해요." };
+  }
+
+  let remoteOk = false;
   if (args.preferRemote && isSupabaseConfigured()) {
     const { data, error } = await supabase.rpc("send_clover_gift", {
       recipient_id: args.recipientId,
@@ -392,24 +447,29 @@ export async function sendCloverGift(args: {
     });
     if (!error) {
       const payload = data as { ok?: boolean; error?: string };
-      return payload?.ok
-        ? { ok: true, message: `${amount} 클로버를 선물했어요.` }
-        : { ok: false, error: payload?.error ?? "선물에 실패했어요." };
+      if (payload?.ok) {
+        remoteOk = true;
+      } else if (payload?.error && !String(payload.error).includes("클로버가 부족")) {
+        return { ok: false, error: payload?.error ?? "선물에 실패했어요." };
+      }
+    } else if (!isMissingCommerceSchema(error.message)) {
+      return { ok: false, error: error.message };
     }
-    if (!isMissingCommerceSchema(error.message)) return { ok: false, error: error.message };
   }
 
-  const balance = loadLocalBalance(args.senderId);
-  if (balance < amount) return { ok: false, error: "클로버가 부족해요." };
-  saveLocalBalance(args.senderId, balance - amount);
-  saveLocalBalance(args.recipientId, loadLocalBalance(args.recipientId) + amount);
-  await saveLocalNotification(args.recipientId, {
-    type: "gift",
-    actorId: args.senderId,
-    actorNickname: args.senderNickname,
-    message: `${args.senderNickname}님이 ${amount} 클로버를 선물했어요 🍀`,
-    content: args.message.trim() || undefined,
-    createdAt: new Date().toISOString(),
-  });
+  const paid = transferClovers(args.senderId, args.recipientId, amount);
+  if (!paid.ok) return { ok: false, error: "클로버가 부족해요." };
+
+  if (!remoteOk) {
+    await saveLocalNotification(args.recipientId, {
+      type: "gift",
+      actorId: args.senderId,
+      actorNickname: args.senderNickname,
+      message: `${args.senderNickname}님이 ${amount} 클로버를 선물했어요 🍀`,
+      content: args.message.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   return { ok: true, message: `${amount} 클로버를 선물했어요.` };
 }

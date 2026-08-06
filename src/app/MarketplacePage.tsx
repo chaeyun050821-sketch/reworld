@@ -13,6 +13,7 @@ import {
   type CommerceSnapshot,
   type MarketplaceListing,
 } from "../lib/commerce";
+import { getCloverBalance, subscribeCloverRewards } from "../lib/clover-rewards";
 import { loadFriends } from "../lib/friends";
 import { SHOP_CATALOG, SHOP_CATEGORIES, getShopCatalogItem, getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
 import { FONT_PIXEL, FONT_UI } from "./ui-fonts";
@@ -69,6 +70,15 @@ export default function MarketplacePage({ user }: { user: User }) {
     void refreshMine();
     void loadFriends(user.id).then((rows) => {
       setFriends(rows.map((friend) => ({ id: friend.friendUserId, nickname: friend.nickname })));
+    });
+  }, [user.id]);
+
+  // Keep shop balance in lockstep with profile 네잎클로버 (shared clover store).
+  useEffect(() => {
+    return subscribeCloverRewards(user.id, () => {
+      setSnapshot((prev) =>
+        prev ? { ...prev, balance: getCloverBalance(user.id) } : prev,
+      );
     });
   }, [user.id]);
 

@@ -1,5 +1,10 @@
 import { kstDateKey } from "./visitors-sync";
-import { DEFAULT_SHOP_COINS, getInventorySnapshot, loadCoins, saveCoins } from "./shop-storage";
+import {
+  getInventorySnapshot,
+  loadCoins,
+  loadCoinsUpdatedAt,
+  saveCoins,
+} from "./shop-storage";
 import { isSupabaseConfigured } from "./supabase";
 import { fetchUserInventory, upsertUserInventory } from "./user-sync";
 
@@ -129,8 +134,29 @@ function mergeRewardState(local: CloverRewardState, remote: CloverRewardState): 
   };
 }
 
-function mergeCloverBalance(local: number, remote: number): number {
-  return Math.max(Math.floor(local), Math.floor(remote));
+/**
+ * Newer write wins. Math.max previously undid purchases: after a spend,
+ * hydrate(local_prespend, remote_spent) restored the higher pre-spend balance.
+ */
+function mergeCloverBalance(
+  local: number,
+  remote: number,
+  localUpdatedAt: number,
+  remoteUpdatedAt: number | undefined,
+): number {
+  const localCoins = Math.floor(local);
+  const remoteCoins = Math.floor(remote);
+  if (!Number.isFinite(remoteUpdatedAt) || (remoteUpdatedAt ?? 0) <= 0) {
+    // No server timestamp: keep local pending writes (rewards) when higher,
+    // otherwise take remote so spends applied on the server stick.
+    if (localUpdatedAt > 0 && localCoins !== remoteCoins) {
+      return localUpdatedAt >= Date.now() - 15_000 ? localCoins : remoteCoins;
+    }
+    return remoteCoins;
+  }
+  if ((remoteUpdatedAt as number) > localUpdatedAt) return remoteCoins;
+  if (localUpdatedAt > (remoteUpdatedAt as number)) return localCoins;
+  return remoteCoins;
 }
 
 /** Supabase user_inventory.coins + clover_rewards 저장 */
@@ -149,11 +175,12 @@ export async function persistCloverToServer(userId: string): Promise<void> {
 export type RemoteCloverSnapshot = {
   coins?: number;
   cloverRewards?: unknown;
+  updatedAt?: string;
 };
 
 /**
  * 서버·로컬 클로버 잔액·보상 기록 병합 후 로컬 반영.
- * 로컬이 더 많으면 서버에 다시 저장.
+ * 최신 쓰기(updated_at)가 이김 — 구매/판매 차감이 Math.max로 되돌아가는 것을 막음.
  */
 export async function hydrateCloverFromServer(
   userId: string,
@@ -161,20 +188,62 @@ export async function hydrateCloverFromServer(
 ): Promise<number> {
   if (!userId) return loadCoins(userId);
 
+  // Explicit null = no remote inventory row yet — keep local, optionally push.
+  if (remote === null) {
+    const localCoins = loadCoins(userId);
+    if (isSupabaseConfigured()) {
+      await persistCloverToServer(userId);
+    }
+    notify(userId);
+    return localCoins;
+  }
+
   let remoteCoins = remote?.coins;
   let remoteRewards = remote?.cloverRewards;
+  let remoteUpdatedAtMs: number | undefined =
+    remote?.updatedAt != null ? Date.parse(remote.updatedAt) : undefined;
+  if (remoteUpdatedAtMs !== undefined && !Number.isFinite(remoteUpdatedAtMs)) {
+    remoteUpdatedAtMs = undefined;
+  }
 
   if (remote === undefined && isSupabaseConfigured()) {
     const inventory = await fetchUserInventory(userId);
     if (inventory) {
       remoteCoins = inventory.coins;
       remoteRewards = inventory.cloverRewards;
+      if (inventory.updatedAt) {
+        const parsed = Date.parse(inventory.updatedAt);
+        remoteUpdatedAtMs = Number.isFinite(parsed) ? parsed : undefined;
+      }
+    } else {
+      const localCoins = loadCoins(userId);
+      if (isSupabaseConfigured()) {
+        await persistCloverToServer(userId);
+      }
+      notify(userId);
+      return localCoins;
     }
   }
 
+  // No remote coin value available (e.g. offline) — keep local as-is.
+  if (remoteCoins === undefined) {
+    notify(userId);
+    return loadCoins(userId);
+  }
+
   const localCoins = loadCoins(userId);
-  const mergedCoins = mergeCloverBalance(localCoins, remoteCoins ?? DEFAULT_SHOP_COINS);
-  saveCoins(userId, mergedCoins);
+  const localUpdatedAt = loadCoinsUpdatedAt(userId);
+  const mergedCoins = mergeCloverBalance(
+    localCoins,
+    remoteCoins,
+    localUpdatedAt,
+    remoteUpdatedAtMs,
+  );
+  const writeAt =
+    remoteUpdatedAtMs !== undefined && mergedCoins === Math.floor(remoteCoins)
+      ? Math.max(remoteUpdatedAtMs, localUpdatedAt)
+      : Date.now();
+  saveCoins(userId, mergedCoins, writeAt);
 
   const localState = loadState(userId);
   const mergedState = mergeRewardState(localState, parseRemoteRewardState(remoteRewards));
@@ -186,7 +255,7 @@ export async function hydrateCloverFromServer(
 
   const shouldPush =
     isSupabaseConfigured() &&
-    (mergedCoins > (remoteCoins ?? DEFAULT_SHOP_COINS) ||
+    (mergedCoins !== remoteCoins ||
       JSON.stringify(mergedState) !== JSON.stringify(parseRemoteRewardState(remoteRewards)));
 
   if (shouldPush) {
@@ -217,6 +286,16 @@ export function getCloverBalance(userId: string): number {
   return loadCoins(userId);
 }
 
+/** Set absolute clover balance (shop + profile shared source of truth). */
+export function setCloverBalance(userId: string, balance: number): number {
+  if (!userId) return 0;
+  const next = Math.max(0, Math.floor(balance));
+  saveCoins(userId, next);
+  notify(userId);
+  void persistCloverToServer(userId);
+  return next;
+}
+
 /** Add clovers locally and sync to Supabase user_inventory.coins */
 export function addClovers(userId: string, amount: number): number {
   if (!userId || !Number.isFinite(amount) || amount <= 0) return loadCoins(userId);
@@ -225,6 +304,38 @@ export function addClovers(userId: string, amount: number): number {
   notify(userId);
   void persistCloverToServer(userId);
   return next;
+}
+
+/** Spend clovers (buy / gift). Persists to the same store the profile reads. */
+export function spendClovers(
+  userId: string,
+  amount: number,
+): { ok: true; balance: number } | { ok: false; balance: number } {
+  if (!userId || !Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, balance: loadCoins(userId) };
+  }
+  const cost = Math.floor(amount);
+  const current = loadCoins(userId);
+  if (current < cost) return { ok: false, balance: current };
+  const next = current - cost;
+  saveCoins(userId, next);
+  notify(userId);
+  void persistCloverToServer(userId);
+  return { ok: true, balance: next };
+}
+
+/** Move clovers from buyer to seller and persist both sides. */
+export function transferClovers(
+  fromUserId: string,
+  toUserId: string,
+  amount: number,
+): { ok: true; buyerBalance: number } | { ok: false; buyerBalance: number } {
+  const spent = spendClovers(fromUserId, amount);
+  if (!spent.ok) return { ok: false, buyerBalance: spent.balance };
+  if (toUserId && toUserId !== fromUserId) {
+    addClovers(toUserId, amount);
+  }
+  return { ok: true, buyerBalance: spent.balance };
 }
 
 export function hasCheckedInToday(userId: string, dateKey = kstDateKey()): boolean {

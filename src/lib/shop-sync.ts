@@ -175,6 +175,7 @@ export async function syncBuyerInventoryFromServer(userId: string): Promise<numb
   return hydrateCloverFromServer(userId, {
     coins: remote.coins,
     cloverRewards: remote.cloverRewards,
+    updatedAt: remote.updatedAt,
   });
 }
 

@@ -8,6 +8,7 @@ import {
   sendItemGift,
   type CommerceSnapshot,
 } from "../lib/commerce";
+import { getCloverBalance, subscribeCloverRewards } from "../lib/clover-rewards";
 import { getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
 import { FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import shopCoinImage from "../../coin-transparent.png";
@@ -43,6 +44,14 @@ export default function GiftModal({
 
   useEffect(() => {
     void loadCommerceSnapshot(user.id).then(setSnapshot);
+  }, [user.id]);
+
+  useEffect(() => {
+    return subscribeCloverRewards(user.id, () => {
+      setSnapshot((prev) =>
+        prev ? { ...prev, balance: getCloverBalance(user.id) } : prev,
+      );
+    });
   }, [user.id]);
 
   const availableItems = useMemo(

@@ -629,6 +629,7 @@ export function loadHandMadeItems(userId: string): HandMadeItem[] {
 
 const OWNED_LISTINGS_KEY_PREFIX = "reworld_shop_owned_listings_";
 const COINS_KEY_PREFIX = "reworld_shop_coins_";
+const COINS_UPDATED_AT_PREFIX = "reworld_shop_coins_updated_at_";
 
 export const DEFAULT_SHOP_COINS = 500;
 
@@ -643,9 +644,21 @@ export function loadCoins(userId: string): number {
   }
 }
 
-export function saveCoins(userId: string, coins: number) {
+/** Local write time for clover balance merge (vs server updated_at). */
+export function loadCoinsUpdatedAt(userId: string): number {
+  try {
+    const raw = localStorage.getItem(`${COINS_UPDATED_AT_PREFIX}${userId}`);
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveCoins(userId: string, coins: number, updatedAt: number = Date.now()) {
   try {
     localStorage.setItem(`${COINS_KEY_PREFIX}${userId}`, String(Math.max(0, Math.floor(coins))));
+    localStorage.setItem(`${COINS_UPDATED_AT_PREFIX}${userId}`, String(Math.max(0, Math.floor(updatedAt))));
   } catch {
     /* ignore quota errors */
   }

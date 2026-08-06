@@ -152,6 +152,7 @@ import {
   hasCheckedInToday,
   hydrateCloverFromServer,
   PHOTO_UPLOAD_DAILY_MAX,
+  spendClovers,
   subscribeCloverRewards,
 } from "../lib/clover-rewards";
 import {
@@ -193,7 +194,6 @@ import {
   resolveDecorPlacement,
   resolveDecorPlacementForItem,
   splitDecorItemsByLayer,
-  saveCoins,
   saveMyListings,
   saveOwnedListingIds,
   updateHandMadeItem,
@@ -13169,10 +13169,6 @@ function ShopPage({
 
   const showToast = (message: string) => setToast(message);
 
-  useEffect(() => {
-    saveCoins(user.id, coins);
-  }, [user.id, coins]);
-
   useEffect(() => subscribeCloverRewards(user.id, () => setCoins(getCloverBalance(user.id))), [user.id]);
 
   const refreshPublicListings = async () => {
@@ -13297,9 +13293,12 @@ function ShopPage({
       showToast("네잎클로버가 부족해요");
       return;
     }
-    const nextCoins = coins - listing.price;
-    setCoins(nextCoins);
-    saveCoins(user.id, nextCoins);
+    const spent = spendClovers(user.id, listing.price);
+    if (!spent.ok) {
+      showToast("네잎클로버가 부족해요");
+      return;
+    }
+    setCoins(spent.balance);
     setOwnedIds(prev => new Set([...prev, listing.id]));
     markListingOwned(user.id, listing.id);
     addHandMadeItem(user.id, {
@@ -14332,6 +14331,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         await hydrateCloverFromServer(user.id, {
           coins: remoteInventory.coins,
           cloverRewards: remoteInventory.cloverRewards,
+          updatedAt: remoteInventory.updatedAt,
         });
         // 로컬/개발 테스트용: 핑크 원피스를 현재 계정에 보유 처리 (다른 계정은 상점 구매 필요)
         const grantedTesterItem = ensureDevPreownedOfficialShopItems(user.id);
