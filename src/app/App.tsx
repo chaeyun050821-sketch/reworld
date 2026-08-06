@@ -12019,7 +12019,7 @@ function BoardLikeButton({
       className="self-start flex items-center gap-0.5"
       style={{
         fontFamily: FONT_UI,
-        fontSize: "0.45rem",
+        fontSize: "0.52rem",
         color: post.likedByMe ? "#ff2d78" : "var(--diary-mid)",
         fontWeight: 600,
       }}
@@ -12113,7 +12113,7 @@ function BoardPostCard({
           <button
             type="button"
             onClick={() => setShowComments((v) => !v)}
-            style={{ fontFamily: FONT_UI, fontSize: "0.45rem", color: showComments ? "var(--diary-dark)" : "var(--diary-mid)", fontWeight: 600 }}
+            style={{ fontFamily: FONT_UI, fontSize: "0.52rem", color: showComments ? "var(--diary-dark)" : "var(--diary-mid)", fontWeight: 600 }}
           >
             💬 댓글 {post.comments.length}
           </button>
