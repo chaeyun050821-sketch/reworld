@@ -303,6 +303,8 @@ function listingRowFromRemote(entry: ShopListingWithItem): ShopListing {
 
 /** Pull seller listings from Supabase, re-publish any local-only rows, save to localStorage.
  *  Buying does NOT remove listings — digital copies stay on sale for other buyers.
+ *  Delist must clear the row from localStorage first (see unpublishShopListing);
+ *  otherwise this sync will treat it as a failed publish and put it back on the shop.
  */
 export async function syncSellerShopListings(userId: string, nickname: string): Promise<ShopListing[]> {
   const local = loadMyListings(userId);
@@ -316,6 +318,7 @@ export async function syncSellerShopListings(userId: string, nickname: string): 
 
   const remoteIds = new Set(remote.map(entry => entry.id));
 
+  // Only re-publish local rows still intentionally listed (not yet on remote).
   for (const listing of local) {
     if (remoteIds.has(listing.id)) continue;
     const item = loadShopSourceItems(userId).find(entry => entry.id === listing.itemId);
@@ -400,18 +403,42 @@ export async function publishShopListing(
   return { ok: true };
 }
 
-export async function unpublishShopListing(listingId: string): Promise<SyncResult> {
+/**
+ * Remove a listing from the shop. Clears localStorage first so
+ * syncSellerShopListings cannot re-publish the just-delisted row.
+ * Inventory / 내 아이템 is untouched (listings are digital copies).
+ */
+export async function unpublishShopListing(userId: string, listingId: string): Promise<SyncResult> {
+  const previous = loadMyListings(userId);
+  const nextLocal = previous.filter((listing) => listing.id !== listingId);
+  saveMyListings(userId, nextLocal);
+
   if (!isSupabaseConfigured()) return { ok: true };
 
-  const { error } = await supabase.from("shop_listings").delete().eq("id", listingId);
+  const { data, error } = await supabase
+    .from("shop_listings")
+    .delete()
+    .eq("id", listingId)
+    .eq("seller_id", userId)
+    .select("id");
+
   if (error) {
+    // Restore local row so sync can retry / UI stays accurate
+    saveMyListings(userId, previous);
     console.error("[shop-sync] unpublish listing failed:", error.message, error.code);
     return { ok: false, error: mapSupabaseError(error.message, error.code) };
   }
+
+  // Already gone remotely is fine (idempotent). Non-empty means delete applied.
+  void data;
   return { ok: true };
 }
 
 export async function removeShopListingsForItem(sellerId: string, itemId: string): Promise<SyncResult> {
+  const previous = loadMyListings(sellerId);
+  const nextLocal = previous.filter((listing) => listing.itemId !== itemId);
+  saveMyListings(sellerId, nextLocal);
+
   if (!isSupabaseConfigured()) return { ok: true };
 
   const { error } = await supabase
@@ -421,6 +448,7 @@ export async function removeShopListingsForItem(sellerId: string, itemId: string
     .eq("item_id", itemId);
 
   if (error) {
+    saveMyListings(sellerId, previous);
     console.error("[shop-sync] remove item listings failed:", error.message, error.code);
     return { ok: false, error: mapSupabaseError(error.message, error.code) };
   }

@@ -13376,9 +13376,13 @@ function ShopPage({
   };
 
   const handleDelist = async (listingId: string) => {
-    const result = await unpublishShopListing(listingId);
+    // Optimistic local clear so UI updates even before sync; unpublish also
+    // clears localStorage so syncSellerShopListings will not re-publish.
+    setMyListings((prev) => prev.filter((listing) => listing.id !== listingId));
+    const result = await unpublishShopListing(user.id, listingId);
     if (!result.ok) {
       showToast(`판매 중단 실패: ${result.error}`);
+      setMyListings(loadMyListings(user.id));
       return;
     }
     showToast("판매를 중단했어요");
@@ -14408,7 +14412,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
 
   const toggleCreatorClothes = () => {
     setCreatorAvatar((prev) => {
-      if (creatorClothesOn) {setCreatorAvatar
+      if (creatorClothesOn) {
         const decorIds = prev.equipped.filter(id => isDecorEquipId(user.id, id));
         const catalogIds = prev.equipped.filter(id => !isDecorEquipId(user.id, id));
         setCreatorEquippedBackup(catalogIds);
