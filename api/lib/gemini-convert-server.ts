@@ -8,12 +8,13 @@ const BASE_SVG_PROMPT =
   + "viewBox는 내용에 맞게 잡되 너무 뭉개지지 않게 하세요(대략 64~128 격자). "
   + SVG_OUTPUT_RULES;
 
-// Edge 30초 한도: flash는 품질↑·속도↓라 타임아웃이 잦음.
-// 기본은 lite로 안정화하고, Vercel GEMINI_MODEL=gemini-3.5-flash 로 올릴 수 있음.
-export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
-const FALLBACK_GEMINI_MODEL = "gemini-3.5-flash-lite";
+// Gemini 3.6 Flash는 기본 thinking level이 medium이므로 SVG 출력이 길면 20초를 넘길 수 있습니다.
+// 1차 요청은 35초, 실패 시 3.5 Flash로 18초 재시도합니다.
+export const ACTIVE_GEMINI_MODEL_DEFAULT = "gemini-3.6-flash";
+const FALLBACK_GEMINI_MODEL = "gemini-3.5-flash";
 const DEFAULT_GEMINI_MODEL = ACTIVE_GEMINI_MODEL_DEFAULT;
-const GEMINI_REQUEST_TIMEOUT_MS = 22_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 35_000;
+const FALLBACK_GEMINI_REQUEST_TIMEOUT_MS = 18_000;
 const MAX_REFINE_SVG_CHARS = 120_000;
 
 type PixelGrid = {
@@ -717,22 +718,52 @@ function needsGeminiRefine(_userText: string, localOps: RefineOp[]): boolean {
 /** 수정하기 기본 프롬프트: 원본 스케치 → 레트로 8비트 픽셀 SVG */
 const REFINE_SKETCH_BASE_PROMPT =
   "첨부된 이미지는 사용자가 직접 그린 스케치입니다. "
-  + "원본 그림의 형태, 궤적, 비율을 임의로 바꾸지 말고 형태를 최대한 유지하되, "
-  + "전체적인 아트를 '레트로 8비트 픽셀 아트(Pixelated)' 스타일로 변환해 주세요. "
-  + "선을 부드럽게 만드는 대신, 작은 사각형 픽셀들이 모여서 만들어진 것처럼 "
-  + "투박하고 계단 현상이 있는 도트 그래픽 느낌이 확실하게 나도록 SVG 코드를 구성해 주세요. "
-  + "완벽한 대칭이나 기성품 이모지처럼 새로 창조하지 마세요. "
-  + "응답에는 어떠한 설명이나 마크다운 기호도 쓰지 말고, "
-  + "오직 <svg>로 시작해서 </svg>로 끝나는 순수한 태그 코드만 반환하세요. "
-  + "크기는 width='100%' height='100%'로 설정해주세요. "
-  + "배경을 하얀색이나 특정 색으로 채우지 마세요. "
-  + "배경은 반드시 투명(Transparent)하게 처리하세요. "
-  + "SVG 코드 안에 <rect> 태그로 배경색을 지정하는 코드가 들어가지 않도록 주의하세요.";
+  + "원본 그림의 형태, 궤적, 비율을 최대한 유지하세요. "
+  + "사용자의 수정 요청을 가장 높은 우선순위로 반영하세요. "
+  + "사용자가 변경을 요청하지 않은 요소는 임의로 수정하지 마세요. "
+  + "색상 변경 요청이면 형태는 유지하고 색상만 변경하세요. "
+  + "특정 요소의 추가 또는 삭제 요청이면 해당 부분만 수정하세요. "
+  + "사용자의 요청이 모호한 경우 원본을 최대한 보존하는 방향으로 처리하세요. "
+  + "전체적인 아트를 레트로 8비트 픽셀 아트 스타일로 변환하세요. "
+  + "응답에는 설명이나 마크다운을 포함하지 말고 순수 SVG 코드만 반환하세요. "
+  + "크기는 width='100%' height='100%'로 설정하세요. "
+  + "배경은 반드시 투명하게 처리하세요.";
 
-function buildCreativeRefinePrompt(userText: string, _viewBox?: { w: number; h: number } | null): string {
+function buildCreativeRefinePrompt(
+  userText: string,
+  viewBox?: { w: number; h: number } | null,
+): string {
   const custom = userText.trim();
-  if (!custom) return REFINE_SKETCH_BASE_PROMPT;
-  return REFINE_SKETCH_BASE_PROMPT + `\n\n[사용자 수정 요청]: ${custom}`;
+  const canvasRule = viewBox
+    ? `기존 SVG의 viewBox="0 0 ${Math.round(viewBox.w)} ${Math.round(viewBox.h)}"를 유지하세요.`
+    : "입력 이미지의 전체 구도와 비율을 유지하고, 내용이 잘리지 않도록 viewBox를 설정하세요.";
+
+  return `
+[역할]
+당신은 사용자의 손그림을 레트로 8비트 픽셀 SVG로 수정하는 도구입니다.
+
+[기본 규칙]
+${REFINE_SKETCH_BASE_PROMPT}
+
+[수정 원칙]
+1. 사용자의 수정 요청을 정확히 반영하세요.
+2. 사용자가 요청하지 않은 부분은 임의로 변경하지 마세요.
+3. 색상만 요청했다면 원본의 형태, 크기, 위치를 유지하고 색상만 변경하세요.
+4. 요소 추가·삭제 요청이 있을 때만 해당 부분의 실루엣을 변경하세요.
+5. 원본과 사용자 수정 요청이 충돌하면 사용자 수정 요청을 우선하세요.
+6. 배경은 새로 만들지 말고 반드시 투명하게 유지하세요.
+7. 출력 SVG는 정수 좌표의 <rect> 픽셀만 사용하세요.
+
+[캔버스 규칙]
+${canvasRule}
+
+[사용자 수정 요청]
+${custom || "별도의 수정 요청 없음"}
+
+[출력 규칙]
+${SVG_OUTPUT_RULES}
+반드시 <svg>로 시작하고 </svg>로 끝나는 SVG 코드만 반환하세요.
+`.trim();
 }
 
 /**
@@ -901,6 +932,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
 
     const sourceVb = svgMarkup.includes("<svg") ? parseViewBox(svgMarkup) : null;
     const prompt = buildCreativeRefinePrompt(userText, sourceVb);
+
     const requestBody = {
       contents: [
         {
@@ -911,8 +943,11 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
         },
       ],
       generationConfig: {
-        temperature: 0.2,
-        // 세밀한 격자 SVG를 위해 출력 여유를 둠 (Edge 한도 안에서)
+        // SVG 변환은 복잡한 추론보다 지시 준수와 빠른 출력이 중요합니다.
+        // Gemini 3.6/3.5 Flash의 기본 medium 사고를 minimal로 낮춰 지연을 줄입니다.
+        thinkingConfig: {
+          thinkingLevel: "minimal",
+        },
         maxOutputTokens: 6144,
       },
     };
@@ -934,7 +969,7 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
           && (err.status === 408 || /초과|지연|overloaded|unavailable|high demand/i.test(err.message))
           && model !== FALLBACK_GEMINI_MODEL
         ) {
-          refined = await runRefine(FALLBACK_GEMINI_MODEL, 20_000);
+          refined = await runRefine(FALLBACK_GEMINI_MODEL, FALLBACK_GEMINI_REQUEST_TIMEOUT_MS);
         } else {
           throw error;
         }
@@ -975,7 +1010,9 @@ export async function convertDrawingWithGemini(payload: GeminiConvertRequest): P
           },
         ],
         generationConfig: {
-          temperature: 0.1,
+          thinkingConfig: {
+            thinkingLevel: "minimal",
+          },
           maxOutputTokens: 4096,
         },
       },
