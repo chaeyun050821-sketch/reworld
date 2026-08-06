@@ -1516,7 +1516,7 @@ function resolveAvatarDisplayInventory(
   return [];
 }
 
-function AvatarWithCompanions({
+export function AvatarWithCompanions({
   avatar = DEFAULT_AVATAR_PROFILE,
   userId,
   inventory,
@@ -14774,7 +14774,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         <div className="absolute inset-0 z-50 w-full h-full">
           <WorldPage 
             user={user} 
-            myAvatar={avatar} 
+            myAvatar={avatar}
+            inventoryRevision={inventoryRevision}
             onGoHome={() => setActiveTab("home")} 
           />
         </div>

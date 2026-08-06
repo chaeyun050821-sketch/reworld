@@ -473,3 +473,118 @@ export async function sendCloverGift(args: {
 
   return { ok: true, message: `${amount} 클로버를 선물했어요.` };
 }
+
+/** Peek local inventory without seeding a full catalog for unknown users. */
+function peekLocalInventory(userId: string): InventoryEntry[] | null {
+  const key = `${INVENTORY_PREFIX}${userId}`;
+  return readJson<InventoryEntry[] | null>(key, null);
+}
+
+/**
+ * Load another player's giftable "내 아이템" list.
+ * Prefers remote commerce inventory; falls back to existing local rows only (never seeds).
+ * Returns null when peer inventory is not available on this client.
+ */
+export async function loadPeerGiftableItems(userId: string): Promise<ShopCatalogItem[] | null> {
+  if (isSupabaseConfigured() && !userId.startsWith("demo-")) {
+    const remote = await loadRemoteSnapshot(userId);
+    if (remote) {
+      return getAvailableInventoryItems({
+        balance: 0,
+        inventory: remote.inventory,
+        listings: remote.listings,
+        remote: true,
+      }).filter((item) => item.giftable);
+    }
+  }
+
+  const inventory = peekLocalInventory(userId);
+  if (!inventory) return null;
+  const listings = loadAllLocalListings().filter((listing) => listing.sellerId === userId);
+  return getAvailableInventoryItems({
+    balance: 0,
+    inventory,
+    listings,
+    remote: false,
+  }).filter((item) => item.giftable);
+}
+
+/** Own giftable inventory (for World broadcast of "내 아이템"). */
+export async function loadOwnGiftableItems(userId: string): Promise<ShopCatalogItem[]> {
+  const snapshot = await loadCommerceSnapshot(userId);
+  return getAvailableInventoryItems(snapshot).filter((item) => item.giftable);
+}
+
+export type GiftBegPayload = {
+  id: string;
+  fromUserId: string;
+  fromNickname: string;
+  toUserId: string;
+  itemId: string;
+  itemLabel: string;
+  message?: string;
+  createdAt: string;
+};
+
+/**
+ * Persist a gift-beg (조르기) request for the recipient.
+ * Tries optional RPC `send_gift_beg`, then always writes a local notification.
+ */
+export async function sendGiftBegRequest(args: {
+  fromUserId: string;
+  fromNickname: string;
+  toUserId: string;
+  itemId: string;
+  message?: string;
+}): Promise<CommerceResult & { beg?: GiftBegPayload }> {
+  const item = getShopCatalogItem(args.itemId);
+  if (!item?.giftable) return { ok: false, error: "조를 수 없는 아이템이에요." };
+  if (args.fromUserId === args.toUserId) return { ok: false, error: "나에게는 조를 수 없어요." };
+
+  const beg: GiftBegPayload = {
+    id: crypto.randomUUID(),
+    fromUserId: args.fromUserId,
+    fromNickname: args.fromNickname,
+    toUserId: args.toUserId,
+    itemId: args.itemId,
+    itemLabel: item.label,
+    message: args.message?.trim() || undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (isSupabaseConfigured()) {
+    const { data, error } = await supabase.rpc("send_gift_beg", {
+      recipient_id: args.toUserId,
+      target_item_id: args.itemId,
+      beg_message: args.message?.trim() || null,
+    });
+    if (!error) {
+      const payload = data as { ok?: boolean; error?: string };
+      if (payload?.ok) {
+        return { ok: true, message: `${item.label} 조르기를 보냈어요.`, beg };
+      }
+      if (payload?.error && !String(payload.error).toLowerCase().includes("does not exist")) {
+        return { ok: false, error: payload.error };
+      }
+    } else if (
+      !error.message.toLowerCase().includes("does not exist") &&
+      !error.message.toLowerCase().includes("could not find the function")
+    ) {
+      // RPC exists but failed for another reason — still fall through to local so World broadcast can deliver.
+      console.warn("[commerce] send_gift_beg:", error.message);
+    }
+  }
+
+  await saveLocalNotification(args.toUserId, {
+    type: "gift_beg",
+    actorId: args.fromUserId,
+    actorNickname: args.fromNickname,
+    message: `${args.fromNickname}님이 ${item.label}을(를) 조르고 있어요 🥺`,
+    content: args.message?.trim() || undefined,
+    itemId: args.itemId,
+    createdAt: beg.createdAt,
+    id: beg.id,
+  });
+
+  return { ok: true, message: `${item.label} 조르기를 보냈어요.`, beg };
+}

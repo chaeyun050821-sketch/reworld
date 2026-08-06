@@ -7,7 +7,8 @@ export type NotificationType =
   | "photo_like"
   | "photo_comment"
   | "guestbook"
-  | "gift";
+  | "gift"
+  | "gift_beg";
 
 export type AppNotification = {
   id: string;
@@ -19,6 +20,8 @@ export type AppNotification = {
   requestId?: string;
   photoId?: string;
   content?: string;
+  /** Shop catalog item id for gift / gift_beg notifications */
+  itemId?: string;
 };
 
 const LOCAL_KEY = "reworld_notifications_v1";
@@ -120,6 +123,8 @@ function notificationIcon(type: NotificationType): string {
       return "📝";
     case "gift":
       return "🎁";
+    case "gift_beg":
+      return "🥺";
   }
 }
 
