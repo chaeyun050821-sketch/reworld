@@ -32,13 +32,13 @@ create policy "shop_listings_select_active"
 drop policy if exists "shop_listings_insert_own" on public.shop_listings;
 create policy "shop_listings_insert_own"
   on public.shop_listings for insert to authenticated
-  with check (auth.uid() = seller_id and price between 70 and 150);
+  with check (auth.uid() = seller_id and price between 1 and 150);
 
 drop policy if exists "shop_listings_update_own" on public.shop_listings;
 create policy "shop_listings_update_own"
   on public.shop_listings for update to authenticated
   using (auth.uid() = seller_id)
-  with check (auth.uid() = seller_id and price between 70 and 150);
+  with check (auth.uid() = seller_id and price between 1 and 150);
 
 drop policy if exists "shop_listings_delete_own" on public.shop_listings;
 create policy "shop_listings_delete_own"

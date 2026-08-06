@@ -592,7 +592,7 @@ const COINS_KEY_PREFIX = "reworld_shop_coins_";
 const COINS_UPDATED_AT_PREFIX = "reworld_shop_coins_updated_at_";
 
 export const DEFAULT_SHOP_COINS = 500;
-export const GLOBAL_SHOP_PRICE_MIN = 70;
+export const GLOBAL_SHOP_PRICE_MIN = 1;
 export const GLOBAL_SHOP_PRICE_MAX = 150;
 
 export function loadCoins(userId: string): number {
