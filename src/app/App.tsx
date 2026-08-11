@@ -8117,11 +8117,14 @@ type GuestbookEntryWithAvatar = {
   color: string;
   authorId?: string | null;
   avatarProfile?: AvatarProfile | null;
+  /** Peer wearable overlays from user_inventory — required for AvatarWithCompanions / PixelAvatarBust. */
+  inventory?: HandMadeItem[];
 };
 
 function guestbookRecordToEntry(
   record: GuestbookEntryRecord,
   authorAvatars: Map<string, StoredAvatarProfile>,
+  authorInventories: Map<string, HandMadeItem[]> = new Map(),
 ): GuestbookEntryWithAvatar {
   const authorAvatar = record.authorId ? authorAvatars.get(record.authorId) : null;
   return {
@@ -8132,14 +8135,18 @@ function guestbookRecordToEntry(
     color: record.color,
     authorId: record.authorId,
     avatarProfile: storedToAvatarProfile(authorAvatar),
+    inventory: record.authorId ? authorInventories.get(record.authorId) ?? [] : undefined,
   };
 }
 
 async function loadGuestbookView(ownerId: string): Promise<GuestbookEntryWithAvatar[]> {
   const records = await loadGuestbookEntries(ownerId);
   const authorIds = records.map((row) => row.authorId).filter((id): id is string => !!id);
-  const authorAvatars = await fetchUserAvatars(authorIds);
-  return records.map((record) => guestbookRecordToEntry(record, authorAvatars));
+  const [authorAvatars, authorInventories] = await Promise.all([
+    fetchUserAvatars(authorIds),
+    fetchUserInventories(authorIds),
+  ]);
+  return records.map((record) => guestbookRecordToEntry(record, authorAvatars, authorInventories));
 }
 
 function GuestbookEntryCard({
@@ -8226,6 +8233,8 @@ function GuestbookEntryCard({
             showOnline={false}
             useBust={!!entry.authorId}
             legacyAvatar={AVATAR_PRESETS[0]}
+            userId={entry.authorId ?? undefined}
+            inventory={entry.inventory}
           />
           <span style={{
             fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.6rem", color: "#4a2030",
@@ -8314,13 +8323,19 @@ function GuestbookPage({
       if (cancelled) return;
       const neighborBase = stored.map((friend, index) => storedFriendToNeighbor(friend, index));
       const friendIds = neighborBase.map((n) => n.friendUserId).filter((id): id is string => !!id);
-      const avatars = await fetchUserAvatars(friendIds);
+      const [avatars, inventories] = await Promise.all([
+        fetchUserAvatars(friendIds),
+        fetchUserInventories(friendIds),
+      ]);
       setFriends(
         neighborBase.map((neighbor) => ({
           ...neighbor,
           avatarProfile: neighbor.friendUserId
             ? storedToAvatarProfile(avatars.get(neighbor.friendUserId) ?? null)
             : null,
+          inventory: neighbor.friendUserId
+            ? inventories.get(neighbor.friendUserId) ?? []
+            : undefined,
         })),
       );
     });
@@ -10033,7 +10048,13 @@ function guestbookEntryToFriend(entry: GuestbookEntryWithAvatar, friends: Friend
   const matched = entry.authorId
     ? friends.find((n) => n.friendUserId === entry.authorId)
     : friends.find((n) => n.name === entry.name);
-  if (matched) return matched;
+  if (matched) {
+    return {
+      ...matched,
+      avatarProfile: entry.avatarProfile ?? matched.avatarProfile ?? null,
+      inventory: entry.inventory ?? matched.inventory,
+    };
+  }
   return {
     id: hashUserId(entry.authorId ?? entry.name),
     friendUserId: entry.authorId ?? undefined,
@@ -10041,6 +10062,7 @@ function guestbookEntryToFriend(entry: GuestbookEntryWithAvatar, friends: Friend
     color: entry.color,
     avatar: AVATAR_PRESETS[0],
     avatarProfile: entry.avatarProfile ?? null,
+    inventory: entry.inventory,
   };
 }
 
@@ -10989,6 +11011,8 @@ function FriendVisitPage({
                         showOnline={false}
                         useBust={!!entry.authorId}
                         legacyAvatar={AVATAR_PRESETS[0]}
+                        userId={entry.authorId ?? undefined}
+                        inventory={entry.inventory}
                       />
                       <span style={{ fontFamily: FONT_UI, fontWeight: 700, fontSize: "0.55rem", color: "#6040a0" }}>{entry.name}</span>
                     </button>
