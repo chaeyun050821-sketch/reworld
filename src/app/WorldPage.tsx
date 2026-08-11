@@ -17,9 +17,46 @@ import { loadNotifications, subscribeNotifications } from "../lib/notifications"
 import { getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
 import BegGiftModal from "./BegGiftModal";
 import GiftModal, { type GiftSuccessInfo } from "./GiftModal";
+import worldBackgroundImage from "../assets/world-pink-house.png";
 
-const WORLD_AVATAR_WIDTH = 52;
+const WORLD_WIDTH = 800;
+const WORLD_HEIGHT = 450;
+const WORLD_AVATAR_WIDTH = 28;
 const WORLD_AVATAR_HEIGHT = avatarPreviewHeightForWidth(WORLD_AVATAR_WIDTH);
+const WORLD_WALK_SPEED = 64;
+const WORLD_JUMP_VELOCITY = 200;
+const WORLD_GRAVITY = 520;
+
+type WorldFloor = {
+  y: number;
+  minX: number;
+  maxX: number;
+  doorX: number;
+  maxJumpRise: number;
+};
+
+/** 3층 픽셀 하우스의 바닥선·외벽 안쪽·문 중심을 800×450 좌표로 옮긴 값. */
+const WORLD_FLOORS: WorldFloor[] = [
+  { y: 182, minX: 222, maxX: 578, doorX: 400, maxJumpRise: 36 },
+  { y: 284, minX: 82, maxX: 718, doorX: 400, maxJumpRise: 28 },
+  { y: 389, minX: 82, maxX: 718, doorX: 400, maxJumpRise: 30 },
+];
+const WORLD_DOOR_ACTIVATION_RADIUS = 34;
+const WORLD_SPAWN = { x: WORLD_FLOORS[2].doorX, y: WORLD_FLOORS[2].y, floorIndex: 2 };
+
+type LocalPlayerPosition = {
+  x: number;
+  y: number;
+  floorIndex: number;
+  direction: "left" | "right";
+  isMoving: boolean;
+  isJumping: boolean;
+};
+
+type PlayerPhysics = LocalPlayerPosition & {
+  velocityY: number;
+  onGround: boolean;
+};
 
 type GiftReceivedToast = {
   id: string;
@@ -65,8 +102,10 @@ interface PlayerData {
   name: string;
   x: number;
   y: number;
+  floorIndex?: number;
   direction: "left" | "right";
   isMoving: boolean;
+  isJumping?: boolean;
   avatar: any;
 }
 
@@ -82,7 +121,14 @@ interface ChatMessage {
 type BegTarget = { userId: string; name: string };
 
 export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoHome }: any) {
-  const [myPos, setMyPos] = useState({ x: 400, y: 320, direction: "right" as "left" | "right", isMoving: false });
+  const worldRef = useRef<HTMLDivElement>(null);
+  const [viewportScale, setViewportScale] = useState({ x: 1, y: 1 });
+  const [myPos, setMyPos] = useState<LocalPlayerPosition>({
+    ...WORLD_SPAWN,
+    direction: "right",
+    isMoving: false,
+    isJumping: false,
+  });
   const [players, setPlayers] = useState<Record<string, PlayerData>>({});
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
@@ -106,20 +152,75 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const [showMyItems, setShowMyItems] = useState(false);
   const [myItems, setMyItems] = useState<ShopCatalogItem[]>([]);
   const [myItemsLoading, setMyItemsLoading] = useState(false);
+  const [showControlsGuide, setShowControlsGuide] = useState(true);
 
-  const moveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const physicsRef = useRef<PlayerPhysics>({
+    ...WORLD_SPAWN,
+    direction: "right",
+    isMoving: false,
+    isJumping: false,
+    velocityY: 0,
+    onGround: true,
+  });
+  const pressedKeysRef = useRef<Set<"left" | "right">>(new Set());
+  const jumpRequestedRef = useRef(false);
+  const floorChangeRequestedRef = useRef<-1 | 1 | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const peerWearFetchRef = useRef<Set<string>>(new Set());
   const seenGiftNotifIdsRef = useRef<Set<string>>(new Set());
   const giftToastTimerRef = useRef<number | null>(null);
   const recentGiftToastKeysRef = useRef<Map<string, number>>(new Map());
+  const renderedAvatarWidth = Math.max(18, Math.round(WORLD_AVATAR_WIDTH * viewportScale.x));
+  const renderedAvatarHeight = Math.max(32, Math.round(WORLD_AVATAR_HEIGHT * viewportScale.y));
+
+  const broadcastMyPosition = useCallback((position: LocalPlayerPosition) => {
+    const channel = channelRef.current;
+    if (!channel || !user?.id) return;
+    void channel.send({
+      type: "broadcast",
+      event: "player_moved",
+      payload: {
+        id: user.id,
+        name: user.nickname,
+        x: position.x,
+        y: position.y,
+        floorIndex: position.floorIndex,
+        direction: position.direction,
+        isMoving: position.isMoving,
+        isJumping: position.isJumping,
+        avatar: myAvatar,
+      },
+    });
+  }, [user?.id, user?.nickname, myAvatar]);
 
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMessages, activeChat]);
+
+  useEffect(() => {
+    const element = worldRef.current;
+    if (!element) return;
+    const updateScale = () => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const next = {
+        x: rect.width / WORLD_WIDTH,
+        y: rect.height / WORLD_HEIGHT,
+      };
+      setViewportScale((current) =>
+        Math.abs(current.x - next.x) < 0.01 && Math.abs(current.y - next.y) < 0.01
+          ? current
+          : next,
+      );
+    };
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const broadcastMyInventory = useCallback(async (channel = channelRef.current) => {
     if (!channel || !user?.id) return;
@@ -379,79 +480,16 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        broadcastMyPosition(myPos.x, myPos.y, myPos.direction, myPos.isMoving);
+        broadcastMyPosition(physicsRef.current);
         void broadcastMyInventory(channel);
       }
     });
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === "INPUT") return;
-
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
-        e.preventDefault();
-        setSelectedPlayerId(null);
-        setShowMyItems(false);
-      }
-
-      setMyPos((prev) => {
-        let newX = prev.x;
-        let newY = prev.y;
-        let newDir = prev.direction;
-        const speed = 15;
-
-        if (e.key === "ArrowUp") newY -= speed;
-        if (e.key === "ArrowDown") newY += speed;
-        if (e.key === "ArrowLeft") { newX -= speed; newDir = "left"; }
-        if (e.key === "ArrowRight") { newX += speed; newDir = "right"; }
-
-        if (newX < 50) newX = 50;
-        if (newX > 750) newX = 750;
-
-        let minY, maxY;
-        if (newX <= 400) {
-          const ratio = (newX - 50) / 350;
-          minY = 310 - (90 * ratio);
-          maxY = 310 + (90 * ratio);
-        } else {
-          const ratio = (newX - 400) / 350;
-          minY = 220 + (90 * ratio);
-          maxY = 400 - (90 * ratio);
-        }
-
-        if (newY < minY) newY = minY;
-        if (newY > maxY) newY = maxY;
-
-        const newState = { x: newX, y: newY, direction: newDir as "left" | "right", isMoving: true };
-        broadcastMyPosition(newX, newY, newDir, true);
-        return newState;
-      });
-
-      if (moveTimeout.current) clearTimeout(moveTimeout.current);
-      moveTimeout.current = setTimeout(() => {
-        setMyPos((prev) => {
-          broadcastMyPosition(prev.x, prev.y, prev.direction, false);
-          return { ...prev, isMoving: false };
-        });
-      }, 150);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
       supabase.removeChannel(channel);
-      if (moveTimeout.current) clearTimeout(moveTimeout.current);
       channelRef.current = null;
     };
-
-    function broadcastMyPosition(x: number, y: number, direction: string, isMoving: boolean) {
-      channel.send({
-        type: "broadcast",
-        event: "player_moved",
-        payload: { id: user.id, name: user.nickname, x, y, direction, isMoving, avatar: myAvatar },
-      });
-    }
-  }, [user, myAvatar, broadcastMyInventory, ensurePeerWearables, applyPeerWearItems, handleGiftReceivedRealtime]);
+  }, [user, broadcastMyInventory, broadcastMyPosition, ensurePeerWearables, applyPeerWearItems, handleGiftReceivedRealtime]);
 
   // Seed known gift notification ids, then toast on new gift rows while in WORLD.
   useEffect(() => {
@@ -505,6 +543,186 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     };
   }, [user?.id, broadcastMyInventory, showGiftToast]);
 
+  const queueJump = useCallback(() => {
+    jumpRequestedRef.current = true;
+    setSelectedPlayerId(null);
+    setShowMyItems(false);
+  }, []);
+
+  const queueFloorChange = useCallback((direction: -1 | 1) => {
+    floorChangeRequestedRef.current = direction;
+    setSelectedPlayerId(null);
+    setShowMyItems(false);
+  }, []);
+
+  const setMovePressed = useCallback((direction: "left" | "right", pressed: boolean) => {
+    if (pressed) pressedKeysRef.current.add(direction);
+    else pressedKeysRef.current.delete(direction);
+    if (pressed) {
+      setSelectedPlayerId(null);
+      setShowMyItems(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      const element = target instanceof HTMLElement ? target : null;
+      return !!element?.closest("input, textarea, [contenteditable='true']");
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setMovePressed("left", true);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setMovePressed("right", true);
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (!event.repeat) queueJump();
+      }
+      if (event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        if (!event.repeat) queueFloorChange(-1);
+      }
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!event.repeat) queueFloorChange(1);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft") {
+        setMovePressed("left", false);
+      }
+      if (event.key === "ArrowRight") {
+        setMovePressed("right", false);
+      }
+    };
+
+    const clearMovement = () => pressedKeysRef.current.clear();
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", clearMovement);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", clearMovement);
+      clearMovement();
+    };
+  }, [queueFloorChange, queueJump, setMovePressed]);
+
+  useEffect(() => {
+    let animationFrame = 0;
+    let previousTime = performance.now();
+    let lastBroadcastAt = 0;
+    let lastBroadcastPosition: LocalPlayerPosition = { ...myPos };
+
+    const animate = (now: number) => {
+      const deltaSeconds = Math.min(0.035, Math.max(0, (now - previousTime) / 1000));
+      previousTime = now;
+
+      const previous = physicsRef.current;
+      const next: PlayerPhysics = { ...previous };
+      const left = pressedKeysRef.current.has("left");
+      const right = pressedKeysRef.current.has("right");
+      const horizontalDirection = left === right ? 0 : left ? -1 : 1;
+
+      let currentFloor = WORLD_FLOORS[next.floorIndex] ?? WORLD_FLOORS[WORLD_SPAWN.floorIndex];
+      const requestedFloorChange = floorChangeRequestedRef.current;
+      if (requestedFloorChange !== null) {
+        const targetFloorIndex = next.floorIndex + requestedFloorChange;
+        const targetFloor = WORLD_FLOORS[targetFloorIndex];
+        const isAtDoor = Math.abs(next.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
+        if (targetFloor && next.onGround && isAtDoor) {
+          next.floorIndex = targetFloorIndex;
+          next.x = targetFloor.doorX;
+          next.y = targetFloor.y;
+          next.velocityY = 0;
+          next.onGround = true;
+          currentFloor = targetFloor;
+        }
+        floorChangeRequestedRef.current = null;
+      }
+
+      if (horizontalDirection !== 0) {
+        next.x += horizontalDirection * WORLD_WALK_SPEED * deltaSeconds;
+        next.direction = horizontalDirection < 0 ? "left" : "right";
+      }
+      next.x = Math.max(currentFloor.minX, Math.min(currentFloor.maxX, next.x));
+
+      if (jumpRequestedRef.current) {
+        if (next.onGround) {
+          next.velocityY = -WORLD_JUMP_VELOCITY;
+          next.onGround = false;
+        }
+        jumpRequestedRef.current = false;
+      }
+
+      if (!next.onGround) {
+        next.velocityY += WORLD_GRAVITY * deltaSeconds;
+        next.y += next.velocityY * deltaSeconds;
+        const highestAllowedY = currentFloor.y - currentFloor.maxJumpRise;
+        if (next.y < highestAllowedY) {
+          next.y = highestAllowedY;
+          next.velocityY = Math.max(0, next.velocityY);
+        }
+        if (next.velocityY >= 0 && next.y >= currentFloor.y) {
+          next.y = currentFloor.y;
+          next.velocityY = 0;
+          next.onGround = true;
+        }
+      } else {
+        next.y = currentFloor.y;
+        next.velocityY = 0;
+      }
+
+      next.isJumping = !next.onGround;
+      next.isMoving = horizontalDirection !== 0 || next.isJumping;
+      physicsRef.current = next;
+
+      const visiblePosition: LocalPlayerPosition = {
+        x: Math.round(next.x * 10) / 10,
+        y: Math.round(next.y * 10) / 10,
+        floorIndex: next.floorIndex,
+        direction: next.direction,
+        isMoving: next.isMoving,
+        isJumping: next.isJumping,
+      };
+      setMyPos((current) =>
+        current.x === visiblePosition.x &&
+        current.y === visiblePosition.y &&
+        current.floorIndex === visiblePosition.floorIndex &&
+        current.direction === visiblePosition.direction &&
+        current.isMoving === visiblePosition.isMoving &&
+        current.isJumping === visiblePosition.isJumping
+          ? current
+          : visiblePosition,
+      );
+
+      const positionChanged =
+        Math.abs(lastBroadcastPosition.x - visiblePosition.x) >= 0.5 ||
+        Math.abs(lastBroadcastPosition.y - visiblePosition.y) >= 0.5 ||
+        lastBroadcastPosition.floorIndex !== visiblePosition.floorIndex ||
+        lastBroadcastPosition.direction !== visiblePosition.direction ||
+        lastBroadcastPosition.isMoving !== visiblePosition.isMoving ||
+        lastBroadcastPosition.isJumping !== visiblePosition.isJumping;
+      if (positionChanged && now - lastBroadcastAt >= 75) {
+        broadcastMyPosition(visiblePosition);
+        lastBroadcastPosition = visiblePosition;
+        lastBroadcastAt = now;
+      }
+
+      animationFrame = window.requestAnimationFrame(animate);
+    };
+
+    animationFrame = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [broadcastMyPosition]);
+
   // Re-share giftable + equipped wearables when closet / shop purchases change.
   useEffect(() => {
     void broadcastMyInventory();
@@ -553,11 +771,17 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   );
 
   const begItems = begTarget ? (peerInventories[begTarget.userId] ?? []) : [];
+  const currentFloor = WORLD_FLOORS[myPos.floorIndex] ?? WORLD_FLOORS[WORLD_SPAWN.floorIndex];
+  const isStandingAtDoor =
+    !myPos.isJumping && Math.abs(myPos.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
+  const canMoveUp = isStandingAtDoor && myPos.floorIndex > 0;
+  const canMoveDown = isStandingAtDoor && myPos.floorIndex < WORLD_FLOORS.length - 1;
 
   return (
     <div
+      ref={worldRef}
       className="relative w-full h-full overflow-hidden rounded-lg flex flex-col select-none cursor-default"
-      style={{ backgroundColor: "#FDF6E3" }}
+      style={{ backgroundColor: "#75c8ff", touchAction: "none" }}
       onClick={() => {
         setSelectedPlayerId(null);
         setShowMyItems(false);
@@ -597,6 +821,72 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         </div>
       </div>
 
+      {showControlsGuide && (
+        <div
+          className="absolute top-5 right-6 z-30 rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 px-4 pb-3 pt-4 shadow-[4px_4px_0_rgba(51,42,46,0.55)]"
+          onClick={(event) => event.stopPropagation()}
+          role="dialog"
+          aria-label="키보드 조작 안내"
+        >
+          <button
+            type="button"
+            aria-label="조작 안내 닫기"
+            className="absolute right-1.5 top-0.5 flex h-5 w-5 items-center justify-center text-sm font-black text-stone-600 hover:text-stone-950"
+            onClick={() => setShowControlsGuide(false)}
+          >
+            ×
+          </button>
+          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 방향키 이동, Space 점프, W 위층, S 아래층">
+            <div className="flex w-full gap-1.5">
+              {([ ["←", "왼쪽 이동"], ["→", "오른쪽 이동"] ] as const).map(([key, label]) => (
+                <div
+                  key={key}
+                  className="flex h-7 flex-1 items-center justify-center gap-1 border-2 border-stone-600 bg-white px-1 text-[9px] font-black text-stone-800 shadow-[0_2px_0_#57504d]"
+                >
+                  <kbd className="font-mono text-[12px]">{key}</kbd>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 flex h-7 w-full items-center justify-center gap-2 border-2 border-stone-600 bg-white px-2 text-[10px] font-black text-stone-800 shadow-[0_2px_0_#57504d]">
+              <kbd className="font-mono">SPACE</kbd>
+              <span>점프</span>
+            </div>
+            <p className="mt-1 text-[9px] font-bold text-stone-600">
+              {isStandingAtDoor ? `${WORLD_FLOORS.length - myPos.floorIndex}층 문 앞` : "문 앞에서 활성화"}
+            </p>
+            <div className="mt-0.5 flex w-full flex-col gap-1.5">
+              <button
+                type="button"
+                disabled={!canMoveUp}
+                className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
+                  canMoveUp
+                    ? "bg-[#ffe5ec] text-stone-800 hover:bg-[#ffd1df]"
+                    : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
+                }`}
+                onClick={() => queueFloorChange(-1)}
+              >
+                <kbd className="font-mono text-[11px]">W</kbd>
+                <span>위층으로 이동</span>
+              </button>
+              <button
+                type="button"
+                disabled={!canMoveDown}
+                className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
+                  canMoveDown
+                    ? "bg-[#e8e0ff] text-stone-800 hover:bg-[#dcd0ff]"
+                    : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
+                }`}
+                onClick={() => queueFloorChange(1)}
+              >
+                <kbd className="font-mono text-[11px]">S</kbd>
+                <span>아래층으로 이동</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {begSentToast && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-amber-900/85 text-white text-xs font-bold shadow-lg">
           🥺 {begSentToast}
@@ -625,26 +915,26 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         </div>
       )}
 
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <svg className="w-full h-full" viewBox="0 0 800 450" preserveAspectRatio="none">
-          <polygon points="50,110 400,20 400,220 50,310" fill="#E8E2D2" />
-          <polygon points="400,20 750,110 750,310 400,220" fill="#F4EFE1" />
-          <polygon points="400,220 750,310 400,400 50,310" fill="#D3C9B3" />
-          <line x1="50" y1="310" x2="400" y2="220" stroke="#B8AD94" strokeWidth="2.5" />
-          <line x1="400" y1="220" x2="750" y2="310" stroke="#B8AD94" strokeWidth="2.5" />
-          <line x1="400" y1="20" x2="400" y2="220" stroke="#CFC5AF" strokeWidth="2.5" strokeDasharray="4 4" />
-        </svg>
-      </div>
+      <img
+        src={worldBackgroundImage}
+        alt=""
+        aria-hidden
+        draggable={false}
+        className="absolute inset-0 z-0 pointer-events-none w-full h-full"
+        style={{ objectFit: "fill", imageRendering: "pixelated" }}
+      />
 
       <div className="relative w-full h-full z-10">
         {Object.values(players).map((player) => (
           <div
             key={player.id}
-            className="absolute transition-all duration-150 ease-out cursor-pointer group"
+            className="absolute transition-[left,top] duration-100 ease-linear cursor-pointer group"
             style={{
-              left: `${(player.x / 800) * 100}%`,
-              top: `${(player.y / 450) * 100}%`,
+              left: `${(player.x / WORLD_WIDTH) * 100}%`,
+              top: `${(player.y / WORLD_HEIGHT) * 100}%`,
               transform: "translate(-50%, -100%)",
+              width: renderedAvatarWidth,
+              height: renderedAvatarHeight,
               zIndex: selectedPlayerId === player.id ? 50 : 10,
             }}
             onClick={(e) => {
@@ -653,7 +943,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             }}
           >
             {selectedPlayerId === player.id && (
-              <div className="absolute bottom-[calc(100%+10px)] left-1/2 flex gap-1.5 p-2 bg-white/95 backdrop-blur-md border border-amber-200 rounded-xl shadow-lg animate-pop-in whitespace-nowrap">
+              <div className="absolute bottom-[calc(100%+8px)] left-1/2 flex gap-1.5 p-2 bg-white/95 backdrop-blur-md border border-amber-200 rounded-xl shadow-lg animate-pop-in whitespace-nowrap">
                 <button
                   className="px-3 py-1.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-lg hover:bg-blue-100 transition-colors"
                   onClick={(e) => {
@@ -691,30 +981,31 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               </div>
             )}
 
-            <div
-              className={`${player.isMoving ? "walking" : ""} transition-transform group-hover:scale-110`}
-              style={{ transform: player.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}
-            >
-              <AvatarWithCompanions
-                avatar={player.avatar}
-                inventory={peerWearInventories[player.id] ?? []}
-                width={WORLD_AVATAR_WIDTH}
-                height={WORLD_AVATAR_HEIGHT}
-                companionScale={0.42}
-              />
+            <div style={{ transform: player.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}>
+              <div className={player.isMoving && !player.isJumping ? "walking" : ""}>
+                <AvatarWithCompanions
+                  avatar={player.avatar}
+                  inventory={peerWearInventories[player.id] ?? []}
+                  width={renderedAvatarWidth}
+                  height={renderedAvatarHeight}
+                  companionScale={0.34}
+                />
+              </div>
             </div>
-            <div className="bg-black/60 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full text-center mt-1 shadow whitespace-nowrap">
+            <div className="absolute top-[calc(100%+2px)] left-1/2 -translate-x-1/2 bg-black/60 text-white text-[9px] font-semibold px-2 py-0.5 rounded-full text-center shadow whitespace-nowrap">
               {player.name}
             </div>
           </div>
         ))}
 
         <div
-          className="absolute transition-all duration-150 ease-out cursor-pointer group"
+          className="absolute cursor-pointer group"
           style={{
-            left: `${(myPos.x / 800) * 100}%`,
-            top: `${(myPos.y / 450) * 100}%`,
+            left: `${(myPos.x / WORLD_WIDTH) * 100}%`,
+            top: `${(myPos.y / WORLD_HEIGHT) * 100}%`,
             transform: "translate(-50%, -100%)",
+            width: renderedAvatarWidth,
+            height: renderedAvatarHeight,
             zIndex: showMyItems ? 50 : 20,
           }}
           onClick={(e) => {
@@ -731,20 +1022,19 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/95 border-b border-r border-amber-200 rotate-45" />
             </div>
           )}
-          <div
-            className={`${myPos.isMoving ? "walking" : ""} transition-transform group-hover:scale-110`}
-            style={{ transform: myPos.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}
-          >
-            <AvatarWithCompanions
-              avatar={myAvatar}
-              userId={user?.id}
-              width={WORLD_AVATAR_WIDTH}
-              height={WORLD_AVATAR_HEIGHT}
-              inventoryRevision={inventoryRevision}
-              companionScale={0.42}
-            />
+          <div style={{ transform: myPos.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}>
+            <div className={`${myPos.isMoving && !myPos.isJumping ? "walking" : ""} transition-transform group-hover:scale-110`}>
+              <AvatarWithCompanions
+                avatar={myAvatar}
+                userId={user?.id}
+                width={renderedAvatarWidth}
+                height={renderedAvatarHeight}
+                inventoryRevision={inventoryRevision}
+                companionScale={0.34}
+              />
+            </div>
           </div>
-          <div className="bg-amber-900/80 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full text-center mt-1 shadow border border-amber-300">
+          <div className="absolute top-[calc(100%+2px)] left-1/2 -translate-x-1/2 bg-amber-900/80 text-white text-[9px] font-bold px-2 py-0.5 rounded-full text-center shadow border border-amber-300 whitespace-nowrap">
             {user?.nickname || "나"} · 내 아이템
           </div>
         </div>
