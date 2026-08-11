@@ -150,6 +150,15 @@
         #canvasOnBtn:hover { background-color: #8bb6f7; }
         #canvasOffBtn { background-color: #FF9AA2; }
         #canvasOffBtn:hover { background-color: #ff7f89; }
+        .canvas-history-controls { position: absolute; top: 10px; left: 10px; z-index: 20; display: flex; gap: 8px; }
+        .history-btn {
+            width: 40px; height: 40px; border-radius: 50%; border: 2px solid #ffffff;
+            background: rgba(255, 255, 255, 0.85); color: #6a5d85; font-size: 20px; line-height: 1;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(150, 130, 190, 0.3); transition: 0.2s;
+        }
+        .history-btn:hover:not(:disabled) { transform: scale(1.1); background: #ffffff; }
+        .history-btn:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; transform: none; }
         .status { margin-top: 16px; font-size: 15px; color: #a3729c; font-weight: bold; background: #ffffffaa; padding: 8px 18px; border-radius: 20px; }
         .prompt-container { margin-top: 22px; width: 640px; display: flex; gap: 10px; }
         #customPrompt { flex: 1; padding: 13px 16px; font-family: 'Gowun Dodum', sans-serif; font-size: 15px; border-radius: 14px; border: 2px solid #E4D9F5; outline: none; transition: 0.2s; background: #ffffffdd; color: #5b5470; }
@@ -174,6 +183,10 @@
         <video id="input_video" autoplay playsinline muted></video>
         <canvas id="output_canvas" width="640" height="480"></canvas>
         <canvas id="overlay_canvas" width="640" height="480"></canvas>
+        <div class="canvas-history-controls">
+            <button type="button" class="history-btn" id="undoBtn" title="뒤로가기 (실행 취소) - ←" disabled>↶</button>
+            <button type="button" class="history-btn" id="redoBtn" title="앞으로가기 (다시 실행) - →" disabled>↷</button>
+        </div>
     </div>
     <div class="color-palette">
         <button class="color-btn" id="btnRed" title="빨간색"></button>
@@ -555,6 +568,7 @@
                             isDrawing = true;
                             lastX = indexX;
                             lastY = indexY;
+                            pushUndoSnapshot();
                         } else {
                             canvasCtx.beginPath();
                             canvasCtx.moveTo(lastX, lastY);
@@ -601,6 +615,55 @@
         let currentColor = '#e74c3c';
         let brushSize = 6;
         let eraserSize = 20;
+
+        // 실행 취소 / 다시 실행 (그림을 잘못 그렸을 때를 대비한 히스토리)
+        const MAX_HISTORY = 30;
+        let undoStack = [];
+        let redoStack = [];
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+
+        function updateUndoRedoButtons() {
+            undoBtn.disabled = undoStack.length === 0;
+            redoBtn.disabled = redoStack.length === 0;
+        }
+
+        function snapshotCanvas() {
+            return canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+        }
+
+        function pushUndoSnapshot() {
+            undoStack.push(snapshotCanvas());
+            if (undoStack.length > MAX_HISTORY) undoStack.shift();
+            redoStack.length = 0;
+            updateUndoRedoButtons();
+        }
+
+        function undoDrawing() {
+            if (undoStack.length === 0) return;
+            redoStack.push(snapshotCanvas());
+            canvasCtx.putImageData(undoStack.pop(), 0, 0);
+            updateUndoRedoButtons();
+        }
+
+        function redoDrawing() {
+            if (redoStack.length === 0) return;
+            undoStack.push(snapshotCanvas());
+            canvasCtx.putImageData(redoStack.pop(), 0, 0);
+            updateUndoRedoButtons();
+        }
+
+        undoBtn.addEventListener('click', undoDrawing);
+        redoBtn.addEventListener('click', redoDrawing);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            const activeTag = document.activeElement ? document.activeElement.tagName : '';
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+            e.preventDefault();
+            if (e.key === 'ArrowLeft') undoDrawing();
+            else redoDrawing();
+        });
 
         document.getElementById('btnRed').addEventListener('click', () => { currentColor = '#e74c3c'; isEraserMode = false; });
         document.getElementById('btnGreen').addEventListener('click', () => { currentColor = '#2ecc71'; isEraserMode = false; });
@@ -650,6 +713,7 @@
         });
 
         document.getElementById('clearBtn').addEventListener('click', () => {
+            pushUndoSnapshot();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         });
 
@@ -914,7 +978,7 @@
             }
 
             // 기본 도트 변환: 로컬 픽셀화만 (API / 크레딧 미사용)
-            /*if (!isCustomRefine) {
+            if (!isCustomRefine) {
                 if (isCanvasBlank()) {
                     alert('캔버스에 그린 그림이 없어요! 먼저 그림을 그려주세요.');
                     return;
@@ -932,7 +996,7 @@
                     isProcessingAI = false;
                 }
                 return;
-            }*/
+            }
 
             // 수정하기: 도트 SVG가 아니라 원본 캔버스(#output_canvas) 획을 전송
             if (isCanvasBlank()) {
