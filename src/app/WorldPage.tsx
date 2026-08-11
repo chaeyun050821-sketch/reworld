@@ -584,11 +584,11 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         event.preventDefault();
         if (!event.repeat) queueJump();
       }
-      if (event.key.toLowerCase() === "w") {
+      if (event.key === "ArrowUp") {
         event.preventDefault();
         if (!event.repeat) queueFloorChange(-1);
       }
-      if (event.key.toLowerCase() === "s") {
+      if (event.key === "ArrowDown") {
         event.preventDefault();
         if (!event.repeat) queueFloorChange(1);
       }
@@ -836,7 +836,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           >
             ×
           </button>
-          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 방향키 이동, Space 점프, W 위층, S 아래층">
+          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 방향키 이동, Space 점프, ↑ 위층, ↓ 아래층">
             <div className="flex w-full gap-1.5">
               {([ ["←", "왼쪽 이동"], ["→", "오른쪽 이동"] ] as const).map(([key, label]) => (
                 <div
@@ -866,7 +866,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                 }`}
                 onClick={() => queueFloorChange(-1)}
               >
-                <kbd className="font-mono text-[11px]">W</kbd>
+                <kbd className="font-mono text-[11px]">↑</kbd>
                 <span>위층으로 이동</span>
               </button>
               <button
@@ -879,7 +879,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                 }`}
                 onClick={() => queueFloorChange(1)}
               >
-                <kbd className="font-mono text-[11px]">S</kbd>
+                <kbd className="font-mono text-[11px]">↓</kbd>
                 <span>아래층으로 이동</span>
               </button>
             </div>
