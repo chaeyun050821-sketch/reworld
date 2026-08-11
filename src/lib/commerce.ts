@@ -6,6 +6,7 @@ import {
   transferClovers,
 } from "./clover-rewards";
 import { saveLocalNotification } from "./notifications";
+import { resolveHandMadeItemImageUrl, type HandMadeItem } from "./shop-storage";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export type InventoryEntry = {
@@ -481,15 +482,7 @@ function peekLocalInventory(userId: string): InventoryEntry[] | null {
 }
 
 /** Map 내 아이템(HandMade) → World/조르기용 카탈로그 셰이프 (실제 전송은 unified-gifts). */
-function handMadeToGiftableCatalog(item: {
-  id: string;
-  label: string;
-  type: string;
-  cat: string;
-  color: string;
-  icon?: string;
-  templateId?: string;
-}): ShopCatalogItem {
+function handMadeToGiftableCatalog(item: HandMadeItem): ShopCatalogItem {
   const kind =
     item.type === "emoticon" ? "emoticon" : item.type === "room" ? "interior" : "avatar";
   return {
@@ -501,6 +494,7 @@ function handMadeToGiftableCatalog(item: {
     preview: item.icon || (kind === "emoticon" ? "😊" : kind === "interior" ? "🪑" : "👕"),
     price: 0,
     contentId: item.templateId || item.id,
+    imageDataUrl: resolveHandMadeItemImageUrl(item),
     giftable: true,
   };
 }

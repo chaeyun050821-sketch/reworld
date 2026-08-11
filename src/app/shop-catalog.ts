@@ -10,12 +10,15 @@ export type ShopCatalogItem = {
   price: number;
   contentId: string;
   imageFile?: string;
+  /** Handmade / inventory preview (data URL or resolved storage URL). */
+  imageDataUrl?: string;
   giftable: boolean;
 };
 
 const assetUrl = (file: string) => `${import.meta.env.BASE_URL}assets/shop/${file}`;
 
 export function getShopItemImage(item: ShopCatalogItem): string | null {
+  if (item.imageDataUrl) return item.imageDataUrl;
   return item.imageFile ? assetUrl(item.imageFile) : null;
 }
 

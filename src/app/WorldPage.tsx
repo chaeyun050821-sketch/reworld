@@ -242,6 +242,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             price: item.price,
             contentId: item.contentId,
             imageFile: item.imageFile,
+            imageDataUrl: item.imageDataUrl,
             giftable: item.giftable,
           })),
           // Equipped handmade overlays so peers can render AvatarWithCompanions.

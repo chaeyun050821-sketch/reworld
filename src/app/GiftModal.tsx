@@ -38,12 +38,12 @@ function GiftItemPreview({ item }: { item: HandMadeItem }) {
   }
   const fallback =
     item.type === "emoticon"
-      ? item.icon || "??"
+      ? item.icon || "🙂"
       : item.type === "room"
-        ? "??"
+        ? "🪑"
         : item.type === "companion"
-          ? "??"
-          : "??";
+          ? "🐾"
+          : "👕";
   return <span style={{ fontSize: 24 }}>{fallback}</span>;
 }
 
@@ -106,7 +106,7 @@ export default function GiftModal({
               message,
               preferRemote: snapshot.remote,
             })
-          : { ok: false as const, error: "??? ???? ?? ???." }
+          : { ok: false as const, error: "선물할 아이템을 골라 주세요." }
         : await sendUnifiedCloverGift({
             senderId: user.id,
             senderNickname: user.nickname,
@@ -164,7 +164,7 @@ export default function GiftModal({
           <div>
             <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.32rem", color: "#ff6080" }}>GIFT</p>
             <p style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 900, color: "#5a3050" }}>
-              {recipientNickname}??? ????
+              {recipientNickname}님에게 선물하기
             </p>
           </div>
           <button
@@ -173,7 +173,7 @@ export default function GiftModal({
             className="w-6 h-6 rounded-full"
             style={{ fontFamily: FONT_UI, fontSize: "0.52rem", color: "#8a6070", background: "rgba(255,96,128,0.1)" }}
           >
-            �
+            ×
           </button>
         </div>
 
@@ -199,7 +199,7 @@ export default function GiftModal({
                     : "rgba(255,96,128,0.08)",
               }}
             >
-              {entry === "item" ? "?? ? ???" : "?? ???"}
+              {entry === "item" ? "🎁 내 아이템" : "🍀 클로버"}
             </button>
           ))}
         </div>
@@ -218,16 +218,16 @@ export default function GiftModal({
                 className="py-5 text-center"
                 style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#b07080" }}
               >
-                ?? ??? ???? ?...
+                보유 아이템 불러오는 중...
               </p>
             ) : availableItems.length === 0 ? (
               <p
                 className="py-5 text-center"
                 style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#b07080", lineHeight: 1.5 }}
               >
-                ?? ??? ???? ???.
+                선물 가능한 아이템이 없어요.
                 <br />
-                ?? ?? ???? ?? ?? ???.
+                판매 중인 아이템은 먼저 내려 주세요.
               </p>
             ) : (
               <div className="grid grid-cols-3 gap-1.5">
@@ -272,7 +272,7 @@ export default function GiftModal({
           >
             <div className="flex items-center justify-between">
               <span style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 800, color: "#8a6030" }}>
-                ? ???
+                내 클로버
               </span>
               <span
                 className="flex items-center gap-1"
@@ -306,7 +306,7 @@ export default function GiftModal({
             </div>
             <label className="flex items-center gap-2">
               <span style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 800, color: "#8a6030" }}>
-                ?? ??
+                직접 입력
               </span>
               <input
                 type="number"
@@ -328,12 +328,12 @@ export default function GiftModal({
 
         <label className="flex flex-col gap-1 flex-shrink-0">
           <span style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 800, color: "#9a6070" }}>
-            ??? <span style={{ fontWeight: 500, color: "#c090a0" }}>(??)</span>
+            메시지 <span style={{ fontWeight: 500, color: "#c090a0" }}>(선택)</span>
           </span>
           <input
             value={message}
             onChange={(event) => setMessage(event.target.value.slice(0, 40))}
-            placeholder="??? ?? ?? ???"
+            placeholder="마음을 함께 전해 보세요"
             className="px-2.5 py-1.5 rounded-xl outline-none"
             style={{
               fontFamily: FONT_UI,
@@ -369,7 +369,7 @@ export default function GiftModal({
               background: "rgba(255,96,128,0.08)",
             }}
           >
-            ??
+            취소
           </button>
           <button
             type="button"
@@ -384,7 +384,7 @@ export default function GiftModal({
               opacity: busy || !snapshot ? 0.55 : 1,
             }}
           >
-            {busy ? "??? ?..." : "?? ???"}
+            {busy ? "보내는 중..." : "선물 보내기"}
           </button>
         </div>
       </motion.div>
