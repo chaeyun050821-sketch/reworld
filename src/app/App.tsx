@@ -7552,43 +7552,114 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
   const prepareAvatarOverlay = async (): Promise<CaptureOverlay | undefined> => {
     if (!showChar) return undefined;
     const stageEl = stageRef.current;
-    const avatarEl = avatarBoxRef.current;
-    const svgEl = avatarEl?.querySelector("svg");
-    if (!stageEl || !avatarEl || !svgEl) return undefined;
+    const avatarBoxEl = avatarBoxRef.current;
+    const avatarRoot = avatarBoxEl?.firstElementChild as HTMLElement | null;
+    if (!stageEl || !avatarRoot) return undefined;
 
     const stageRect = stageEl.getBoundingClientRect();
-    const avatarRect = avatarEl.getBoundingClientRect();
-    if (!stageRect.width || !stageRect.height) return undefined;
-
-    let avatarImg: HTMLImageElement;
-    try {
-      const clone = svgEl.cloneNode(true) as SVGSVGElement;
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      const markup = new XMLSerializer().serializeToString(clone);
-      const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
-      avatarImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("avatar svg load failed"));
-        img.src = src;
-      });
-    } catch {
-      return undefined;
-    }
-
-    const leftCss = avatarRect.left - stageRect.left;
-    const topCss = avatarRect.top - stageRect.top;
-    const widthCss = avatarRect.width;
-    const heightCss = avatarRect.height;
     const stageWidthCss = stageRect.width;
     const stageHeightCss = stageRect.height;
+    if (!stageWidthCss || !stageHeightCss) return undefined;
+
+    type OverlayLayer = {
+      img: CanvasImageSource;
+      centerXCss: number;
+      centerYCss: number;
+      widthCss: number;
+      heightCss: number;
+      angle: number;
+    };
+    const layers: OverlayLayer[] = [];
+
+    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("image load failed"));
+      img.src = src;
+    });
+
+    const getRotationAngle = (el: Element) => {
+      const t = window.getComputedStyle(el).transform;
+      if (!t || t === "none") return 0;
+      const match = t.match(/^matrix\(([^)]+)\)/);
+      if (!match) return 0;
+      const parts = match[1].split(",").map(Number);
+      return Math.atan2(parts[1] ?? 0, parts[0] ?? 0);
+    };
+
+    // Each direct child of the avatar root is one paint layer: back-decor
+    // items, the avatar body (svg), then front-decor items, in paint order.
+    for (const child of Array.from(avatarRoot.children)) {
+      const el = child as HTMLElement;
+      const widthCss = el.offsetWidth;
+      const heightCss = el.offsetHeight;
+      if (!widthCss || !heightCss) continue;
+      const rect = el.getBoundingClientRect();
+      // rotation is around the element's own center, so the center point
+      // (unlike the post-rotation bounding box) is unaffected by the angle.
+      const centerXCss = rect.left + rect.width / 2 - stageRect.left;
+      const centerYCss = rect.top + rect.height / 2 - stageRect.top;
+      const angle = getRotationAngle(el);
+
+      const svgEl = el.querySelector("svg");
+      if (svgEl) {
+        try {
+          const clone = svgEl.cloneNode(true) as SVGSVGElement;
+          clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          const markup = new XMLSerializer().serializeToString(clone);
+          const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+          const img = await loadImage(src);
+          layers.push({ img, centerXCss, centerYCss, widthCss, heightCss, angle });
+        } catch {
+          // avatar body failed to rasterize — skip just this layer
+        }
+        continue;
+      }
+
+      const imgEl = el.querySelector("img");
+      if (!imgEl || !imgEl.complete || !imgEl.naturalWidth) continue;
+
+      try {
+        const local = document.createElement("canvas");
+        local.width = Math.max(1, Math.round(widthCss));
+        local.height = Math.max(1, Math.round(heightCss));
+        const localCtx = local.getContext("2d");
+        if (!localCtx) continue;
+
+        const cropWrap = el.querySelector(".overflow-hidden");
+        if (cropWrap) {
+          // cropped decor: the <img> is oversized/offset inside an
+          // overflow-hidden box — clip to the box before drawing.
+          const imgW = parseFloat(imgEl.style.width) || local.width;
+          const imgH = parseFloat(imgEl.style.height) || local.height;
+          const imgLeft = parseFloat(imgEl.style.left) || 0;
+          const imgTop = parseFloat(imgEl.style.top) || 0;
+          localCtx.save();
+          localCtx.beginPath();
+          localCtx.rect(0, 0, local.width, local.height);
+          localCtx.clip();
+          localCtx.drawImage(imgEl, imgLeft, imgTop, imgW, imgH);
+          localCtx.restore();
+        } else {
+          localCtx.drawImage(imgEl, 0, 0, local.width, local.height);
+        }
+        // taint check: bail on this one layer rather than risk poisoning
+        // the shared capture canvas with a cross-origin image.
+        local.toDataURL();
+        layers.push({ img: local, centerXCss, centerYCss, widthCss, heightCss, angle });
+      } catch {
+        // cross-origin or unreadable decor image — skip just this item
+      }
+    }
+
+    if (layers.length === 0) return undefined;
 
     return (ctx, canvas) => {
       const canvasW = canvas.width;
       const canvasH = canvas.height;
-      // map the avatar's on-screen CSS-px rect (unmirrored, sits atop the
-      // mirrored + object-cover-fitted video) into the capture canvas' pixel
-      // space, which holds the full, uncropped, mirrored native video frame.
+      // map on-screen CSS-px positions (unmirrored, sitting atop the
+      // mirrored + object-cover-fitted video) into the capture canvas'
+      // pixel space, which holds the full, uncropped, mirrored native frame.
       const scale = Math.max(stageWidthCss / canvasW, stageHeightCss / canvasH);
       const cropLeft = (canvasW * scale - stageWidthCss) / 2;
       const cropTop = (canvasH * scale - stageHeightCss) / 2;
@@ -7597,12 +7668,17 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
       const mapX = (cx: number) => canvasW - (stageWidthCss - cx + cropLeft) * nativePerCss;
       const mapY = (cy: number) => (cy + cropTop) * nativePerCss;
 
-      const x0 = mapX(leftCss);
-      const x1 = mapX(leftCss + widthCss);
-      const y0 = mapY(topCss);
-      const y1 = mapY(topCss + heightCss);
-
-      ctx.drawImage(avatarImg, x0, y0, x1 - x0, y1 - y0);
+      for (const layer of layers) {
+        const cx = mapX(layer.centerXCss);
+        const cy = mapY(layer.centerYCss);
+        const w = layer.widthCss * nativePerCss;
+        const h = layer.heightCss * nativePerCss;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(layer.angle);
+        ctx.drawImage(layer.img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
     };
   };
 
