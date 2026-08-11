@@ -30,8 +30,12 @@ function mapIlchonError(message: string, code?: string): string {
   if (lower.includes("permission") || lower.includes("policy") || code === "42501") {
     return "Supabase 권한(RLS) 설정이 필요해요. ilchon-wave.sql을 실행해 주세요.";
   }
-  if (lower.includes("function") && lower.includes("does not exist")) {
-    return "ilchon-wave.sql을 Supabase에서 실행해 주세요.";
+  if (
+    lower.includes("could not find the function") ||
+    lower.includes("schema cache") ||
+    (lower.includes("function") && lower.includes("does not exist"))
+  ) {
+    return "ilchon-wave.sql 실행 후 ilchon-display-names.sql을 Supabase에서 실행해 주세요.";
   }
   return message;
 }

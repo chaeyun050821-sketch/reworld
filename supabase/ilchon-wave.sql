@@ -1,5 +1,7 @@
 -- 일촌 (이웃과 별도 — 서로 수락해야 등록) + 파도타기 목록 조회
 -- Supabase SQL Editor에서 실행
+-- 클라이언트(src/lib/ilchon.ts)는 send/accept 시 일촌명 인자가 필요하므로
+-- 이 파일 다음에 반드시 supabase/ilchon-display-names.sql 을 실행하세요.
 
 create table if not exists public.ilchon_requests (
   id uuid primary key default gen_random_uuid(),
