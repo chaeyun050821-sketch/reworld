@@ -4,7 +4,9 @@ export type CameraStatus = "loading" | "live" | "unavailable";
 
 export type CameraErrorReason = "unsupported" | "denied" | "not-found" | "failed";
 
-export function captureVideoFrame(video: HTMLVideoElement, mirror = true): Promise<Blob | null> {
+export type CaptureOverlay = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void;
+
+export function captureVideoFrame(video: HTMLVideoElement, mirror = true, drawOverlay?: CaptureOverlay): Promise<Blob | null> {
   const w = video.videoWidth;
   const h = video.videoHeight;
   if (!w || !h) return Promise.resolve(null);
@@ -20,6 +22,10 @@ export function captureVideoFrame(video: HTMLVideoElement, mirror = true): Promi
     ctx.scale(-1, 1);
   }
   ctx.drawImage(video, 0, 0, w, h);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // overlays (e.g. avatar) are drawn unmirrored, in already-composited canvas space
+  drawOverlay?.(ctx, canvas);
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.9);
@@ -110,9 +116,9 @@ export function useLiveCamera() {
     };
   }, []);
 
-  const capture = useCallback(async () => {
+  const capture = useCallback(async (drawOverlay?: CaptureOverlay) => {
     if (status !== "live" || !videoRef.current) return null;
-    return captureVideoFrame(videoRef.current);
+    return captureVideoFrame(videoRef.current, true, drawOverlay);
   }, [status]);
 
   return { bindVideo, status, errorReason, retry, capture };

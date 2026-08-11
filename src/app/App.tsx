@@ -270,7 +270,7 @@ import { usePhotoSocial } from "./hooks/usePhotoSocial";
 import type { PhotoComment } from "./hooks/usePhotoSocial";
 import { fetchUserPhotos } from "../lib/photo-sync";
 import type { StoredPhoto } from "../lib/photo-storage";
-import { photoBoothShotStyle, useLiveCamera } from "../lib/camera-capture";
+import { photoBoothShotStyle, useLiveCamera, type CaptureOverlay } from "../lib/camera-capture";
 import { formatDiaryDisplayDate, formatDottedDate, formatIsoDate } from "./utils/date";
 import shopCoinImage from "../../coin-transparent.png";
 import {
@@ -7295,12 +7295,14 @@ function LiveCameraView({
   status,
   errorReason,
   onRetry,
+  stageRef,
 }: {
   children?: ReactNode;
   bindVideo: (el: HTMLVideoElement | null) => void;
   status: "loading" | "live" | "unavailable";
   errorReason?: "unsupported" | "denied" | "not-found" | "failed" | null;
   onRetry?: () => void;
+  stageRef?: RefObject<HTMLDivElement | null>;
 }) {
   if (status === "unavailable") {
     const message =
@@ -7335,6 +7337,7 @@ function LiveCameraView({
 
   return (
     <div
+      ref={stageRef}
       className="relative w-full h-full rounded-xl overflow-hidden flex items-center justify-center"
       style={{ background: "linear-gradient(160deg, #1a0a2e 0%, #0d0820 100%)" }}
     >
@@ -7533,6 +7536,8 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
   const { addUpload, addGradient } = usePhotoAlbum(userId);
   const { bindVideo, status, errorReason, retry, capture } = useLiveCamera();
   const blobUrlsRef = useRef<Set<string>>(new Set());
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const avatarBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return () => {
@@ -7544,12 +7549,70 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
   const visibleEmoticons = useMemo(() => getVisibleEmoticons(userId), [userId]);
   const selectedEmoticon = visibleEmoticons.find(e => e.id === selected);
 
+  const prepareAvatarOverlay = async (): Promise<CaptureOverlay | undefined> => {
+    if (!showChar) return undefined;
+    const stageEl = stageRef.current;
+    const avatarEl = avatarBoxRef.current;
+    const svgEl = avatarEl?.querySelector("svg");
+    if (!stageEl || !avatarEl || !svgEl) return undefined;
+
+    const stageRect = stageEl.getBoundingClientRect();
+    const avatarRect = avatarEl.getBoundingClientRect();
+    if (!stageRect.width || !stageRect.height) return undefined;
+
+    let avatarImg: HTMLImageElement;
+    try {
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      const markup = new XMLSerializer().serializeToString(clone);
+      const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+      avatarImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("avatar svg load failed"));
+        img.src = src;
+      });
+    } catch {
+      return undefined;
+    }
+
+    const leftCss = avatarRect.left - stageRect.left;
+    const topCss = avatarRect.top - stageRect.top;
+    const widthCss = avatarRect.width;
+    const heightCss = avatarRect.height;
+    const stageWidthCss = stageRect.width;
+    const stageHeightCss = stageRect.height;
+
+    return (ctx, canvas) => {
+      const canvasW = canvas.width;
+      const canvasH = canvas.height;
+      // map the avatar's on-screen CSS-px rect (unmirrored, sits atop the
+      // mirrored + object-cover-fitted video) into the capture canvas' pixel
+      // space, which holds the full, uncropped, mirrored native video frame.
+      const scale = Math.max(stageWidthCss / canvasW, stageHeightCss / canvasH);
+      const cropLeft = (canvasW * scale - stageWidthCss) / 2;
+      const cropTop = (canvasH * scale - stageHeightCss) / 2;
+      const nativePerCss = 1 / scale;
+
+      const mapX = (cx: number) => canvasW - (stageWidthCss - cx + cropLeft) * nativePerCss;
+      const mapY = (cy: number) => (cy + cropTop) * nativePerCss;
+
+      const x0 = mapX(leftCss);
+      const x1 = mapX(leftCss + widthCss);
+      const y0 = mapY(topCss);
+      const y1 = mapY(topCss + heightCss);
+
+      ctx.drawImage(avatarImg, x0, y0, x1 - x0, y1 - y0);
+    };
+  };
+
   const takePhoto = async () => {
     setFlash(true);
     setTimeout(() => setFlash(false), 300);
 
     if (status === "live") {
-      const blob = await capture();
+      const overlay = await prepareAvatarOverlay();
+      const blob = await capture(overlay);
       if (blob) {
         const url = URL.createObjectURL(blob);
         blobUrlsRef.current.add(url);
@@ -7591,7 +7654,7 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
 
       <div className="flex-1 flex gap-2 px-3 pb-3" style={{ minHeight: 0 }}>
         <div className="flex-1 relative" style={{ minWidth: 0 }}>
-          <LiveCameraView bindVideo={bindVideo} status={status} errorReason={errorReason} onRetry={retry}>
+          <LiveCameraView bindVideo={bindVideo} status={status} errorReason={errorReason} onRetry={retry} stageRef={stageRef}>
             <AnimatePresence>
               {flash && (
                 <motion.div className="absolute inset-0 bg-white pointer-events-none"
@@ -7603,7 +7666,7 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
                 <motion.div className="absolute bottom-16 left-4"
                   initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <div style={{ filter: "drop-shadow(0 2px 8px rgba(216,196,155,0.55))" }}>
+                  <div ref={avatarBoxRef} style={{ filter: "drop-shadow(0 2px 8px rgba(216,196,155,0.55))" }}>
                     <AvatarWithCompanions avatar={avatar} userId={userId} width={78} height={102} companionScale={0.5} />
                   </div>
                 </motion.div>
