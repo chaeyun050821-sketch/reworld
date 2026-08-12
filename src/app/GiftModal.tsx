@@ -9,6 +9,7 @@ import {
   type UnifiedGiftSnapshot,
 } from "../lib/unified-gifts";
 import { resolveHandMadeItemImageUrl, type HandMadeItem } from "../lib/shop-storage";
+import { syncSellerShopListings } from "../lib/shop-sync";
 import { FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import shopCoinImage from "../../coin-transparent.png";
 
@@ -52,6 +53,9 @@ export default function GiftModal({
   recipientId,
   recipientNickname,
   initialItemId = null,
+  itemsOnly = false,
+  shopOnly = false,
+  sourceLabel,
   onClose,
   onSuccess,
 }: {
@@ -59,6 +63,9 @@ export default function GiftModal({
   recipientId: string;
   recipientNickname: string;
   initialItemId?: string | null;
+  itemsOnly?: boolean;
+  shopOnly?: boolean;
+  sourceLabel?: string;
   onClose: () => void;
   onSuccess?: (info: GiftSuccessInfo) => void;
 }) {
@@ -72,11 +79,17 @@ export default function GiftModal({
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadUnifiedGiftSnapshot(user.id).then((next) => {
+    void (async () => {
+      if (shopOnly) await syncSellerShopListings(user.id, user.nickname);
+      const next = await loadUnifiedGiftSnapshot(user.id, { shopOnly });
       setSnapshot(next);
       if (initialItemId) setSelectedItemId(initialItemId);
-    });
-  }, [user.id, initialItemId]);
+    })();
+  }, [user.id, user.nickname, initialItemId, shopOnly]);
+
+  useEffect(() => {
+    if (itemsOnly) setTab("item");
+  }, [itemsOnly]);
 
   useEffect(() => {
     return subscribeCloverRewards(user.id, () => {
@@ -105,6 +118,7 @@ export default function GiftModal({
               itemId: selectedItemId,
               message,
               preferRemote: snapshot.remote,
+              allowListed: shopOnly,
             })
           : { ok: false as const, error: "선물할 아이템을 골라 주세요." }
         : await sendUnifiedCloverGift({
@@ -121,7 +135,7 @@ export default function GiftModal({
       return;
     }
     setSuccess(result.message);
-    setSnapshot(await loadUnifiedGiftSnapshot(user.id));
+    setSnapshot(await loadUnifiedGiftSnapshot(user.id, { shopOnly }));
     const successInfo: GiftSuccessInfo =
       tab === "item"
         ? {
@@ -164,7 +178,7 @@ export default function GiftModal({
           <div>
             <p style={{ fontFamily: FONT_PIXEL, fontSize: "0.32rem", color: "#ff6080" }}>GIFT</p>
             <p style={{ fontFamily: FONT_UI, fontSize: "0.62rem", fontWeight: 900, color: "#5a3050" }}>
-              {recipientNickname}님에게 선물하기
+              {sourceLabel ? `${sourceLabel}에서 ` : ""}{recipientNickname}님에게 선물하기
             </p>
           </div>
           <button
@@ -177,7 +191,7 @@ export default function GiftModal({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1 flex-shrink-0">
+        {!itemsOnly && <div className="grid grid-cols-2 gap-1 flex-shrink-0">
           {(["item", "clover"] as const).map((entry) => (
             <button
               key={entry}
@@ -202,7 +216,7 @@ export default function GiftModal({
               {entry === "item" ? "🎁 내 아이템" : "🍀 클로버"}
             </button>
           ))}
-        </div>
+        </div>}
 
         {tab === "item" ? (
           <div
@@ -225,9 +239,8 @@ export default function GiftModal({
                 className="py-5 text-center"
                 style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#b07080", lineHeight: 1.5 }}
               >
-                선물 가능한 아이템이 없어요.
-                <br />
-                판매 중인 아이템은 먼저 내려 주세요.
+                {shopOnly ? "내 상점에 등록된 아이템이 없어요." : "선물 가능한 아이템이 없어요."}
+                {!shopOnly && <><br />판매 중인 아이템은 먼저 내려 주세요.</>}
               </p>
             ) : (
               <div className="grid grid-cols-3 gap-1.5">

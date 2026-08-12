@@ -19,6 +19,7 @@ import {
 import { hydrateCloverFromServer } from "./clover-rewards";
 import { fetchUserInventory, upsertUserInventory } from "./user-sync";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
+import { saveShopSaleNotification } from "./notifications";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 type ShopListingRow = {
@@ -349,6 +350,7 @@ export async function syncSellerShopListings(userId: string, nickname: string): 
 
 export async function completePlayerShopPurchase(
   buyerId: string,
+  buyerNickname: string,
   listingId: string,
 ): Promise<{ ok: true; listing: ShopListingWithItem; buyerCoins: number } | { ok: false; error: string }> {
   const purchase = await purchaseShopListing(listingId);
@@ -358,6 +360,14 @@ export async function completePlayerShopPurchase(
     authoritativeCoins: true,
     authoritativeItems: true,
   })) ?? purchase.result.buyerCoins;
+  await saveShopSaleNotification({
+    sellerId: purchase.result.listing.sellerId,
+    buyerId,
+    buyerNickname,
+    itemLabel: purchase.result.listing.item.label,
+    price: purchase.result.listing.price,
+    listingId: purchase.result.listing.id,
+  });
   return {
     ok: true,
     listing: purchase.result.listing,

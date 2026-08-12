@@ -4,6 +4,35 @@
 alter table public.user_inventory
   add column if not exists coins integer not null default 500 check (coins >= 0);
 
+-- 기존 알림 테이블에도 상점 판매 수익 알림 type 허용
+do $$
+declare
+  r record;
+begin
+  if to_regclass('public.user_notifications') is null then
+    return;
+  end if;
+  for r in
+    select c.conname
+    from pg_constraint c
+    join pg_class t on c.conrelid = t.oid
+    join pg_namespace n on t.relnamespace = n.oid
+    where n.nspname = 'public'
+      and t.relname = 'user_notifications'
+      and c.contype = 'c'
+      and pg_get_constraintdef(c.oid) ~* '\ytype\y'
+  loop
+    execute format('alter table public.user_notifications drop constraint %I', r.conname);
+  end loop;
+  alter table public.user_notifications
+    add constraint user_notifications_type_check check (
+      type in (
+        'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
+        'guestbook', 'gift', 'gift_beg', 'shop_sale'
+      )
+    );
+end $$;
+
 create or replace function public.purchase_shop_listing(p_listing_id text)
 returns jsonb
 language plpgsql
@@ -13,6 +42,7 @@ as $$
 declare
   v_row public.shop_listings%rowtype;
   v_buyer uuid := auth.uid();
+  v_buyer_nickname text;
   v_buyer_coins integer;
   v_seller_coins integer;
   v_buyer_items jsonb;
@@ -24,6 +54,10 @@ begin
   if v_buyer is null then
     raise exception 'not authenticated';
   end if;
+
+  select nickname into v_buyer_nickname
+  from public.profiles
+  where id = v_buyer;
 
   select * into v_row
   from public.shop_listings
@@ -99,6 +133,27 @@ begin
     coins = v_seller_coins,
     updated_at = v_now
   where user_id = v_row.seller_id;
+
+  if to_regclass('public.user_notifications') is not null then
+    insert into public.user_notifications (
+      user_id, type, actor_id, actor_nickname, message, content, source_key, created_at
+    ) values (
+      v_row.seller_id,
+      'shop_sale',
+      v_buyer,
+      coalesce(nullif(v_buyer_nickname, ''), '사용자'),
+      format(
+        '%s님이 %s을(를) 구매해 %s 클로버를 벌었어요 🍀',
+        coalesce(nullif(v_buyer_nickname, ''), '사용자'),
+        coalesce(nullif(v_row.item_snapshot->>'label', ''), '아이템'),
+        v_row.price
+      ),
+      format('판매 수익 +%s 클로버', v_row.price),
+      'shop-sale:' || v_row.id || ':' || v_buyer::text,
+      v_now
+    )
+    on conflict (source_key) do nothing;
+  end if;
 
   return jsonb_build_object(
     'id', v_row.id,

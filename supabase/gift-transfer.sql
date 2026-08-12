@@ -50,7 +50,7 @@ begin
     add constraint user_notifications_type_check check (
       type in (
         'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
-        'guestbook', 'gift', 'gift_beg'
+        'guestbook', 'gift', 'gift_beg', 'shop_sale'
       )
     );
 end $$;
@@ -285,7 +285,7 @@ begin
   v_source_key := 'gift-item:' || v_gift_id::text;
   v_notif_message :=
     coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음')
-    || '님이 ' || v_item_label || '을(를) 선물했어요 🎁';
+    || '님에게서 아이템 ''' || v_item_label || '''을 선물받았습니다.';
 
   if to_regclass('public.user_notifications') is not null then
     insert into public.user_notifications (

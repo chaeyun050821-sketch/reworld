@@ -238,6 +238,7 @@ import {
   saveMiniroomData,
   mergeMiniroomData,
   hasMiniroomSelections,
+  ROOM_BACK_LAYER,
   ROOM_NON_DRAGGABLE,
   DEFAULT_ROOM_AVATAR_POSITION,
   EMPTY_MINIROOM_DATA,
@@ -260,8 +261,10 @@ import {
   type RoomItemOffset,
   type RoomAvatarPosition,
   type MiniroomData,
+  type CatalogPlacement,
   type InventoryPlacement,
   type PixelRect,
+  type RoomInteriorItem,
   type AvatarItem,
   defaultInventoryPlacement,
 } from "./data";
@@ -381,7 +384,50 @@ function hitTestInventoryPlacement(
       point.y >= placement.y &&
       point.y <= placement.y + placement.h
     ) {
-      return placement.itemId;
+      return placement.id;
+    }
+  }
+  return null;
+}
+
+function resolveCatalogPlacements(
+  placements: CatalogPlacement[],
+  lookup: RoomItemLookup = getItemById,
+) {
+  return placements
+    .map((placement) => {
+      const item = lookup(placement.itemId);
+      if (!item || !roomItemHasVisual(item)) return null;
+      const bounds = itemVisualBounds(item);
+      return {
+        placement,
+        item,
+        depth: (bounds?.y ?? 0) + (bounds?.h ?? 0) + placement.y,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => !!entry)
+    .sort((a, b) => {
+      const aBack = ROOM_BACK_LAYER.includes(a.item.categoryId);
+      const bBack = ROOM_BACK_LAYER.includes(b.item.categoryId);
+      if (aBack !== bBack) return aBack ? -1 : 1;
+      return aBack ? a.item.layer - b.item.layer || a.depth - b.depth : a.depth - b.depth;
+    });
+}
+
+function hitTestCatalogPlacement(
+  point: { x: number; y: number },
+  placements: CatalogPlacement[],
+  lookup: RoomItemLookup = getItemById,
+): string | null {
+  const resolved = resolveCatalogPlacements(placements, lookup);
+  for (let i = resolved.length - 1; i >= 0; i--) {
+    const { placement, item } = resolved[i];
+    const bounds = itemVisualBounds(item);
+    if (!bounds) continue;
+    const bx = bounds.x + placement.x;
+    const by = bounds.y + placement.y;
+    if (point.x >= bx && point.x <= bx + bounds.w && point.y >= by && point.y <= by + bounds.h) {
+      return placement.id;
     }
   }
   return null;
@@ -429,6 +475,7 @@ function MiniRoomPreviewPanel({
 function RoomCanvas({
   selections,
   offsets = {},
+  catalogPlacements = [],
   inventoryPlacements = [],
   inventoryById,
   style,
@@ -443,11 +490,13 @@ function RoomCanvas({
   highlightCategory,
   roomItemLookup = getItemById,
   onItemOffsetChange,
+  onCatalogPlacementChange,
   onInventoryPlacementChange,
   onAvatarPositionChange,
 }: {
   selections?: RoomSelections;
   offsets?: Partial<Record<RoomCategoryId, RoomItemOffset>>;
+  catalogPlacements?: CatalogPlacement[];
   inventoryPlacements?: InventoryPlacement[];
   inventoryById?: Map<string, HandMadeItem>;
   style?: CSSProperties;
@@ -462,13 +511,15 @@ function RoomCanvas({
   highlightCategory?: RoomCategoryId | null;
   roomItemLookup?: RoomItemLookup;
   onItemOffsetChange?: (categoryId: RoomCategoryId, offset: RoomItemOffset) => void;
-  onInventoryPlacementChange?: (itemId: string, position: Pick<InventoryPlacement, "x" | "y">) => void;
+  onCatalogPlacementChange?: (placementId: string, offset: RoomItemOffset) => void;
+  onInventoryPlacementChange?: (placementId: string, position: Pick<InventoryPlacement, "x" | "y">) => void;
   onAvatarPositionChange?: (position: RoomAvatarPosition) => void;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<
     | { kind: "item"; categoryId: RoomCategoryId; startX: number; startY: number; baseX: number; baseY: number }
-    | { kind: "inventory"; itemId: string; startX: number; startY: number; baseX: number; baseY: number }
+    | { kind: "catalog"; placementId: string; itemId: string; startX: number; startY: number; baseX: number; baseY: number }
+    | { kind: "inventory"; placementId: string; startX: number; startY: number; baseX: number; baseY: number }
     | { kind: "avatar"; startX: number; baseX: number }
     | null
   >(null);
@@ -494,6 +545,13 @@ function RoomCanvas({
     })),
     [inventoryPlacements],
   );
+  const boundedCatalogPlacements = useMemo(
+    () => catalogPlacements.map((placement) => ({
+      ...placement,
+      ...clampRoomItemOffset(placement.itemId, placement, roomItemLookup),
+    })),
+    [catalogPlacements, roomItemLookup],
+  );
 
   const finishDrag = () => {
     dragRef.current = null;
@@ -517,13 +575,32 @@ function RoomCanvas({
     }
 
     if (editableItems && selections) {
-      const inventoryItemId = hitTestInventoryPlacement(point, boundedInventoryPlacements);
-      if (inventoryItemId && onInventoryPlacementChange) {
-        const placement = boundedInventoryPlacements.find(entry => entry.itemId === inventoryItemId);
+      const inventoryPlacementId = hitTestInventoryPlacement(point, boundedInventoryPlacements);
+      if (inventoryPlacementId && onInventoryPlacementChange) {
+        const placement = boundedInventoryPlacements.find(entry => entry.id === inventoryPlacementId);
         if (placement) {
           dragRef.current = {
             kind: "inventory",
-            itemId: inventoryItemId,
+            placementId: inventoryPlacementId,
+            startX: point.x,
+            startY: point.y,
+            baseX: placement.x,
+            baseY: placement.y,
+          };
+          stage.setPointerCapture(event.pointerId);
+          event.preventDefault();
+          return;
+        }
+      }
+
+      const catalogPlacementId = hitTestCatalogPlacement(point, boundedCatalogPlacements, roomItemLookup);
+      if (catalogPlacementId && onCatalogPlacementChange) {
+        const placement = boundedCatalogPlacements.find(entry => entry.id === catalogPlacementId);
+        if (placement) {
+          dragRef.current = {
+            kind: "catalog",
+            placementId: catalogPlacementId,
+            itemId: placement.itemId,
             startX: point.x,
             startY: point.y,
             baseX: placement.x,
@@ -559,12 +636,19 @@ function RoomCanvas({
         x: Math.round(drag.baseX + dx),
         y: Math.round(drag.baseY + dy),
       }, roomItemLookup));
+    } else if (drag.kind === "catalog" && onCatalogPlacementChange) {
+      const dx = point.x - drag.startX;
+      const dy = point.y - drag.startY;
+      onCatalogPlacementChange(drag.placementId, clampRoomItemOffset(drag.itemId, {
+        x: Math.round(drag.baseX + dx),
+        y: Math.round(drag.baseY + dy),
+      }, roomItemLookup));
     } else if (drag.kind === "inventory" && onInventoryPlacementChange) {
       const dx = point.x - drag.startX;
       const dy = point.y - drag.startY;
-      const placement = boundedInventoryPlacements.find((entry) => entry.itemId === drag.itemId);
+      const placement = boundedInventoryPlacements.find((entry) => entry.id === drag.placementId);
       if (!placement) return;
-      onInventoryPlacementChange(drag.itemId, clampInventoryPlacementPosition(placement, {
+      onInventoryPlacementChange(drag.placementId, clampInventoryPlacementPosition(placement, {
         x: Math.round(drag.baseX + dx),
         y: Math.round(drag.baseY + dy),
       }));
@@ -604,6 +688,7 @@ function RoomCanvas({
         <MiniRoom
           selections={selections}
           offsets={boundedOffsets}
+          catalogPlacements={boundedCatalogPlacements}
           highlightCategory={highlightCategory}
           roomItemLookup={roomItemLookup}
           inventoryPlacements={boundedInventoryPlacements}
@@ -2336,6 +2421,7 @@ function PixelRects({ pixels }: { pixels: PixelRect[] }) {
 function MiniRoom({
   selections = EMPTY_ROOM_SELECTIONS,
   offsets = {},
+  catalogPlacements = [],
   highlightCategory = null,
   roomItemLookup = getItemById,
   inventoryPlacements = [],
@@ -2344,6 +2430,7 @@ function MiniRoom({
 }: {
   selections?: RoomSelections;
   offsets?: Partial<Record<RoomCategoryId, RoomItemOffset>>;
+  catalogPlacements?: CatalogPlacement[];
   highlightCategory?: RoomCategoryId | null;
   roomItemLookup?: RoomItemLookup;
   inventoryPlacements?: InventoryPlacement[];
@@ -2434,13 +2521,43 @@ function MiniRoom({
           </g>
         );
       })}
+      {resolveCatalogPlacements(catalogPlacements, roomItemLookup).map(({ placement, item }) => (
+        <g
+          key={placement.id}
+          transform={`translate(${placement.x} ${placement.y})`}
+        >
+          {item.raster && (
+            <image
+              href={item.raster.src}
+              x={item.raster.x}
+              y={item.raster.y}
+              width={item.raster.width}
+              height={item.raster.height}
+              preserveAspectRatio="xMidYMid meet"
+              style={{ imageRendering: "pixelated" }}
+            />
+          )}
+          <PixelRects pixels={item.pixels} />
+          {item.imageSrc && item.imageBounds && (
+            <image
+              href={item.imageSrc}
+              x={item.imageBounds.x}
+              y={item.imageBounds.y}
+              width={item.imageBounds.w}
+              height={item.imageBounds.h}
+              preserveAspectRatio="xMidYMax meet"
+              style={{ imageRendering: "pixelated" }}
+            />
+          )}
+        </g>
+      ))}
       {inventoryPlacements.map(placement => {
         const item = inventoryById?.get(placement.itemId);
         const imageSrc = item ? resolveHandMadeItemImageUrl(item) : undefined;
         if (!imageSrc) return null;
         return (
           <image
-            key={`inv-${placement.itemId}`}
+            key={placement.id}
             href={imageSrc}
             x={placement.x}
             y={placement.y}
@@ -2450,6 +2567,57 @@ function MiniRoom({
           />
         );
       })}
+    </svg>
+  );
+}
+
+/** Miniroom picker thumbnail rendered from the exact room asset instead of a loose emoji. */
+function RoomItemThumbnail({ item, size = 32 }: { item: RoomInteriorItem; size?: number }) {
+  const bounds = itemRenderBounds(item);
+  if (!bounds) {
+    return (
+      <span
+        aria-hidden
+        style={{ fontFamily: FONT_UI, fontSize: Math.round(size * 0.52), fontWeight: 800, color: "#9aa8a0" }}
+      >
+        ×
+      </span>
+    );
+  }
+
+  const padding = Math.max(2, Math.max(bounds.w, bounds.h) * 0.08);
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`${bounds.x - padding} ${bounds.y - padding} ${bounds.w + padding * 2} ${bounds.h + padding * 2}`}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden
+      style={{ display: "block", imageRendering: "pixelated", overflow: "visible" }}
+    >
+      {item.raster && (
+        <image
+          href={item.raster.src}
+          x={item.raster.x}
+          y={item.raster.y}
+          width={item.raster.width}
+          height={item.raster.height}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ imageRendering: "pixelated" }}
+        />
+      )}
+      <PixelRects pixels={item.pixels} />
+      {item.imageSrc && item.imageBounds && (
+        <image
+          href={item.imageSrc}
+          x={item.imageBounds.x}
+          y={item.imageBounds.y}
+          width={item.imageBounds.w}
+          height={item.imageBounds.h}
+          preserveAspectRatio="xMidYMax meet"
+          style={{ imageRendering: "pixelated" }}
+        />
+      )}
     </svg>
   );
 }
@@ -8757,18 +8925,48 @@ function MiniRoomPage({
     () => new Map(inventoryRoomItems.map(item => [item.id, item])),
     [inventoryRoomItems],
   );
+  const catalogPlacements = miniroomData.catalogPlacements ?? [];
   const inventoryPlacements = miniroomData.inventoryPlacements ?? [];
 
   const showingMyItems = activeCategory === "my-items";
   const categoryItems = showingMyItems ? [] : getItemsByCategory(activeCategory);
-  const selectedInCategory = showingMyItems
-    ? null
-    : selections[activeCategory];
+  const selectedInCategory = showingMyItems ? null : selections[activeCategory];
 
   const selectItem = (itemId: string) => {
     if (activeCategory === "my-items") return;
     const categoryId = activeCategory;
+    const item = getItemById(itemId);
+    if (!item) return;
     setMiniroomData((prev) => {
+      if (!ROOM_NON_DRAGGABLE.includes(categoryId)) {
+        const placements = prev.catalogPlacements ?? [];
+        if (!roomItemHasVisual(item)) {
+          return {
+            ...prev,
+            catalogPlacements: placements.filter((placement) =>
+              getItemById(placement.itemId)?.categoryId !== categoryId
+            ),
+          };
+        }
+        const duplicateCount = placements.filter((placement) => placement.itemId === itemId).length;
+        const stagger = [0, 14, -14, 28, -28][duplicateCount % 5];
+        const offset = clampRoomItemOffset(itemId, {
+          x: stagger,
+          y: Math.floor(duplicateCount / 5) * 10,
+        });
+        return {
+          ...prev,
+          catalogPlacements: [
+            ...placements,
+            {
+              id: `catalog-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+              itemId,
+              ...offset,
+            },
+          ],
+        };
+      }
+
       const isDeselect = prev.selections[categoryId] === itemId;
       const nextSelections = {
         ...prev.selections,
@@ -8783,21 +8981,32 @@ function MiniRoomPage({
     });
   };
 
-  const toggleInventoryPlacement = (item: HandMadeItem) => {
+  const addInventoryPlacement = (item: HandMadeItem) => {
     if (!canPlaceAsInventoryDecor(item)) return;
     setMiniroomData((prev) => {
       const placements = prev.inventoryPlacements ?? [];
-      const existingIndex = placements.findIndex(placement => placement.itemId === item.id);
-      if (existingIndex >= 0) {
-        return {
-          ...prev,
-          inventoryPlacements: placements.filter((_, index) => index !== existingIndex),
-        };
-      }
       return {
         ...prev,
         inventoryPlacements: [...placements, defaultInventoryPlacement(item.id, placements.length)],
       };
+    });
+  };
+
+  const removeLastCatalogPlacement = (itemId: string) => {
+    setMiniroomData((prev) => {
+      const placements = prev.catalogPlacements ?? [];
+      const index = placements.map((placement) => placement.itemId).lastIndexOf(itemId);
+      if (index < 0) return prev;
+      return { ...prev, catalogPlacements: placements.filter((_, placementIndex) => placementIndex !== index) };
+    });
+  };
+
+  const removeLastInventoryPlacement = (itemId: string) => {
+    setMiniroomData((prev) => {
+      const placements = prev.inventoryPlacements ?? [];
+      const index = placements.map((placement) => placement.itemId).lastIndexOf(itemId);
+      if (index < 0) return prev;
+      return { ...prev, inventoryPlacements: placements.filter((_, placementIndex) => placementIndex !== index) };
     });
   };
 
@@ -8812,6 +9021,7 @@ function MiniRoomPage({
   };
 
   const hasAnySelection =
+    catalogPlacements.length > 0 ||
     inventoryPlacements.length > 0 ||
     (Object.keys(selections) as RoomCategoryId[]).some((categoryId) => {
       const id = selections[categoryId];
@@ -8850,7 +9060,7 @@ function MiniRoomPage({
             </button>
           )}
           <span style={{ fontFamily: FONT_UI, fontSize: "0.45rem", color: "#80b0a0" }}>
-            카테고리 선택 → 아이템 교체 · 드래그로 위치 조정
+            아이템을 누를 때마다 추가 · −로 하나씩 제거 · 드래그로 이동
           </span>
         </div>
       </div>
@@ -8864,6 +9074,7 @@ function MiniRoomPage({
         <RoomCanvas
           selections={selections}
           offsets={miniroomData.offsets}
+          catalogPlacements={catalogPlacements}
           inventoryPlacements={inventoryPlacements}
           inventoryById={inventoryById}
           fillHeight
@@ -8874,11 +9085,19 @@ function MiniRoomPage({
               offsets: { ...prev.offsets, [categoryId]: offset },
             }));
           }}
-          onInventoryPlacementChange={(itemId, position) => {
+          onCatalogPlacementChange={(placementId, offset) => {
+            setMiniroomData((prev) => ({
+              ...prev,
+              catalogPlacements: (prev.catalogPlacements ?? []).map(placement =>
+                placement.id === placementId ? { ...placement, ...offset } : placement,
+              ),
+            }));
+          }}
+          onInventoryPlacementChange={(placementId, position) => {
             setMiniroomData((prev) => ({
               ...prev,
               inventoryPlacements: (prev.inventoryPlacements ?? []).map(placement =>
-                placement.itemId === itemId ? { ...placement, ...position } : placement,
+                placement.id === placementId ? { ...placement, ...position } : placement,
               ),
             }));
           }}
@@ -8910,6 +9129,9 @@ function MiniRoomPage({
           {ROOM_CATEGORIES.map((cat) => {
             const on = activeCategory === cat.id;
             const filled = (() => {
+              if (catalogPlacements.some((placement) => getItemById(placement.itemId)?.categoryId === cat.id)) {
+                return true;
+              }
               const id = selections[cat.id];
               if (!id) return false;
               const item = resolveSelectionItem(cat.id, id);
@@ -8958,64 +9180,103 @@ function MiniRoomPage({
             ) : (
               inventoryRoomItems.map((item) => {
                 const placeable = canPlaceAsInventoryDecor(item);
-                const on = inventoryPlacements.some(placement => placement.itemId === item.id);
+                const count = inventoryPlacements.filter(placement => placement.itemId === item.id).length;
+                const on = count > 0;
                 return (
-                  <motion.button
-                    key={item.id}
-                    onClick={() => toggleInventoryPlacement(item)}
-                    className="flex-shrink-0 flex flex-col items-center gap-0.5 w-11"
-                    whileTap={placeable ? { scale: 0.92 } : undefined}
-                    title={placeable ? item.label : `${item.label} (배치 불가)`}
-                    style={{ opacity: placeable ? 1 : 0.55, cursor: placeable ? "pointer" : "default" }}
-                  >
-                    <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center transition-transform overflow-hidden"
-                      style={{
-                        background: on ? `${item.color}33` : "rgba(124,58,237,0.08)",
-                        border: on ? `2px solid ${item.color}` : "1.5px solid rgba(124,58,237,0.2)",
-                        transform: on ? "scale(1.08)" : undefined,
-                      }}
+                  <div key={item.id} className="relative flex-shrink-0 w-11">
+                    <motion.button
+                      type="button"
+                      onClick={() => addInventoryPlacement(item)}
+                      className="flex flex-col items-center gap-0.5 w-11"
+                      whileTap={placeable ? { scale: 0.92 } : undefined}
+                      title={placeable ? `${item.label} 하나 더 추가` : `${item.label} (배치 불가)`}
+                      style={{ opacity: placeable ? 1 : 0.55, cursor: placeable ? "pointer" : "default" }}
                     >
-                      <HandMadeItemPreview item={item} size={32} />
-                    </div>
-                    <span style={{
-                      fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: on ? 700 : 500,
-                      color: on ? item.color : "#6a4090", whiteSpace: "nowrap", maxWidth: 48, overflow: "hidden", textOverflow: "ellipsis",
-                    }}>
-                      {item.label}
-                    </span>
-                  </motion.button>
+                      <div
+                        className="relative w-10 h-10 rounded-lg flex items-center justify-center transition-transform overflow-hidden"
+                        style={{
+                          background: on ? `${item.color}33` : "rgba(124,58,237,0.08)",
+                          border: on ? `2px solid ${item.color}` : "1.5px solid rgba(124,58,237,0.2)",
+                          transform: on ? "scale(1.04)" : undefined,
+                        }}
+                      >
+                        <HandMadeItemPreview item={item} size={32} />
+                        {count > 0 && (
+                          <span className="absolute top-0 left-0 px-1 rounded-br-md" style={{ fontFamily: FONT_UI, fontSize: "0.34rem", fontWeight: 900, color: "white", background: item.color }}>
+                            {count}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{
+                        fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: on ? 700 : 500,
+                        color: on ? item.color : "#6a4090", whiteSpace: "nowrap", maxWidth: 48, overflow: "hidden", textOverflow: "ellipsis",
+                      }}>
+                        {item.label}
+                      </span>
+                    </motion.button>
+                    {count > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => removeLastInventoryPlacement(item.id)}
+                        title={`${item.label} 하나 제거`}
+                        className="absolute -top-1 -right-1 rounded-full flex items-center justify-center"
+                        style={{ width: 14, height: 14, fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900, color: "white", background: "#7c3aed", boxShadow: "0 1px 4px rgba(70,30,120,0.25)" }}
+                      >
+                        −
+                      </button>
+                    )}
+                  </div>
                 );
               })
             )
           ) : (
           categoryItems.map((item) => {
-            const on = selectedInCategory === item.id;
+            const isSurface = ROOM_NON_DRAGGABLE.includes(item.categoryId);
+            const count = catalogPlacements.filter(placement => placement.itemId === item.id).length;
+            const on = isSurface ? selectedInCategory === item.id : count > 0;
             return (
-              <motion.button
-                key={item.id}
-                onClick={() => selectItem(item.id)}
-                className="flex-shrink-0 flex flex-col items-center gap-0.5 w-11"
-                whileTap={{ scale: 0.92 }}
-                title={item.label}
-              >
-                <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center transition-transform"
-                  style={{
-                    background: on ? `${item.color}33` : "rgba(128,224,176,0.08)",
-                    border: on ? `2px solid ${item.color}` : "1.5px solid rgba(128,224,176,0.2)",
-                    transform: on ? "scale(1.08)" : undefined,
-                  }}
+              <div key={item.id} className="relative flex-shrink-0 w-11">
+                <motion.button
+                  type="button"
+                  onClick={() => selectItem(item.id)}
+                  className="flex flex-col items-center gap-0.5 w-11"
+                  whileTap={{ scale: 0.92 }}
+                  title={isSurface ? item.label : roomItemHasVisual(item) ? `${item.label} 하나 더 추가` : `${item.categoryId === "rug" ? "러그" : "아이템"} 모두 비우기`}
                 >
-                  <span style={{ fontSize: 18 }}>{item.preview}</span>
-                </div>
-                <span style={{
-                  fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: on ? 700 : 500,
-                  color: on ? item.color : "#508870", whiteSpace: "nowrap", maxWidth: 48, overflow: "hidden", textOverflow: "ellipsis",
-                }}>
-                  {item.label}
-                </span>
-              </motion.button>
+                  <div
+                    className="relative w-10 h-10 rounded-lg flex items-center justify-center transition-transform overflow-hidden"
+                    style={{
+                      background: on ? `${item.color}33` : "rgba(128,224,176,0.08)",
+                      border: on ? `2px solid ${item.color}` : "1.5px solid rgba(128,224,176,0.2)",
+                      transform: on ? "scale(1.04)" : undefined,
+                    }}
+                  >
+                    <RoomItemThumbnail item={item} size={32} />
+                    {!isSurface && count > 0 && (
+                      <span className="absolute top-0 left-0 px-1 rounded-br-md" style={{ fontFamily: FONT_UI, fontSize: "0.34rem", fontWeight: 900, color: "white", background: item.color }}>
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                  <span style={{
+                    fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: on ? 700 : 500,
+                    color: on ? item.color : "#508870", whiteSpace: "nowrap", maxWidth: 48, overflow: "hidden", textOverflow: "ellipsis",
+                  }}>
+                    {item.label}
+                  </span>
+                </motion.button>
+                {!isSurface && count > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => removeLastCatalogPlacement(item.id)}
+                    title={`${item.label} 하나 제거`}
+                    className="absolute -top-1 -right-1 rounded-full flex items-center justify-center"
+                    style={{ width: 14, height: 14, fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 900, color: "white", background: "#40b080", boxShadow: "0 1px 4px rgba(30,110,80,0.25)" }}
+                  >
+                    −
+                  </button>
+                )}
+              </div>
             );
           })
           )}
@@ -10611,7 +10872,7 @@ function FriendVisitShopPanel({
     }
 
     setBuyingId(listing.id);
-    const result = await completePlayerShopPurchase(buyer.id, listing.id);
+    const result = await completePlayerShopPurchase(buyer.id, buyer.nickname, listing.id);
     if (!result.ok) {
       showToast(result.error);
       setBuyingId(null);
@@ -11104,6 +11365,7 @@ function FriendVisitPage({
               <RoomCanvas
                 selections={friendRoom.selections}
                 offsets={friendRoom.offsets}
+                catalogPlacements={friendRoom.catalogPlacements ?? []}
                 standingAvatar={displayAvatar ?? DEFAULT_AVATAR_PROFILE}
                 avatarPosition={friendRoom.avatarPosition}
                 inventoryPlacements={friendRoom.inventoryPlacements ?? []}
@@ -12147,6 +12409,7 @@ function HomeRightPage({
         <RoomCanvas
           selections={miniroomData.selections}
           offsets={miniroomData.offsets}
+          catalogPlacements={miniroomData.catalogPlacements ?? []}
           inventoryPlacements={miniroomData.inventoryPlacements ?? []}
           inventoryById={homeInventoryById}
           fillHeight
@@ -12385,8 +12648,10 @@ function NotificationRow({
 }) {
   const isActionable =
     showActions &&
-    (notification.type === "friend_request" || notification.type === "ilchon_request") &&
-    notification.requestId;
+    (((notification.type === "friend_request" || notification.type === "ilchon_request") && notification.requestId) ||
+      (notification.type === "gift_beg" && notification.actorId && notification.itemId));
+  const actionKey = notification.requestId ?? notification.id;
+  const isGiftBeg = notification.type === "gift_beg";
 
   return (
     <div
@@ -12419,26 +12684,26 @@ function NotificationRow({
             <button
               type="button"
               onClick={() => onReject(notification)}
-              disabled={busyRequestId === notification.requestId}
+              disabled={busyRequestId === actionKey}
               className="px-2 py-0.5 rounded-lg"
               style={{
                 fontFamily: FONT_UI, fontSize: "0.4rem", fontWeight: 700,
                 color: "var(--diary-dark)", background: "rgba(var(--diary-mid-rgb),0.12)",
               }}
             >
-              거절
+              {isGiftBeg ? "거절하기" : "거절"}
             </button>
             <button
               type="button"
               onClick={() => onAccept(notification)}
-              disabled={busyRequestId === notification.requestId}
+              disabled={busyRequestId === actionKey}
               className="px-2 py-0.5 rounded-lg text-white"
               style={{
                 fontFamily: FONT_UI, fontSize: "0.4rem", fontWeight: 700,
                 background: "linear-gradient(90deg, #ff4757, #ff6b81)",
               }}
             >
-              {busyRequestId === notification.requestId ? "..." : "수락"}
+              {busyRequestId === actionKey ? "..." : isGiftBeg ? "선물하기" : "수락"}
             </button>
           </div>
         )}
@@ -12542,6 +12807,7 @@ function HomeNotificationsSection({ user }: { user: User }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
   const [pendingIlchonAccept, setPendingIlchonAccept] = useState<AppNotification | null>(null);
+  const [pendingBegGift, setPendingBegGift] = useState<AppNotification | null>(null);
   const [lastReadAt, setLastReadAt] = useState<string | null>(() => getLastReadAt(user.id));
 
   const unreadCount = countUnreadNotifications(notifications, user.id, lastReadAt);
@@ -12602,6 +12868,11 @@ function HomeNotificationsSection({ user }: { user: User }) {
   }, [showList, notifications, user.id]);
 
   const handleAccept = async (notification: AppNotification) => {
+    if (notification.type === "gift_beg") {
+      setPendingBegGift(notification);
+      setActionError(null);
+      return;
+    }
     if (notification.type === "ilchon_request") {
       setPendingIlchonAccept(notification);
       setActionError(null);
@@ -12624,11 +12895,24 @@ function HomeNotificationsSection({ user }: { user: User }) {
       return;
     }
     setPendingIlchonAccept(null);
-    await deleteNotification(notification.id);
+    await deleteNotification(notification.id, user.id);
     await refresh();
   };
 
   const handleReject = async (notification: AppNotification) => {
+    if (notification.type === "gift_beg") {
+      if (busyRequestId) return;
+      setBusyRequestId(notification.id);
+      setActionError(null);
+      const result = await deleteNotification(notification.id, user.id);
+      setBusyRequestId(null);
+      if (!result.ok) {
+        setActionError(result.error);
+        return;
+      }
+      await refresh();
+      return;
+    }
     if (!notification.requestId || busyRequestId) return;
     setBusyRequestId(notification.requestId);
     setActionError(null);
@@ -12647,7 +12931,7 @@ function HomeNotificationsSection({ user }: { user: User }) {
         return;
       }
     }
-    await deleteNotification(notification.id);
+    await deleteNotification(notification.id, user.id);
     await refresh();
   };
 
@@ -12702,6 +12986,23 @@ function HomeNotificationsSection({ user }: { user: User }) {
             if (!busyRequestId) setPendingIlchonAccept(null);
           }}
           onSubmit={(displayName) => void completeAccept(pendingIlchonAccept, displayName)}
+        />
+      )}
+      {pendingBegGift?.actorId && pendingBegGift.itemId && (
+        <GiftModal
+          user={user}
+          recipientId={pendingBegGift.actorId}
+          recipientNickname={pendingBegGift.actorNickname}
+          initialItemId={pendingBegGift.itemId}
+          itemsOnly
+          shopOnly
+          sourceLabel="내 상점"
+          onClose={() => setPendingBegGift(null)}
+          onSuccess={() => {
+            const completed = pendingBegGift;
+            setPendingBegGift(null);
+            void deleteNotification(completed.id, user.id).then(() => refresh());
+          }}
         />
       )}
     </>
@@ -13676,7 +13977,7 @@ function ShopPage({
     }
 
     setBuyingId(listing.id);
-    const result = await completePlayerShopPurchase(user.id, listing.id);
+    const result = await completePlayerShopPurchase(user.id, user.nickname, listing.id);
     if (!result.ok) {
       showToast(result.error);
       setBuyingId(null);

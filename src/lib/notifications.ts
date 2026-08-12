@@ -8,7 +8,8 @@ export type NotificationType =
   | "photo_comment"
   | "guestbook"
   | "gift"
-  | "gift_beg";
+  | "gift_beg"
+  | "shop_sale";
 
 export type AppNotification = {
   id: string;
@@ -125,6 +126,8 @@ function notificationIcon(type: NotificationType): string {
       return "🎁";
     case "gift_beg":
       return "🥺";
+    case "shop_sale":
+      return "🍀";
   }
 }
 
@@ -156,8 +159,16 @@ type NotificationRow = {
   content: string | null;
   request_id: string | null;
   photo_id: string | null;
+  source_key: string | null;
   created_at: string;
 };
+
+function itemIdFromSourceKey(row: NotificationRow): string | undefined {
+  if (row.type !== "gift_beg" || !row.source_key?.startsWith("gift_beg:")) return undefined;
+  const parts = row.source_key.split(":");
+  if (parts.length < 5) return undefined;
+  return parts.slice(3, -1).join(":") || undefined;
+}
 
 function mapRow(row: NotificationRow): AppNotification {
   return {
@@ -170,6 +181,7 @@ function mapRow(row: NotificationRow): AppNotification {
     requestId: row.request_id ?? undefined,
     photoId: row.photo_id ?? undefined,
     content: row.content ?? undefined,
+    itemId: itemIdFromSourceKey(row),
   };
 }
 
@@ -226,7 +238,7 @@ export async function loadNotifications(userId: string): Promise<AppNotification
 
   const { data, error } = await supabase
     .from("user_notifications")
-    .select("id, type, actor_id, actor_nickname, message, content, request_id, photo_id, created_at")
+    .select("id, type, actor_id, actor_nickname, message, content, request_id, photo_id, source_key, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -249,9 +261,9 @@ export async function loadNotifications(userId: string): Promise<AppNotification
   const remoteFingerprints = new Set(
     remote.map((row) => `${row.type}|${row.actorId ?? ""}|${row.message}`),
   );
-  // Keep same-browser gift / gift_beg rows that are not yet visible from Supabase.
+  // Keep same-browser gift / gift-beg / sale rows that are not yet visible from Supabase.
   const localExtras = loadLocal(userId).filter((row) => {
-    if (row.type !== "gift" && row.type !== "gift_beg") return false;
+    if (row.type !== "gift" && row.type !== "gift_beg" && row.type !== "shop_sale") return false;
     if (remoteIds.has(row.id)) return false;
     return !remoteFingerprints.has(`${row.type}|${row.actorId ?? ""}|${row.message}`);
   });
@@ -264,7 +276,11 @@ export async function loadNotifications(userId: string): Promise<AppNotification
 
 export async function deleteNotification(
   notificationId: string,
+  userId?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (userId) {
+    saveLocal(userId, loadLocal(userId).filter((notification) => notification.id !== notificationId));
+  }
   if (!isSupabaseConfigured()) {
     return { ok: true };
   }
@@ -401,4 +417,29 @@ export async function saveLocalNotification(
   const next = [item, ...current.filter((n) => n.id !== item.id)].slice(0, 50);
   saveLocal(userId, next);
   return item;
+}
+
+/** Same-browser fallback for seller earnings; the purchase RPC stores the remote copy. */
+export async function saveShopSaleNotification(args: {
+  sellerId: string;
+  buyerId: string;
+  buyerNickname: string;
+  itemLabel: string;
+  price: number;
+  listingId: string;
+}): Promise<AppNotification> {
+  const price = Math.max(0, Math.floor(args.price));
+  const notification = await saveLocalNotification(args.sellerId, {
+    id: `shop-sale-${args.listingId}-${args.buyerId}`,
+    type: "shop_sale",
+    actorId: args.buyerId,
+    actorNickname: args.buyerNickname,
+    message: `${args.buyerNickname}님이 ${args.itemLabel}을(를) 구매해 ${price} 클로버를 벌었어요 🍀`,
+    content: `판매 수익 +${price} 클로버`,
+    createdAt: new Date().toISOString(),
+  });
+  window.dispatchEvent(
+    new CustomEvent("reworld-notifications-changed", { detail: { userId: args.sellerId } }),
+  );
+  return notification;
 }

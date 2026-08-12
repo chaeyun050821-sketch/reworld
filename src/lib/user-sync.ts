@@ -28,6 +28,7 @@ function parseMiniroomRow(row: MiniroomRow): MiniroomData | null {
       selections: { ...EMPTY_ROOM_SELECTIONS, ...raw.selections },
       offsets: raw.offsets ?? {},
       avatarPosition: raw.avatarPosition ?? EMPTY_MINIROOM_DATA.avatarPosition,
+      catalogPlacements: raw.catalogPlacements ?? [],
       inventoryPlacements: raw.inventoryPlacements ?? [],
     };
   } else {
@@ -39,6 +40,9 @@ function parseMiniroomRow(row: MiniroomRow): MiniroomData | null {
       selections: { ...EMPTY_ROOM_SELECTIONS, ...selectionEntries },
       offsets: (legacy.offsets as MiniroomData["offsets"]) ?? {},
       avatarPosition: legacy.avatarPosition ?? EMPTY_MINIROOM_DATA.avatarPosition,
+      catalogPlacements: Array.isArray((legacy as MiniroomData).catalogPlacements)
+        ? (legacy as MiniroomData).catalogPlacements
+        : [],
       inventoryPlacements: Array.isArray((legacy as MiniroomData).inventoryPlacements)
         ? (legacy as MiniroomData).inventoryPlacements
         : [],

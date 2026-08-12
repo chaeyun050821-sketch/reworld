@@ -9,10 +9,13 @@ import {
   parseOriginalItemIdFromPurchasedId,
   saveCoins,
   saveHandMadeItems,
+  saveMyListings,
   saveOwnedListingIds,
+  type ShopListing,
   type HandMadeItem,
 } from "./shop-storage";
 import { syncBuyerInventoryFromServer } from "./shop-sync";
+import { publishShopListing, removeShopListingsForItem } from "./shop-sync";
 import { isSupabaseConfigured, supabase } from "./supabase";
 import { upsertUserInventory, fetchUserInventory } from "./user-sync";
 
@@ -112,14 +115,32 @@ export function getGiftableInventoryItems(userId: string): HandMadeItem[] {
   return loadMyInventory(userId).filter((item) => !listedItemIds.has(item.id));
 }
 
-export async function loadUnifiedGiftSnapshot(userId: string): Promise<UnifiedGiftSnapshot> {
+export async function loadUnifiedGiftSnapshot(
+  userId: string,
+  options: { shopOnly?: boolean } = {},
+): Promise<UnifiedGiftSnapshot> {
   const remote = supportsRemoteGift(userId);
   if (remote) await syncBuyerInventoryFromServer(userId, { authoritativeCoins: true });
+  const listedIds = new Set(loadMyListings(userId).map((listing) => listing.itemId));
   return {
     coins: loadCoins(userId),
-    items: getGiftableInventoryItems(userId),
+    items: options.shopOnly
+      ? loadMyInventory(userId).filter((item) => listedIds.has(item.id))
+      : getGiftableInventoryItems(userId),
     remote,
   };
+}
+
+async function restoreGiftListings(
+  userId: string,
+  nickname: string,
+  item: HandMadeItem,
+  previous: ShopListing[],
+): Promise<void> {
+  saveMyListings(userId, previous);
+  const matching = previous.filter((listing) => listing.itemId === item.id);
+  if (!matching.length || !isSupabaseConfigured()) return;
+  await Promise.all(matching.map((listing) => publishShopListing(userId, nickname, listing, item)));
 }
 
 function mapGiftRpcError(message: string): string {
@@ -198,10 +219,18 @@ export async function sendUnifiedItemGift(args: {
   itemId: string;
   message: string;
   preferRemote: boolean;
+  allowListed?: boolean;
 }): Promise<UnifiedGiftResult> {
   if (args.senderId === args.recipientId) return { ok: false, error: "나에게는 선물할 수 없어요." };
-  const item = getGiftableInventoryItems(args.senderId).find((entry) => entry.id === args.itemId);
+  const item = (args.allowListed ? loadMyInventory(args.senderId) : getGiftableInventoryItems(args.senderId))
+    .find((entry) => entry.id === args.itemId);
   if (!item) return { ok: false, error: "선물 가능한 아이템을 찾지 못했어요." };
+
+  const previousListings = loadMyListings(args.senderId);
+  const itemIsListed = previousListings.some((listing) => listing.itemId === args.itemId);
+  if (itemIsListed && !args.allowListed) {
+    return { ok: false, error: "판매 중인 아이템은 먼저 내려 주세요." };
+  }
 
   const canRemote =
     args.preferRemote &&
@@ -215,12 +244,20 @@ export async function sendUnifiedItemGift(args: {
       return { ok: false, error: push.error || "인벤토리 동기화에 실패했어요." };
     }
 
+    if (itemIsListed) {
+      const unlisted = await removeShopListingsForItem(args.senderId, args.itemId);
+      if (!unlisted.ok) return { ok: false, error: unlisted.error || "상점 아이템을 내리지 못했어요." };
+    }
+
     const { data, error } = await supabase.rpc("send_unified_inventory_item_gift", {
       p_recipient_id: args.recipientId,
       p_item_id: args.itemId,
       p_message: args.message.trim() || null,
     });
-    if (error) return { ok: false, error: mapGiftRpcError(error.message) };
+    if (error) {
+      if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
+      return { ok: false, error: mapGiftRpcError(error.message) };
+    }
 
     const payload = data as {
       ok?: boolean;
@@ -229,12 +266,13 @@ export async function sendUnifiedItemGift(args: {
       notificationMessage?: string;
     } | null;
     if (payload && payload.ok === false) {
+      if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
       return { ok: false, error: mapGiftRpcError(payload.error || "선물에 실패했어요.") };
     }
 
     const notifMessage =
       payload?.notificationMessage ||
-      `${args.senderNickname}님이 ${item.label}을(를) 선물했어요 🎁`;
+      `${args.senderNickname}님에게서 아이템 '${item.label}'을 선물받았습니다.`;
     await ensureGiftNotification({
       recipientId: args.recipientId,
       senderId: args.senderId,
@@ -250,8 +288,16 @@ export async function sendUnifiedItemGift(args: {
     return { ok: true, message: `${item.label}을(를) 선물했어요.` };
   }
 
+  if (itemIsListed) {
+    const unlisted = await removeShopListingsForItem(args.senderId, args.itemId);
+    if (!unlisted.ok) return { ok: false, error: unlisted.error || "상점 아이템을 내리지 못했어요." };
+  }
+
   const local = applyLocalItemTransfer(args.senderId, args.recipientId, args.itemId);
-  if (!local.ok) return local;
+  if (!local.ok) {
+    if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
+    return local;
+  }
 
   // Same-browser / demo: persist sender side if remote is available for sender only.
   if (supportsRemoteGift(args.senderId)) {
@@ -262,7 +308,7 @@ export async function sendUnifiedItemGift(args: {
     recipientId: args.recipientId,
     senderId: args.senderId,
     senderNickname: args.senderNickname,
-    message: `${args.senderNickname}님이 ${item.label}을(를) 선물했어요 🎁`,
+    message: `${args.senderNickname}님에게서 아이템 '${item.label}'을 선물받았습니다.`,
     content: args.message.trim() || undefined,
     preferRemote: false,
   });

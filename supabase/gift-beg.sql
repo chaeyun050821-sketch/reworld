@@ -27,7 +27,7 @@ begin
     add constraint user_notifications_type_check check (
       type in (
         'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
-        'guestbook', 'gift', 'gift_beg'
+        'guestbook', 'gift', 'gift_beg', 'shop_sale'
       )
     );
 exception
@@ -59,7 +59,27 @@ begin
   select nickname into my_nickname from public.profiles where id = me;
   if my_nickname is null then my_nickname := '친구'; end if;
 
-  select label into item_label from public.shop_items where id = target_item_id and active = true;
+  if to_regclass('public.shop_listings') is not null then
+    select listing.item_snapshot->>'label'
+    into item_label
+    from public.shop_listings listing
+    where listing.seller_id = recipient_id
+      and listing.item_id = target_item_id
+      and listing.active = true
+    order by listing.listed_at desc
+    limit 1;
+  end if;
+
+  if item_label is null and to_regclass('public.user_inventory') is not null then
+    select entry.value->>'label'
+    into item_label
+    from public.user_inventory inventory
+    cross join lateral jsonb_array_elements(coalesce(inventory.items, '[]'::jsonb)) as entry(value)
+    where inventory.user_id = recipient_id
+      and entry.value->>'id' = target_item_id
+    limit 1;
+  end if;
+
   if item_label is null then
     item_label := target_item_id;
   end if;
@@ -72,7 +92,7 @@ begin
       'gift_beg',
       me,
       my_nickname,
-      my_nickname || '님이 ' || item_label || '을(를) 조르고 있어요 🥺',
+      my_nickname || '님이 아이템 ''' || item_label || '''를 요청합니다.',
       nullif(trim(coalesce(beg_message, '')), ''),
       'gift_beg:' || me::text || ':' || recipient_id::text || ':' || target_item_id || ':' || extract(epoch from now())::bigint::text
     );

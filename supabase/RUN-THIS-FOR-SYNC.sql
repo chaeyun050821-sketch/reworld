@@ -252,6 +252,7 @@ as $$
 declare
   v_row public.shop_listings%rowtype;
   v_buyer uuid := auth.uid();
+  v_buyer_nickname text;
   v_buyer_coins integer;
   v_seller_coins integer;
   v_buyer_items jsonb;
@@ -263,6 +264,10 @@ begin
   if v_buyer is null then
     raise exception 'not authenticated';
   end if;
+
+  select nickname into v_buyer_nickname
+  from public.profiles
+  where id = v_buyer;
 
   select * into v_row
   from public.shop_listings
@@ -339,6 +344,27 @@ begin
     updated_at = v_now
   where user_id = v_row.seller_id;
 
+  if to_regclass('public.user_notifications') is not null then
+    insert into public.user_notifications (
+      user_id, type, actor_id, actor_nickname, message, content, source_key, created_at
+    ) values (
+      v_row.seller_id,
+      'shop_sale',
+      v_buyer,
+      coalesce(nullif(v_buyer_nickname, ''), '사용자'),
+      format(
+        '%s님이 %s을(를) 구매해 %s 클로버를 벌었어요 🍀',
+        coalesce(nullif(v_buyer_nickname, ''), '사용자'),
+        coalesce(nullif(v_row.item_snapshot->>'label', ''), '아이템'),
+        v_row.price
+      ),
+      format('판매 수익 +%s 클로버', v_row.price),
+      'shop-sale:' || v_row.id || ':' || v_buyer::text,
+      v_now
+    )
+    on conflict (source_key) do nothing;
+  end if;
+
   return jsonb_build_object(
     'id', v_row.id,
     'itemId', v_row.item_id,
@@ -409,7 +435,7 @@ begin
     add constraint user_notifications_type_check check (
       type in (
         'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
-        'guestbook', 'gift', 'gift_beg'
+        'guestbook', 'gift', 'gift_beg', 'shop_sale'
       )
     );
 end $$;
@@ -466,6 +492,68 @@ begin
   on conflict (source_key) do nothing;
 
   return jsonb_build_object('ok', true, 'sourceKey', v_source_key);
+end;
+$$;
+
+-- WORLD 조르기: 상대 상점 아이템을 지정해 알림으로 보냄
+create or replace function public.send_gift_beg(
+  recipient_id uuid,
+  target_item_id text,
+  beg_message text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me uuid := auth.uid();
+  my_nickname text;
+  item_label text;
+begin
+  if me is null then
+    return jsonb_build_object('ok', false, 'error', '로그인이 필요해요.');
+  end if;
+  if me = recipient_id then
+    return jsonb_build_object('ok', false, 'error', '나에게는 조를 수 없어요.');
+  end if;
+
+  select nickname into my_nickname from public.profiles where id = me;
+  my_nickname := coalesce(nullif(trim(my_nickname), ''), '친구');
+
+  select listing.item_snapshot->>'label'
+  into item_label
+  from public.shop_listings listing
+  where listing.seller_id = recipient_id
+    and listing.item_id = target_item_id
+    and listing.active = true
+  order by listing.listed_at desc
+  limit 1;
+
+  if item_label is null then
+    select entry.value->>'label'
+    into item_label
+    from public.user_inventory inventory
+    cross join lateral jsonb_array_elements(coalesce(inventory.items, '[]'::jsonb)) as entry(value)
+    where inventory.user_id = recipient_id
+      and entry.value->>'id' = target_item_id
+    limit 1;
+  end if;
+  item_label := coalesce(nullif(trim(item_label), ''), target_item_id);
+
+  insert into public.user_notifications (
+    user_id, type, actor_id, actor_nickname, message, content, source_key
+  ) values (
+    recipient_id,
+    'gift_beg',
+    me,
+    my_nickname,
+    my_nickname || '님이 아이템 ''' || item_label || '''를 요청합니다.',
+    nullif(trim(coalesce(beg_message, '')), ''),
+    'gift_beg:' || me::text || ':' || recipient_id::text || ':' || target_item_id || ':' || extract(epoch from now())::bigint::text
+  );
+
+  return jsonb_build_object('ok', true, 'item_id', target_item_id, 'item_label', item_label);
 end;
 $$;
 
@@ -647,7 +735,7 @@ begin
       'gift',
       v_sender_id,
       coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음'),
-      coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음') || '님이 ' || v_item_label || '을(를) 선물했어요 🎁',
+      coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음') || '님에게서 아이템 ''' || v_item_label || '''을 선물받았습니다.',
       nullif(trim(p_message), ''),
       'gift-item:' || v_gift_id::text
     ) on conflict (source_key) do nothing;
@@ -659,7 +747,7 @@ begin
     'itemId', p_item_id,
     'listingId', v_official_listing_id,
     'sourceKey', 'gift-item:' || v_gift_id::text,
-    'notificationMessage', coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음') || '님이 ' || v_item_label || '을(를) 선물했어요 🎁'
+    'notificationMessage', coalesce(nullif(trim(v_sender_nickname), ''), '알 수 없음') || '님에게서 아이템 ''' || v_item_label || '''을 선물받았습니다.'
   );
 end;
 $$;
@@ -743,10 +831,11 @@ revoke all on function public.gift_catalog_item_id(text) from public;
 revoke all on function public.gift_official_listing_id(text) from public;
 revoke all on function public.gift_inventory_owns_catalog(jsonb, text) from public;
 revoke all on function public.notify_gift_received(uuid, text, text, text) from public;
+revoke all on function public.send_gift_beg(uuid, text, text) from public;
 revoke all on function public.send_unified_inventory_item_gift(uuid, text, text) from public;
 revoke all on function public.send_unified_clover_gift(uuid, integer, text) from public;
 
 grant execute on function public.notify_gift_received(uuid, text, text, text) to authenticated;
+grant execute on function public.send_gift_beg(uuid, text, text) to authenticated;
 grant execute on function public.send_unified_inventory_item_gift(uuid, text, text) to authenticated;
 grant execute on function public.send_unified_clover_gift(uuid, integer, text) to authenticated;
-

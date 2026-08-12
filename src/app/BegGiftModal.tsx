@@ -110,7 +110,7 @@ export default function BegGiftModal({
               {targetNickname}님 아이템 조르기
             </p>
             <p style={{ fontFamily: FONT_UI, fontSize: "0.42rem", color: "#a08060", marginTop: 2 }}>
-              상대의 내 아이템에서 골라 선물해 달라고 부탁해요
+              상대방의 상점에서 골라 선물해 달라고 부탁해요
             </p>
           </div>
           <button
@@ -138,7 +138,7 @@ export default function BegGiftModal({
             >
               조를 수 있는 아이템이 없어요.
               <br />
-              상대가 광장에 있어야 목록을 볼 수 있어요.
+              상대방 상점에 등록된 아이템이 없어요.
             </p>
           ) : (
             <div className="grid grid-cols-3 gap-1.5">

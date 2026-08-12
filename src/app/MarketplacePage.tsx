@@ -158,7 +158,7 @@ export default function MarketplacePage({ user }: { user: User }) {
   const handleBuy = async (listing: MarketplaceListing) => {
     if (!snapshot || busyId) return;
     setBusyId(listing.id);
-    const result = await buyMarketplaceListing(user.id, listing, snapshot.remote);
+    const result = await buyMarketplaceListing(user.id, listing, snapshot.remote, user.nickname);
     setBusyId(null);
     setToast(result.ok ? result.message : result.error);
     if (result.ok && viewOwner) {

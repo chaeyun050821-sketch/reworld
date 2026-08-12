@@ -8,8 +8,8 @@ import {
   type HandMadeItem,
 } from "../lib/shop-storage";
 import {
-  loadOwnGiftableItems,
-  loadPeerGiftableItems,
+  loadOwnShopItems,
+  loadPeerShopItems,
   type GiftBegPayload,
 } from "../lib/commerce";
 import { fetchUserInventory } from "../lib/user-sync";
@@ -107,6 +107,7 @@ interface PlayerData {
   isMoving: boolean;
   isJumping?: boolean;
   avatar: any;
+  lastSeenAt: number;
 }
 
 interface ChatMessage {
@@ -117,6 +118,44 @@ interface ChatMessage {
   text: string;
   timestamp: number;
 }
+
+interface PublicChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+}
+
+type SpeechBubble = {
+  messageId: string;
+  text: string;
+};
+
+type ConversationRequest = {
+  id: string;
+  fromUserId: string;
+  fromNickname: string;
+  toUserId: string;
+  createdAt: number;
+};
+
+type ConversationResponse = {
+  requestId: string;
+  fromUserId: string;
+  fromNickname: string;
+  toUserId: string;
+  accepted: boolean;
+};
+
+type BegResponseBroadcast = {
+  requestId: string;
+  fromUserId: string;
+  fromNickname: string;
+  toUserId: string;
+  itemLabel: string;
+  accepted: boolean;
+};
 
 type BegTarget = { userId: string; name: string };
 
@@ -135,6 +174,14 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const [activeChat, setActiveChat] = useState<{ userId: string; name: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [publicChatMessages, setPublicChatMessages] = useState<PublicChatMessage[]>([]);
+  const [publicChatInput, setPublicChatInput] = useState("");
+  const [publicChatOpen, setPublicChatOpen] = useState(false);
+  const [speechBubbles, setSpeechBubbles] = useState<Record<string, SpeechBubble>>({});
+  const [incomingChatRequest, setIncomingChatRequest] = useState<ConversationRequest | null>(null);
+  const [outgoingChatRequest, setOutgoingChatRequest] = useState<ConversationRequest | null>(null);
+  const [approvedChatUserIds, setApprovedChatUserIds] = useState<Set<string>>(() => new Set());
+  const [conversationToast, setConversationToast] = useState<string | null>(null);
 
   const [peerInventories, setPeerInventories] = useState<Record<string, ShopCatalogItem[]>>({});
   /** Handmade/purchased overlays for peer AvatarWithCompanions (not giftable shop catalog). */
@@ -166,13 +213,42 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const jumpRequestedRef = useRef(false);
   const floorChangeRequestedRef = useRef<-1 | 1 | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const publicChatScrollRef = useRef<HTMLDivElement>(null);
+  const publicChatInputRef = useRef<HTMLInputElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const peerWearFetchRef = useRef<Set<string>>(new Set());
   const seenGiftNotifIdsRef = useRef<Set<string>>(new Set());
   const giftToastTimerRef = useRef<number | null>(null);
+  const conversationToastTimerRef = useRef<number | null>(null);
+  const speechBubbleTimersRef = useRef<Map<string, number>>(new Map());
   const recentGiftToastKeysRef = useRef<Map<string, number>>(new Map());
   const renderedAvatarWidth = Math.max(18, Math.round(WORLD_AVATAR_WIDTH * viewportScale.x));
   const renderedAvatarHeight = Math.max(32, Math.round(WORLD_AVATAR_HEIGHT * viewportScale.y));
+
+  const showConversationToast = useCallback((message: string) => {
+    if (conversationToastTimerRef.current) window.clearTimeout(conversationToastTimerRef.current);
+    setConversationToast(message);
+    conversationToastTimerRef.current = window.setTimeout(() => {
+      setConversationToast(null);
+      conversationToastTimerRef.current = null;
+    }, 3200);
+  }, []);
+
+  const showSpeechBubble = useCallback((userId: string, messageId: string, text: string) => {
+    const currentTimer = speechBubbleTimersRef.current.get(userId);
+    if (currentTimer) window.clearTimeout(currentTimer);
+    setSpeechBubbles((prev) => ({ ...prev, [userId]: { messageId, text } }));
+    const timer = window.setTimeout(() => {
+      setSpeechBubbles((prev) => {
+        if (prev[userId]?.messageId !== messageId) return prev;
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+      speechBubbleTimersRef.current.delete(userId);
+    }, 5200);
+    speechBubbleTimersRef.current.set(userId, timer);
+  }, []);
 
   const broadcastMyPosition = useCallback((position: LocalPlayerPosition) => {
     const channel = channelRef.current;
@@ -201,6 +277,23 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   }, [chatMessages, activeChat]);
 
   useEffect(() => {
+    if (publicChatScrollRef.current) {
+      publicChatScrollRef.current.scrollTop = publicChatScrollRef.current.scrollHeight;
+    }
+  }, [publicChatMessages]);
+
+  useEffect(() => {
+    if (!publicChatOpen) return;
+    window.setTimeout(() => publicChatInputRef.current?.focus(), 0);
+  }, [publicChatOpen]);
+
+  useEffect(() => () => {
+    speechBubbleTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    speechBubbleTimersRef.current.clear();
+    if (conversationToastTimerRef.current) window.clearTimeout(conversationToastTimerRef.current);
+  }, []);
+
+  useEffect(() => {
     const element = worldRef.current;
     if (!element) return;
     const updateScale = () => {
@@ -225,7 +318,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const broadcastMyInventory = useCallback(async (channel = channelRef.current) => {
     if (!channel || !user?.id) return;
     try {
-      const items = await loadOwnGiftableItems(user.id);
+      const items = await loadOwnShopItems(user.id, user.nickname);
       const wearItems = loadEquippedWearables(user.id, myAvatar?.equipped);
       void channel.send({
         type: "broadcast",
@@ -269,7 +362,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     } catch (error) {
       console.warn("[world] inventory share failed:", error);
     }
-  }, [user?.id, myAvatar?.equipped]);
+  }, [user?.id, user?.nickname, myAvatar?.equipped]);
 
   const requestPeerInventory = useCallback((targetUserId: string) => {
     if (!channelRef.current || !user?.id) return;
@@ -278,7 +371,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       event: "inventory_request",
       payload: { fromUserId: user.id, toUserId: targetUserId },
     });
-  }, [user?.id]);
+  }, [user?.id, user?.nickname]);
 
   const applyPeerWearItems = useCallback((peerId: string, items: HandMadeItem[]) => {
     if (!peerId || peerId === user?.id || !items?.length) return;
@@ -325,7 +418,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
     requestPeerInventory(player.id);
 
-    const peer = await loadPeerGiftableItems(player.id);
+    const peer = await loadPeerShopItems(player.id);
     if (peer && peer.length > 0) {
       setPeerInventories((prev) => ({ ...prev, [player.id]: peer }));
       setBegItemsLoading(false);
@@ -360,7 +453,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     setShowMyItems(true);
     setMyItemsLoading(true);
     try {
-      const items = await loadOwnGiftableItems(user.id);
+      const items = await loadOwnShopItems(user.id, user.nickname);
       setMyItems(items);
     } catch (error) {
       console.warn("[world] load own items failed:", error);
@@ -384,7 +477,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         (payload.kind === "clover" && payload.amount
           ? `${fromNickname}님이 ${payload.amount} 클로버를 선물했어요 🍀`
           : payload.itemLabel
-            ? `${fromNickname}님이 ${payload.itemLabel}을(를) 선물했어요 🎁`
+            ? `${fromNickname}님에게서 아이템 '${payload.itemLabel}'을 선물받았습니다.`
             : `${fromNickname}님이 선물을 보냈어요 🎁`);
       showGiftToast({
         fromNickname,
@@ -399,19 +492,56 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     const channel = supabase.channel("meeting_square");
     channelRef.current = channel;
 
+    const upsertPlayer = (payload: Omit<PlayerData, "lastSeenAt">) => {
+      if (!payload?.id || payload.id === user.id) return;
+      setPlayers((prev) => {
+        if (!prev[payload.id]) {
+          // Defer so we don't run async work inside the state updater.
+          queueMicrotask(() => ensurePeerWearables(payload.id));
+        }
+        return {
+          ...prev,
+          [payload.id]: { ...payload, lastSeenAt: Date.now() },
+        };
+      });
+    };
+
     channel.on(
       "broadcast",
       { event: "player_moved" },
       ({ payload }) => {
-        if (payload.id === user.id) return;
-        setPlayers((prev) => {
-          if (!prev[payload.id]) {
-            // Defer so we don't run async work inside the state updater.
-            queueMicrotask(() => ensurePeerWearables(payload.id));
-          }
-          return { ...prev, [payload.id]: payload };
-        });
+        upsertPlayer(payload);
       }
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "player_joined" },
+      ({ payload }) => upsertPlayer(payload),
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "player_left" },
+      ({ payload }: { payload: { userId?: string } }) => {
+        if (!payload?.userId || payload.userId === user.id) return;
+        setPlayers((prev) => {
+          const next = { ...prev };
+          delete next[payload.userId!];
+          return next;
+        });
+        setSelectedPlayerId((current) => current === payload.userId ? null : current);
+      },
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "world_chat" },
+      ({ payload }: { payload: PublicChatMessage }) => {
+        if (!payload?.id || !payload.senderId || payload.senderId === user.id || !payload.text?.trim()) return;
+        setPublicChatMessages((prev) => [...prev.slice(-79), payload]);
+        showSpeechBubble(payload.senderId, payload.id, payload.text.trim());
+      },
     );
 
     channel.on(
@@ -419,12 +549,35 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       { event: "whisper" },
       ({ payload }: { payload: ChatMessage }) => {
         if (payload.receiverId === user.id || payload.senderId === user.id) {
-          setChatMessages((prev) => [...prev, payload]);
-          if (payload.receiverId === user.id) {
-            setActiveChat({ userId: payload.senderId, name: payload.senderName });
-          }
+          setChatMessages((prev) => [...prev.slice(-199), payload]);
         }
       }
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "chat_request" },
+      ({ payload }: { payload: ConversationRequest }) => {
+        if (payload?.toUserId === user.id && payload.fromUserId !== user.id) {
+          setIncomingChatRequest(payload);
+        }
+      },
+    );
+
+    channel.on(
+      "broadcast",
+      { event: "chat_response" },
+      ({ payload }: { payload: ConversationResponse }) => {
+        if (payload?.toUserId !== user.id || payload.fromUserId === user.id) return;
+        setOutgoingChatRequest((current) => current?.id === payload.requestId ? null : current);
+        if (payload.accepted) {
+          setApprovedChatUserIds((prev) => new Set(prev).add(payload.fromUserId));
+          setActiveChat({ userId: payload.fromUserId, name: payload.fromNickname });
+          showConversationToast(`${payload.fromNickname}님이 대화 신청을 수락했어요.`);
+        } else {
+          showConversationToast(`${payload.fromNickname}님이 대화 신청을 거절했어요.`);
+        }
+      },
     );
 
     channel.on(
@@ -479,18 +632,69 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       }
     );
 
+    channel.on(
+      "broadcast",
+      { event: "gift_beg_response" },
+      ({ payload }: { payload: BegResponseBroadcast }) => {
+        if (payload?.toUserId !== user.id || payload.fromUserId === user.id) return;
+        if (!payload.accepted) {
+          setBegSentToast(`${payload.fromNickname}님이 '${payload.itemLabel}' 요청을 거절했어요.`);
+          window.setTimeout(() => setBegSentToast(null), 3200);
+        }
+      },
+    );
+
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
+        const position = physicsRef.current;
+        void channel.send({
+          type: "broadcast",
+          event: "player_joined",
+          payload: {
+            id: user.id,
+            name: user.nickname,
+            x: position.x,
+            y: position.y,
+            floorIndex: position.floorIndex,
+            direction: position.direction,
+            isMoving: position.isMoving,
+            isJumping: position.isJumping,
+            avatar: myAvatar,
+          },
+        });
         broadcastMyPosition(physicsRef.current);
         void broadcastMyInventory(channel);
       }
     });
 
     return () => {
+      void channel.send({
+        type: "broadcast",
+        event: "player_left",
+        payload: { userId: user.id },
+      });
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [user, broadcastMyInventory, broadcastMyPosition, ensurePeerWearables, applyPeerWearItems, handleGiftReceivedRealtime]);
+  }, [user, myAvatar, broadcastMyInventory, broadcastMyPosition, ensurePeerWearables, applyPeerWearItems, handleGiftReceivedRealtime, showConversationToast, showSpeechBubble]);
+
+  // A stationary avatar must remain visible and newly joined users must discover it.
+  useEffect(() => {
+    const heartbeat = window.setInterval(() => broadcastMyPosition(physicsRef.current), 4000);
+    const prune = window.setInterval(() => {
+      const cutoff = Date.now() - 13000;
+      setPlayers((prev) => {
+        const next = Object.fromEntries(
+          Object.entries(prev).filter(([, player]) => player.lastSeenAt >= cutoff),
+        );
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 5000);
+    return () => {
+      window.clearInterval(heartbeat);
+      window.clearInterval(prune);
+    };
+  }, [broadcastMyPosition]);
 
   // Seed known gift notification ids, then toast on new gift rows while in WORLD.
   useEffect(() => {
@@ -573,6 +777,12 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        setPublicChatOpen(true);
+        setSelectedPlayerId(null);
+        return;
+      }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         setMovePressed("left", true);
@@ -585,11 +795,11 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         event.preventDefault();
         if (!event.repeat) queueJump();
       }
-      if (event.key === "ArrowUp") {
+      if (event.key.toLowerCase() === "w") {
         event.preventDefault();
         if (!event.repeat) queueFloorChange(-1);
       }
-      if (event.key === "ArrowDown") {
+      if (event.key.toLowerCase() === "s") {
         event.preventDefault();
         if (!event.repeat) queueFloorChange(1);
       }
@@ -752,6 +962,94 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     setChatInput("");
   };
 
+  const sendPublicChatMessage = (event: React.FormEvent) => {
+    event.preventDefault();
+    const text = publicChatInput.trim();
+    if (!text || !channelRef.current || !user?.id) return;
+
+    const message: PublicChatMessage = {
+      id: crypto.randomUUID(),
+      senderId: user.id,
+      senderName: user.nickname || "나",
+      text: text.slice(0, 120),
+      timestamp: Date.now(),
+    };
+    void channelRef.current.send({
+      type: "broadcast",
+      event: "world_chat",
+      payload: message,
+    });
+    setPublicChatMessages((prev) => [...prev.slice(-79), message]);
+    showSpeechBubble(user.id, message.id, message.text);
+    setPublicChatInput("");
+    setPublicChatOpen(false);
+  };
+
+  const requestConversation = (player: PlayerData) => {
+    setSelectedPlayerId(null);
+    if (approvedChatUserIds.has(player.id)) {
+      setActiveChat({ userId: player.id, name: player.name });
+      return;
+    }
+    if (outgoingChatRequest?.toUserId === player.id) {
+      showConversationToast(`${player.name}님의 응답을 기다리고 있어요.`);
+      return;
+    }
+    if (!channelRef.current) return;
+    const request: ConversationRequest = {
+      id: crypto.randomUUID(),
+      fromUserId: user.id,
+      fromNickname: user.nickname || "친구",
+      toUserId: player.id,
+      createdAt: Date.now(),
+    };
+    void channelRef.current.send({ type: "broadcast", event: "chat_request", payload: request });
+    setOutgoingChatRequest(request);
+    window.setTimeout(() => {
+      setOutgoingChatRequest((current) => current?.id === request.id ? null : current);
+    }, 15000);
+    showConversationToast(`${player.name}님에게 대화를 신청했어요.`);
+  };
+
+  const answerConversationRequest = (accepted: boolean) => {
+    const request = incomingChatRequest;
+    if (!request || !channelRef.current) return;
+    const response: ConversationResponse = {
+      requestId: request.id,
+      fromUserId: user.id,
+      fromNickname: user.nickname || "친구",
+      toUserId: request.fromUserId,
+      accepted,
+    };
+    void channelRef.current.send({ type: "broadcast", event: "chat_response", payload: response });
+    if (accepted) {
+      setApprovedChatUserIds((prev) => new Set(prev).add(request.fromUserId));
+      setActiveChat({ userId: request.fromUserId, name: request.fromNickname });
+    }
+    setIncomingChatRequest(null);
+  };
+
+  const rejectIncomingBeg = () => {
+    const beg = incomingBeg;
+    if (!beg) return;
+    if (channelRef.current) {
+      const response: BegResponseBroadcast = {
+        requestId: beg.id,
+        fromUserId: user.id,
+        fromNickname: user.nickname || "친구",
+        toUserId: beg.fromUserId,
+        itemLabel: beg.itemLabel,
+        accepted: false,
+      };
+      void channelRef.current.send({
+        type: "broadcast",
+        event: "gift_beg_response",
+        payload: response,
+      });
+    }
+    setIncomingBeg(null);
+  };
+
   const handleBegSent = (beg: GiftBegPayload) => {
     if (channelRef.current) {
       void channelRef.current.send({
@@ -837,7 +1135,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           >
             ×
           </button>
-          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 방향키 이동, Space 점프, ↑ 위층, ↓ 아래층">
+          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 방향키 이동, Space 점프, W 위층, S 아래층">
             <div className="flex w-full gap-1.5">
               {([ ["←", "왼쪽 이동"], ["→", "오른쪽 이동"] ] as const).map(([key, label]) => (
                 <div
@@ -867,7 +1165,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                 }`}
                 onClick={() => queueFloorChange(-1)}
               >
-                <kbd className="font-mono text-[11px]">↑</kbd>
+                <kbd className="font-mono text-[11px]">W</kbd>
                 <span>위층으로 이동</span>
               </button>
               <button
@@ -880,7 +1178,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                 }`}
                 onClick={() => queueFloorChange(1)}
               >
-                <kbd className="font-mono text-[11px]">↓</kbd>
+                <kbd className="font-mono text-[11px]">S</kbd>
                 <span>아래층으로 이동</span>
               </button>
             </div>
@@ -891,6 +1189,42 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       {begSentToast && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-amber-900/85 text-white text-xs font-bold shadow-lg">
           🥺 {begSentToast}
+        </div>
+      )}
+
+      {conversationToast && (
+        <div className="absolute top-[7.25rem] left-1/2 -translate-x-1/2 z-[65] px-4 py-2 rounded-xl bg-sky-900/90 text-white text-xs font-bold shadow-lg">
+          💬 {conversationToast}
+        </div>
+      )}
+
+      {incomingChatRequest && (
+        <div
+          className="absolute top-20 left-1/2 z-[70] w-[min(310px,calc(100%-24px))] -translate-x-1/2 overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="border-b border-sky-100 bg-sky-50 px-4 py-3">
+            <p className="text-sm font-black text-sky-900">💬 대화 신청</p>
+            <p className="mt-1 text-xs font-semibold text-sky-800">
+              {incomingChatRequest.fromNickname}님이 대화를 신청했습니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 p-3">
+            <button
+              type="button"
+              className="rounded-xl bg-gray-100 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200"
+              onClick={() => answerConversationRequest(false)}
+            >
+              거절
+            </button>
+            <button
+              type="button"
+              className="rounded-xl bg-sky-500 py-2 text-xs font-bold text-white hover:bg-sky-600"
+              onClick={() => answerConversationRequest(true)}
+            >
+              수락
+            </button>
+          </div>
         </div>
       )}
 
@@ -943,17 +1277,22 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               setSelectedPlayerId(selectedPlayerId === player.id ? null : player.id);
             }}
           >
+            {speechBubbles[player.id] && selectedPlayerId !== player.id && (
+              <div className="absolute bottom-[calc(100%+9px)] left-1/2 z-20 w-max max-w-[180px] -translate-x-1/2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[11px] font-bold leading-snug text-gray-800 shadow-lg break-words">
+                {speechBubbles[player.id].text}
+                <span className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-sky-200 bg-white" />
+              </div>
+            )}
             {selectedPlayerId === player.id && (
               <div className="absolute bottom-[calc(100%+8px)] left-1/2 flex gap-1.5 p-2 bg-white/95 backdrop-blur-md border border-amber-200 rounded-xl shadow-lg animate-pop-in whitespace-nowrap">
                 <button
                   className="px-3 py-1.5 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-lg hover:bg-blue-100 transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedPlayerId(null);
-                    setActiveChat({ userId: player.id, name: player.name });
+                    requestConversation(player);
                   }}
                 >
-                  💬 귓속말
+                  💬 {approvedChatUserIds.has(player.id) ? "대화 열기" : "대화걸기"}
                 </button>
                 <button
                   className="px-3 py-1.5 bg-pink-50 text-pink-600 text-[11px] font-bold rounded-lg hover:bg-pink-100 transition-colors"
@@ -967,7 +1306,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                     });
                   }}
                 >
-                  🎁 선물
+                  🎁 선물하기
                 </button>
                 <button
                   className="px-3 py-1.5 bg-amber-50 text-amber-700 text-[11px] font-bold rounded-lg hover:bg-amber-100 transition-colors"
@@ -1014,12 +1353,18 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             void openMyItems();
           }}
         >
+          {speechBubbles[user.id] && !showMyItems && (
+            <div className="absolute bottom-[calc(100%+9px)] left-1/2 z-20 w-max max-w-[180px] -translate-x-1/2 rounded-xl border border-amber-200 bg-white px-3 py-2 text-[11px] font-bold leading-snug text-gray-800 shadow-lg break-words">
+              {speechBubbles[user.id].text}
+              <span className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-amber-200 bg-white" />
+            </div>
+          )}
           {showMyItems && (
             <div
               className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-white/95 border border-amber-200 rounded-lg shadow text-[10px] font-bold text-amber-800 whitespace-nowrap animate-pop-in"
               onClick={(e) => e.stopPropagation()}
             >
-              내 아이템 보는 중
+              내 상점 보는 중
               <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/95 border-b border-r border-amber-200 rotate-45" />
             </div>
           )}
@@ -1036,9 +1381,65 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             </div>
           </div>
           <div className="absolute top-[calc(100%+2px)] left-1/2 -translate-x-1/2 bg-amber-900/80 text-white text-[9px] font-bold px-2 py-0.5 rounded-full text-center shadow border border-amber-300 whitespace-nowrap">
-            {user?.nickname || "나"} · 내 아이템
+            {user?.nickname || "나"} · 내 상점
           </div>
         </div>
+      </div>
+
+      <div
+        className="absolute bottom-4 left-4 z-[45] w-[min(320px,calc(100%-32px))] overflow-hidden rounded-2xl border border-white/50 bg-slate-950/70 shadow-xl backdrop-blur-sm"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div
+          ref={publicChatScrollRef}
+          className="no-scrollbar h-[92px] overflow-y-auto px-3 py-2 text-[11px] leading-relaxed text-white"
+          aria-live="polite"
+        >
+          {publicChatMessages.length === 0 ? (
+            <p className="pt-6 text-center text-white/65">Enter를 눌러 광장 대화를 시작해보세요.</p>
+          ) : (
+            publicChatMessages.map((message) => (
+              <p key={message.id} className="break-words">
+                <strong className={message.senderId === user.id ? "text-amber-300" : "text-sky-300"}>
+                  {message.senderName}:
+                </strong>
+                <span className="ml-1">{message.text}</span>
+              </p>
+            ))
+          )}
+        </div>
+        {publicChatOpen ? (
+          <form onSubmit={sendPublicChatMessage} className="flex gap-2 border-t border-white/15 bg-white/10 p-2">
+            <input
+              ref={publicChatInputRef}
+              value={publicChatInput}
+              onChange={(event) => setPublicChatInput(event.target.value.slice(0, 120))}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setPublicChatOpen(false);
+                  setPublicChatInput("");
+                }
+              }}
+              placeholder="문구 입력 후 Enter"
+              className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white px-2.5 py-1.5 text-xs text-gray-800 outline-none focus:border-sky-300"
+            />
+            <button
+              type="submit"
+              disabled={!publicChatInput.trim()}
+              className="rounded-lg bg-sky-500 px-3 text-[11px] font-bold text-white disabled:bg-gray-400"
+            >
+              전송
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="w-full border-t border-white/15 bg-white/10 py-2 text-[11px] font-bold text-white/80 hover:bg-white/20"
+            onClick={() => setPublicChatOpen(true)}
+          >
+            Enter · 대화 입력
+          </button>
+        )}
       </div>
 
       {activeChat && (
@@ -1049,7 +1450,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           <div className="bg-sky-50 px-4 py-3 border-b border-sky-100 flex justify-between items-center">
             <div className="flex items-center gap-2">
               <span className="text-lg">💬</span>
-              <span className="text-sm font-bold text-sky-900">{activeChat.name}님과 귓속말</span>
+              <span className="text-sm font-bold text-sky-900">{activeChat.name}님과 1:1 대화</span>
             </div>
             <button
               onClick={() => setActiveChat(null)}
@@ -1106,13 +1507,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
       {incomingBeg && (
         <div
-          className="absolute bottom-6 left-6 z-[60] w-72 rounded-2xl border border-amber-200 bg-white shadow-2xl overflow-hidden"
+          className={`absolute left-1/2 z-[60] w-72 -translate-x-1/2 rounded-2xl border border-amber-200 bg-white shadow-2xl overflow-hidden ${incomingChatRequest ? "top-[220px]" : "top-20"}`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="bg-amber-50 px-4 py-3 border-b border-amber-100">
             <p className="text-sm font-bold text-amber-900">🥺 조르기 도착</p>
             <p className="text-[11px] text-amber-800/80 mt-0.5">
-              {incomingBeg.fromNickname}님이 <strong>{incomingBeg.itemLabel}</strong>을(를) 조르고 있어요
+              {incomingBeg.fromNickname}님이 아이템 &apos;<strong>{incomingBeg.itemLabel}</strong>&apos;를 요청합니다.
             </p>
             {incomingBeg.message && (
               <p className="text-[11px] text-amber-700/70 mt-1 italic">&ldquo;{incomingBeg.message}&rdquo;</p>
@@ -1122,9 +1523,9 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             <button
               type="button"
               className="py-2 rounded-xl text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100"
-              onClick={() => setIncomingBeg(null)}
+              onClick={rejectIncomingBeg}
             >
-              나중에
+              거절하기
             </button>
             <button
               type="button"
@@ -1163,6 +1564,9 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           recipientId={giftReply.recipientId}
           recipientNickname={giftReply.recipientNickname}
           initialItemId={giftReply.itemId || null}
+          itemsOnly
+          shopOnly
+          sourceLabel="내 상점"
           onSuccess={(info: GiftSuccessInfo) => {
             if (channelRef.current) {
               void channelRef.current.send({
@@ -1180,7 +1584,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                     info.kind === "clover" && info.amount
                       ? `${user.nickname}님이 ${info.amount} 클로버를 선물했어요 🍀`
                       : info.itemLabel
-                        ? `${user.nickname}님이 ${info.itemLabel}을(를) 선물했어요 🎁`
+                        ? `${user.nickname}님에게서 아이템 '${info.itemLabel}'을 선물받았습니다.`
                         : `${user.nickname}님이 선물을 보냈어요 🎁`,
                 } satisfies GiftReceivedBroadcast,
               });
@@ -1211,7 +1615,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             <div className="flex items-center justify-between flex-shrink-0">
               <div>
                 <p className="text-[10px] font-bold text-amber-600 tracking-wide">MY ITEMS</p>
-                <p className="text-sm font-black text-amber-950">내 아이템</p>
+                <p className="text-sm font-black text-amber-950">내 상점</p>
               </div>
               <button
                 type="button"
@@ -1222,14 +1626,14 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               </button>
             </div>
             <p className="text-[11px] text-amber-800/70 flex-shrink-0">
-              월드에서 선물하거나 조르기 받을 수 있는 아이템이에요.
+              상점에 등록해 둔 아이템을 WORLD에서 선물할 수 있어요.
             </p>
             <div className="flex-1 overflow-y-auto no-scrollbar grid grid-cols-3 gap-2 content-start min-h-0">
               {myItemsLoading ? (
                 <p className="col-span-3 text-center text-xs text-amber-700/60 py-8">불러오는 중...</p>
               ) : myItems.length === 0 ? (
                 <p className="col-span-3 text-center text-xs text-amber-700/60 py-8">
-                  아직 선물 가능한 아이템이 없어요
+                  내 상점에 등록된 아이템이 없어요
                 </p>
               ) : (
                 myItems.map((item) => {

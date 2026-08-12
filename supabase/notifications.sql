@@ -6,7 +6,7 @@ create table if not exists public.user_notifications (
   user_id uuid not null references public.profiles (id) on delete cascade,
   type text not null check (type in (
     'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
-    'guestbook', 'gift', 'gift_beg'
+    'guestbook', 'gift', 'gift_beg', 'shop_sale'
   )),
   actor_id uuid references public.profiles (id) on delete set null,
   actor_nickname text not null,
@@ -26,7 +26,7 @@ grant select, delete on public.user_notifications to authenticated;
 
 alter table public.user_notifications enable row level security;
 
--- 기존 DB: type CHECK 이름이 달라도 gift / gift_beg 허용하도록 교체
+-- 기존 DB: 선물·상점 판매 알림 type을 허용하도록 CHECK 교체
 do $$
 declare
   r record;
@@ -48,7 +48,7 @@ begin
     add constraint user_notifications_type_check check (
       type in (
         'friend_request', 'ilchon_request', 'photo_like', 'photo_comment',
-        'guestbook', 'gift', 'gift_beg'
+        'guestbook', 'gift', 'gift_beg', 'shop_sale'
       )
     );
 exception

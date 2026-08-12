@@ -96,6 +96,8 @@ export type RoomAvatarPosition = { x: number };
 export const INVENTORY_DECOR_SIZE = 88;
 
 export type InventoryPlacement = {
+  /** Unique placement instance so the same owned item can be placed repeatedly. */
+  id: string;
   itemId: string;
   x: number;
   y: number;
@@ -103,10 +105,19 @@ export type InventoryPlacement = {
   h: number;
 };
 
+export type CatalogPlacement = {
+  /** Unique placement instance so one catalog item/category can be repeated. */
+  id: string;
+  itemId: string;
+  x: number;
+  y: number;
+};
+
 export type MiniroomData = {
   selections: RoomSelections;
   offsets: Partial<Record<RoomCategoryId, RoomItemOffset>>;
   avatarPosition: RoomAvatarPosition;
+  catalogPlacements: CatalogPlacement[];
   inventoryPlacements: InventoryPlacement[];
 };
 
@@ -149,6 +160,7 @@ export const EMPTY_MINIROOM_DATA: MiniroomData = {
   selections: { ...EMPTY_ROOM_SELECTIONS },
   offsets: {},
   avatarPosition: { ...DEFAULT_ROOM_AVATAR_POSITION },
+  catalogPlacements: [],
   inventoryPlacements: [],
 };
 
@@ -156,6 +168,7 @@ const INVENTORY_SELECTION_PREFIX = "inv:";
 
 export function defaultInventoryPlacement(itemId: string, index = 0): InventoryPlacement {
   return {
+    id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     itemId,
     x: 16 + index * 20,
     y: ROOM_LEFT_PROP_FLOOR_Y - INVENTORY_DECOR_SIZE,
@@ -165,35 +178,56 @@ export function defaultInventoryPlacement(itemId: string, index = 0): InventoryP
 }
 
 export function migrateMiniroomInventory(data: MiniroomData): MiniroomData {
-  const placements = [...(data.inventoryPlacements ?? [])];
+  const placements = (data.inventoryPlacements ?? []).map((placement, index) => ({
+    ...placement,
+    id: placement.id || `inv-legacy-${placement.itemId}-${index}`,
+  }));
+  const catalogPlacements = (data.catalogPlacements ?? []).map((placement, index) => ({
+    ...placement,
+    id: placement.id || `catalog-legacy-${placement.itemId}-${index}`,
+  }));
   const selections = { ...data.selections };
   const offsets = { ...data.offsets };
 
   for (const categoryId of Object.keys(selections) as RoomCategoryId[]) {
     const selectedId = selections[categoryId];
-    if (!selectedId?.startsWith(INVENTORY_SELECTION_PREFIX)) continue;
-    const itemId = selectedId.slice(INVENTORY_SELECTION_PREFIX.length);
-    if (!placements.some(placement => placement.itemId === itemId)) {
-      try {
+    if (!selectedId) continue;
+
+    if (selectedId.startsWith(INVENTORY_SELECTION_PREFIX)) {
+      const itemId = selectedId.slice(INVENTORY_SELECTION_PREFIX.length);
+      if (!placements.some(placement => placement.itemId === itemId)) {
         placements.push(defaultInventoryPlacement(itemId, placements.length));
-      } catch {
-        placements.push({
-          itemId,
-          x: 16 + placements.length * 20,
-          y: 24,
-          w: INVENTORY_DECOR_SIZE,
-          h: INVENTORY_DECOR_SIZE,
-        });
       }
+      selections[categoryId] = null;
+      delete offsets[categoryId];
+      continue;
     }
-    selections[categoryId] = null;
-    delete offsets[categoryId];
+
+    // Wallpaper/floor remain single surface choices. Every movable legacy item
+    // becomes an independent placement so categories can contain duplicates.
+    if (!ROOM_NON_DRAGGABLE.includes(categoryId)) {
+      const item = getItemById(selectedId);
+      if (item && roomItemHasVisual(item)) {
+        const legacyPlacementId = `catalog-legacy-${categoryId}-${selectedId}`;
+        if (!catalogPlacements.some((placement) => placement.id === legacyPlacementId)) {
+          catalogPlacements.push({
+            id: legacyPlacementId,
+            itemId: selectedId,
+            x: offsets[categoryId]?.x ?? 0,
+            y: offsets[categoryId]?.y ?? 0,
+          });
+        }
+      }
+      selections[categoryId] = null;
+      delete offsets[categoryId];
+    }
   }
 
   return {
     ...data,
     selections,
     offsets,
+    catalogPlacements,
     inventoryPlacements: placements,
   };
 }
@@ -276,6 +310,7 @@ export function loadRoomSelections(userId?: string): RoomSelections {
 
 export function hasMiniroomSelections(data: MiniroomData): boolean {
   if (Object.values(data.selections).some((id) => typeof id === "string" && id.length > 0)) return true;
+  if ((data.catalogPlacements ?? []).length > 0) return true;
   if ((data.inventoryPlacements ?? []).length > 0) return true;
   if (Object.keys(data.offsets ?? {}).length > 0) return true;
   if (data.avatarPosition.x !== DEFAULT_ROOM_AVATAR_POSITION.x) return true;
@@ -309,6 +344,7 @@ export function loadMiniroomData(userId?: string): MiniroomData {
           selections: { ...EMPTY_ROOM_SELECTIONS, ...parsed.selections },
           offsets: parsed.offsets ?? {},
           avatarPosition: parsed.avatarPosition ?? { ...DEFAULT_ROOM_AVATAR_POSITION },
+          catalogPlacements: parsed.catalogPlacements ?? [],
           inventoryPlacements: parsed.inventoryPlacements ?? [],
         };
       } else if (isLegacyRoomSelections(parsed)) {
@@ -316,6 +352,7 @@ export function loadMiniroomData(userId?: string): MiniroomData {
           selections: { ...EMPTY_ROOM_SELECTIONS, ...parsed },
           offsets: {},
           avatarPosition: { ...DEFAULT_ROOM_AVATAR_POSITION },
+          catalogPlacements: [],
           inventoryPlacements: [],
         };
       } else {

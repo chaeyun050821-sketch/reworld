@@ -5,8 +5,13 @@ import {
   setCloverBalance,
   transferClovers,
 } from "./clover-rewards";
-import { saveLocalNotification } from "./notifications";
-import { resolveHandMadeItemImageUrl, type HandMadeItem } from "./shop-storage";
+import { saveLocalNotification, saveShopSaleNotification } from "./notifications";
+import {
+  loadMyInventory,
+  loadMyListings,
+  resolveHandMadeItemImageUrl,
+  type HandMadeItem,
+} from "./shop-storage";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export type InventoryEntry = {
@@ -332,6 +337,7 @@ export async function buyMarketplaceListing(
   buyerId: string,
   listing: MarketplaceListing,
   preferRemote: boolean,
+  buyerNickname = "사용자",
 ): Promise<CommerceResult> {
   if (buyerId === listing.sellerId) return { ok: false, error: "내 아이템은 구매할 수 없어요." };
 
@@ -364,6 +370,15 @@ export async function buyMarketplaceListing(
 
   const paid = transferClovers(buyerId, listing.sellerId, listing.price);
   if (!paid.ok) return { ok: false, error: "클로버가 부족해요." };
+  const item = getShopCatalogItem(listing.itemId);
+  await saveShopSaleNotification({
+    sellerId: listing.sellerId,
+    buyerId,
+    buyerNickname,
+    itemLabel: item?.label ?? "아이템",
+    price: listing.price,
+    listingId: listing.id,
+  });
   return { ok: true, message: "구매가 완료됐어요." };
 }
 
@@ -538,6 +553,34 @@ export async function loadOwnGiftableItems(userId: string): Promise<ShopCatalogI
   return getGiftableInventoryItems(userId).map(handMadeToGiftableCatalog);
 }
 
+/** Active items in the user's 내 상점, used by WORLD 선물하기/조르기. */
+export async function loadOwnShopItems(userId: string, nickname?: string): Promise<ShopCatalogItem[]> {
+  if (nickname && isSupabaseConfigured()) {
+    const { syncSellerShopListings } = await import("./shop-sync");
+    await syncSellerShopListings(userId, nickname);
+  }
+  const { loadUnifiedGiftSnapshot } = await import("./unified-gifts");
+  await loadUnifiedGiftSnapshot(userId, { shopOnly: true });
+  const listedIds = new Set(loadMyListings(userId).map((listing) => listing.itemId));
+  return loadMyInventory(userId)
+    .filter((item) => listedIds.has(item.id))
+    .map(handMadeToGiftableCatalog);
+}
+
+/** Another user's active 내 상점 items. Remote listings are authoritative cross-device. */
+export async function loadPeerShopItems(userId: string): Promise<ShopCatalogItem[] | null> {
+  if (isSupabaseConfigured() && !userId.startsWith("demo-")) {
+    const { fetchSellerShopListings } = await import("./shop-sync");
+    const remote = await fetchSellerShopListings(userId);
+    if (remote) return remote.map((listing) => handMadeToGiftableCatalog(listing.item));
+  }
+
+  const listedIds = new Set(loadMyListings(userId).map((listing) => listing.itemId));
+  const local = loadMyInventory(userId).filter((item) => listedIds.has(item.id));
+  if (!local.length && !loadMyListings(userId).length) return null;
+  return local.map(handMadeToGiftableCatalog);
+}
+
 export type GiftBegPayload = {
   id: string;
   fromUserId: string;
@@ -604,7 +647,7 @@ export async function sendGiftBegRequest(args: {
     type: "gift_beg",
     actorId: args.fromUserId,
     actorNickname: args.fromNickname,
-    message: `${args.fromNickname}님이 ${itemLabel}을(를) 조르고 있어요 🥺`,
+    message: `${args.fromNickname}님이 아이템 '${itemLabel}'를 요청합니다.`,
     content: args.message?.trim() || undefined,
     itemId: args.itemId,
     createdAt: beg.createdAt,

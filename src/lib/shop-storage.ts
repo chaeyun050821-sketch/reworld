@@ -383,6 +383,10 @@ function officialListing(
 }
 
 export const GLOBAL_SHOP_LISTINGS: ShopListingWithItem[] = [
+  officialListing("rose-loveseat", { type: "room", label: "로즈 벨벳 소파", cat: "가구", color: "#df7088", roomCategory: "sofa", imageDataUrl: officialShopAsset("rose-loveseat.png") }, 145, "2026-08-12"),
+  officialListing("walnut-bookcase", { type: "room", label: "월넛 유리 책장", cat: "가구", color: "#8a542c", roomCategory: "large-furniture", imageDataUrl: officialShopAsset("walnut-bookcase.png") }, 150, "2026-08-12"),
+  officialListing("ivory-vanity", { type: "room", label: "아이보리 화장대", cat: "가구", color: "#ead5b4", roomCategory: "large-furniture", imageDataUrl: officialShopAsset("ivory-vanity.png") }, 140, "2026-08-12"),
+  officialListing("mint-tea-cart", { type: "room", label: "민트 티 카트", cat: "가구", color: "#9ec8bd", roomCategory: "side-table", imageDataUrl: officialShopAsset("mint-tea-cart.png") }, 125, "2026-08-12"),
   officialListing("calico-cat", { type: "room", label: "삼색 고양이", cat: "소품", color: "#f0a868", roomCategory: "left-prop", imageDataUrl: officialShopAsset("tricolor-cat.png") }, 130, "2026-07-23"),
   officialListing("heart-balloon", { type: "room", label: "하트 풍선", cat: "소품", color: "#e85888", roomCategory: "right-prop", imageDataUrl: officialShopAsset("heart-balloon.png") }, 80, "2026-07-24"),
   officialListing("pink-dress", { type: "avatar", label: "핑크 리본 원피스", cat: "의상", color: "#f080b0", imageDataUrl: pinkDressImg }, 120, "2026-07-27"),
