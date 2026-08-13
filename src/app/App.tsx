@@ -12,6 +12,7 @@ import NicknameSetupPage from "./NicknameSetupPage";
 import GiftModal from "./GiftModal";
 import { FONT_KR, FONT_PIXEL, FONT_UI } from "./ui-fonts";
 import { bootstrapAuth, signOut, updateUserNickname, type User } from "../lib/auth";
+import { isGuestUserId } from "../lib/guest";
 import {
   acceptFriendRequest,
   loadFriendRequests,
@@ -15074,12 +15075,12 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   };
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured() || isGuestUserId(user.id)) return;
     return startPresenceHeartbeat(user.id);
   }, [user.id]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured() || isGuestUserId(user.id)) {
       const reset = resetCreatedMyItemsForMigration(user.id);
       if (reset.required) {
         const removedIds = new Set(reset.removedItemIds);
@@ -15610,6 +15611,19 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           >
             로그아웃
           </motion.button>
+        )}
+        {user.isGuest && (
+          <span
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.48rem",
+              fontWeight: 700,
+              color: "var(--diary-dark)",
+              opacity: 0.72,
+            }}
+          >
+            게스트 · 로그아웃 시 초기화
+          </span>
         )}
       </div>
     </div>

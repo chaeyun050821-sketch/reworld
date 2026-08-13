@@ -1,4 +1,5 @@
 import type { DiaryEntry, Privacy } from "../app/data";
+import { canUseRemoteAccount } from "./guest";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
@@ -28,7 +29,7 @@ export async function fetchDiaryEntries(
   userId: string,
   options?: { publicOnly?: boolean },
 ): Promise<DiaryEntry[]> {
-  if (!isSupabaseConfigured()) return [];
+  if (!canUseRemoteAccount(userId)) return [];
 
   let query = supabase
     .from("diary_entries")
@@ -51,8 +52,8 @@ export async function fetchDiaryEntries(
 }
 
 export async function upsertDiaryEntry(userId: string, entry: DiaryEntry): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const { error } = await supabase.from("diary_entries").upsert(
@@ -77,8 +78,8 @@ export async function upsertDiaryEntry(userId: string, entry: DiaryEntry): Promi
 }
 
 export async function deleteDiaryEntry(userId: string, entryId: string): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const { error } = await supabase

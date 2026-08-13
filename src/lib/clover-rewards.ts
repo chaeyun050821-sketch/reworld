@@ -5,7 +5,7 @@ import {
   loadCoinsUpdatedAt,
   saveCoins,
 } from "./shop-storage";
-import { isSupabaseConfigured } from "./supabase";
+import { canUseRemoteAccount } from "./guest";
 import { fetchUserInventory, upsertUserInventory } from "./user-sync";
 
 export const CLOVER_REWARD = {
@@ -161,7 +161,7 @@ function mergeCloverBalance(
 
 /** Supabase user_inventory.coins + clover_rewards 저장 */
 export async function persistCloverToServer(userId: string): Promise<void> {
-  if (!isSupabaseConfigured() || !userId) return;
+  if (!canUseRemoteAccount(userId)) return;
   const snapshot = getInventorySnapshot(userId);
   const result = await upsertUserInventory(userId, {
     ...snapshot,
@@ -191,7 +191,7 @@ export async function hydrateCloverFromServer(
   // Explicit null = no remote inventory row yet — keep local, optionally push.
   if (remote === null) {
     const localCoins = loadCoins(userId);
-    if (isSupabaseConfigured()) {
+    if (canUseRemoteAccount(userId)) {
       await persistCloverToServer(userId);
     }
     notify(userId);
@@ -206,7 +206,7 @@ export async function hydrateCloverFromServer(
     remoteUpdatedAtMs = undefined;
   }
 
-  if (remote === undefined && isSupabaseConfigured()) {
+  if (remote === undefined && canUseRemoteAccount(userId)) {
     const inventory = await fetchUserInventory(userId);
     if (inventory) {
       remoteCoins = inventory.coins;
@@ -217,7 +217,7 @@ export async function hydrateCloverFromServer(
       }
     } else {
       const localCoins = loadCoins(userId);
-      if (isSupabaseConfigured()) {
+      if (canUseRemoteAccount(userId)) {
         await persistCloverToServer(userId);
       }
       notify(userId);
@@ -254,7 +254,7 @@ export async function hydrateCloverFromServer(
   }
 
   const shouldPush =
-    isSupabaseConfigured() &&
+    canUseRemoteAccount(userId) &&
     (mergedCoins !== remoteCoins ||
       JSON.stringify(mergedState) !== JSON.stringify(parseRemoteRewardState(remoteRewards)));
 

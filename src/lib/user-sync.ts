@@ -3,6 +3,7 @@ import { EMPTY_MINIROOM_DATA, EMPTY_ROOM_SELECTIONS, hasMiniroomSelections, migr
 import type { StoredAvatarProfile } from "./avatar-storage";
 import type { HandMadeItem } from "./shop-storage";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 type AvatarRow = {
@@ -76,7 +77,7 @@ export async function checkUserDataTables(): Promise<SyncResult> {
 }
 
 export async function fetchUserAvatar(userId: string): Promise<StoredAvatarProfile | null> {
-  if (!isSupabaseConfigured()) return null;
+  if (!canUseRemoteAccount(userId)) return null;
 
   const { data, error } = await supabase
     .from("user_avatars")
@@ -94,12 +95,13 @@ export async function fetchUserAvatar(userId: string): Promise<StoredAvatarProfi
 
 export async function fetchUserAvatars(userIds: string[]): Promise<Map<string, StoredAvatarProfile>> {
   const result = new Map<string, StoredAvatarProfile>();
-  if (!isSupabaseConfigured() || userIds.length === 0) return result;
+  const remoteIds = userIds.filter((id) => canUseRemoteAccount(id));
+  if (!isSupabaseConfigured() || remoteIds.length === 0) return result;
 
   const { data, error } = await supabase
     .from("user_avatars")
     .select("user_id, body_color, pixel_map, equipped")
-    .in("user_id", userIds);
+    .in("user_id", remoteIds);
 
   if (error) {
     console.error("[user-sync] avatars fetch failed:", error.message, error.code);
@@ -114,8 +116,8 @@ export async function fetchUserAvatars(userIds: string[]): Promise<Map<string, S
 }
 
 export async function upsertUserAvatar(userId: string, avatar: StoredAvatarProfile): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const { error } = await supabase.from("user_avatars").upsert(
@@ -137,7 +139,7 @@ export async function upsertUserAvatar(userId: string, avatar: StoredAvatarProfi
 }
 
 export async function fetchUserMiniroom(userId: string): Promise<MiniroomData | null> {
-  if (!isSupabaseConfigured()) return null;
+  if (!canUseRemoteAccount(userId)) return null;
 
   const { data, error } = await supabase
     .from("user_minirooms")
@@ -155,8 +157,8 @@ export async function fetchUserMiniroom(userId: string): Promise<MiniroomData | 
 }
 
 export async function upsertUserMiniroom(userId: string, data: MiniroomData): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const { error } = await supabase.from("user_minirooms").upsert(
@@ -198,7 +200,7 @@ function isMissingColumnError(message: string, code?: string): boolean {
 }
 
 export async function fetchUserInventory(userId: string): Promise<StoredUserInventory | null> {
-  if (!isSupabaseConfigured()) return null;
+  if (!canUseRemoteAccount(userId)) return null;
 
   let data: InventoryRow | null = null;
   let error: { message: string; code?: string } | null = null;
@@ -242,8 +244,8 @@ export async function upsertUserInventory(
   userId: string,
   inventory: StoredUserInventory,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const basePayload = {
@@ -274,12 +276,13 @@ export async function upsertUserInventory(
 
 export async function fetchUserInventories(userIds: string[]): Promise<Map<string, HandMadeItem[]>> {
   const result = new Map<string, HandMadeItem[]>();
-  if (!isSupabaseConfigured() || userIds.length === 0) return result;
+  const remoteIds = userIds.filter((id) => canUseRemoteAccount(id));
+  if (!isSupabaseConfigured() || remoteIds.length === 0) return result;
 
   const { data, error } = await supabase
     .from("user_inventory")
     .select("user_id, items")
-    .in("user_id", userIds);
+    .in("user_id", remoteIds);
 
   if (error) {
     console.error("[user-sync] inventories fetch failed:", error.message, error.code);

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   requestPasswordReset,
   signIn,
+  signInAsGuest,
   signInWithSocial,
   signUp,
   updatePassword,
@@ -39,11 +40,11 @@ export default function AuthPage({
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<SocialAuthProvider | null>(null);
+  const [guestLoading, setGuestLoading] = useState(false);
 
   const SOCIAL_PROVIDERS: { id: SocialAuthProvider; label: string; emoji: string }[] = [
     { id: "google", label: "Google", emoji: "G" },
     { id: "kakao", label: "카카오", emoji: "💬" },
-    { id: "github", label: "GitHub", emoji: "🐙" },
   ];
 
   useEffect(() => {
@@ -131,6 +132,20 @@ export default function AuthPage({
     }
 
     setLoading(false);
+  };
+
+  const handleGuestLogin = () => {
+    setError("");
+    setInfo("");
+    setGuestLoading(true);
+    const result = signInAsGuest();
+    if (!result.ok) {
+      setError(result.error);
+      setGuestLoading(false);
+      return;
+    }
+    onSuccess(result.user);
+    setGuestLoading(false);
   };
 
   const handleSocialLogin = async (provider: SocialAuthProvider) => {
@@ -504,7 +519,7 @@ export default function AuthPage({
                   <button
                     key={provider.id}
                     type="button"
-                    disabled={!!socialLoading || loading}
+                    disabled={!!socialLoading || loading || guestLoading}
                     onClick={() => void handleSocialLogin(provider.id)}
                     className="w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-opacity"
                     style={{
@@ -534,6 +549,47 @@ export default function AuthPage({
                       : `${provider.label}로 ${mode === "login" ? "로그인" : "시작하기"}`}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  disabled={!!socialLoading || loading || guestLoading}
+                  onClick={handleGuestLogin}
+                  className="w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-opacity"
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    color: "#3d4a7a",
+                    background: "rgba(255,255,255,0.92)",
+                    border: "1.5px solid rgba(122,143,212,0.22)",
+                    opacity: socialLoading ? 0.55 : 1,
+                  }}
+                >
+                  <span
+                    className="flex items-center justify-center rounded-full"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      fontSize: "0.72rem",
+                      fontWeight: 800,
+                      background: "rgba(122,143,212,0.12)",
+                    }}
+                  >
+                    👤
+                  </span>
+                  {guestLoading ? "들어가는 중..." : "게스트로 둘러보기"}
+                </button>
+                <p
+                  style={{
+                    fontFamily: FONT_UI,
+                    fontSize: "0.5rem",
+                    fontWeight: 600,
+                    color: "#9aa8d8",
+                    textAlign: "center",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  게스트는 모든 기능을 쓸 수 있지만, 로그아웃하면 저장되지 않고 초기화돼요.
+                </p>
               </div>
             </>
           )}

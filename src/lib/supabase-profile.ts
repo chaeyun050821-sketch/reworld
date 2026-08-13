@@ -2,6 +2,7 @@ import type { ProfileField, UserProfile } from "./profile";
 import { defaultProfile, withProfileTimestamp } from "./profile";
 import { isDiaryThemeId, type DiaryThemeId } from "./diary-theme";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 type ProfileDetailsRow = {
@@ -94,7 +95,7 @@ export async function fetchUserProfileDetails(
   userId: string,
   nicknameFallback = "유저",
 ): Promise<FetchedProfileDetails | null> {
-  if (!isSupabaseConfigured()) return null;
+  if (!canUseRemoteAccount(userId)) return null;
 
   const { data, error } = await supabase
     .from("profiles")
@@ -140,8 +141,8 @@ export async function upsertUserProfileDetails(
   nickname: string,
   profile: UserProfile,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const trimmed = nickname.trim();
@@ -178,7 +179,7 @@ export async function upsertUserProfileDetails(
 
 /** profiles 행이 없으면 친구 닉네임 검색이 실패합니다. 로그인/가입 시 반드시 동기화합니다. */
 export async function ensureSupabaseProfile(userId: string, nickname: string): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+  if (!canUseRemoteAccount(userId)) return;
 
   const trimmed = nickname.trim();
   if (!trimmed || trimmed.length > 12) return;

@@ -1,4 +1,5 @@
 import { mapSupabaseError } from "./supabase-errors";
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export type NotificationType =
@@ -205,7 +206,7 @@ async function ensureSynced(): Promise<void> {
 }
 
 async function persistNotificationLastReadAt(userId: string, iso: string): Promise<void> {
-  if (!isSupabaseConfigured() || !userId) return;
+  if (!canUseRemoteAccount(userId)) return;
 
   const { error } = await supabase
     .from("profiles")
@@ -230,7 +231,7 @@ async function persistNotificationLastReadAt(userId: string, iso: string): Promi
 export async function loadNotifications(userId: string): Promise<AppNotification[]> {
   if (!userId) return [];
 
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId)) {
     return loadLocal(userId);
   }
 
@@ -281,7 +282,7 @@ export async function deleteNotification(
   if (userId) {
     saveLocal(userId, loadLocal(userId).filter((notification) => notification.id !== notificationId));
   }
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId)) {
     return { ok: true };
   }
 
@@ -296,7 +297,7 @@ export function subscribeNotifications(
   userId: string,
   onChange: () => void,
 ): () => void {
-  if (!isSupabaseConfigured() || !userId) return () => {};
+  if (!canUseRemoteAccount(userId)) return () => {};
 
   const channel = supabase
     .channel(`notifications:${userId}`)
@@ -331,7 +332,7 @@ export function getLastReadAt(userId: string): string | null {
 
 export async function fetchNotificationLastReadAt(userId: string): Promise<string | null> {
   const local = getLastReadAt(userId);
-  if (!userId || !isSupabaseConfigured()) return local;
+  if (!canUseRemoteAccount(userId)) return local;
 
   const { data, error } = await supabase
     .from("profiles")

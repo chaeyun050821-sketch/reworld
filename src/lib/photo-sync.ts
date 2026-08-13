@@ -1,6 +1,7 @@
 import { normalizePhotoDecorations, type PhotoDecoration } from "./photo-decorations";
 import { filterUsablePhotos, isUsablePhotoSrc, type StoredPhoto } from "./photo-storage";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 type PhotoRow = {
@@ -53,7 +54,7 @@ async function purgeUnusableRemoteRows(userId: string, rows: PhotoRow[]) {
 }
 
 export async function fetchUserPhotos(userId: string): Promise<StoredPhoto[]> {
-  if (!isSupabaseConfigured()) return [];
+  if (!canUseRemoteAccount(userId)) return [];
 
   const { data, error } = await supabase
     .from("user_photos")
@@ -91,7 +92,7 @@ export async function updatePhotoDecorations(
   photoId: string,
   decorations: PhotoDecoration[],
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(userId)) return { ok: true };
 
   const { error } = await supabase
     .from("user_photos")
@@ -177,7 +178,7 @@ export async function addUploadedPhoto(
   try {
     const jpegBlob = await fileToJpegBlob(file);
 
-    if (isSupabaseConfigured()) {
+    if (canUseRemoteAccount(userId)) {
       const uploaded = await uploadToStorage(userId, photoId, jpegBlob);
       if (uploaded) {
         const { error } = await supabase.from("user_photos").insert({
@@ -256,7 +257,7 @@ export async function addGradientPhoto(
     createdAt,
   };
 
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId)) {
     return { ok: true, photo };
   }
 
@@ -283,7 +284,7 @@ export async function upsertLocalPhoto(
   userId: string,
   photo: StoredPhoto,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(userId)) return { ok: true };
   // Never re-create rows with missing/broken sources (causes black tiles)
   if (!isUsablePhotoSrc(photo.src)) return { ok: true };
 
@@ -318,7 +319,7 @@ export async function upsertLocalPhoto(
 }
 
 export async function deleteUserPhoto(userId: string, photo: StoredPhoto): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(userId)) return { ok: true };
 
   // Delete the DB row entirely (do not clear src_value and leave an empty record)
   const { error } = await supabase

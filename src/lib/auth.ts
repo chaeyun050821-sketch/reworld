@@ -7,6 +7,7 @@ import {
   validateNicknameFormat,
 } from "./nickname";
 import { getAuthCallbackUrl, clearAuthCallbackUrl, consumeAuthCallbackError } from "./site-url";
+import { GUEST_ID_PREFIX, GUEST_SESSION_KEY, wipeGuestLocalData } from "./guest";
 
 export type SocialAuthProvider = "google" | "github" | "kakao";
 
@@ -15,6 +16,7 @@ export type User = {
   email: string;
   nickname: string;
   createdAt: string;
+  isGuest?: boolean;
 };
 
 export type AuthResult =
@@ -162,12 +164,63 @@ function deferAuthWork(work: () => void): void {
   setTimeout(work, 0);
 }
 
+function readGuestSession(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(GUEST_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<User>;
+    if (!parsed?.id || !parsed.isGuest) return null;
+    return {
+      id: parsed.id,
+      email: parsed.email ?? "",
+      nickname: parsed.nickname?.trim() || "게스트",
+      createdAt: parsed.createdAt ?? new Date().toISOString(),
+      isGuest: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeGuestSession(user: User): void {
+  sessionStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(user));
+}
+
+function clearGuestSession(wipeData = true): void {
+  const guest = readGuestSession();
+  if (wipeData && guest) wipeGuestLocalData(guest.id);
+  try {
+    sessionStorage.removeItem(GUEST_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function signInAsGuest(): AuthResult {
+  const suffix = crypto.randomUUID().slice(0, 4);
+  const user: User = {
+    id: `${GUEST_ID_PREFIX}${crypto.randomUUID()}`,
+    email: "",
+    nickname: `게스트${suffix}`,
+    createdAt: new Date().toISOString(),
+    isGuest: true,
+  };
+  writeGuestSession(user);
+  return { ok: true, user };
+}
+
 export function bootstrapAuth(
   onChange: (result: AuthSessionResult | null) => void,
   onCallbackError?: (message: string) => void,
 ): () => void {
+  const emitGuestOrNull = () => {
+    const guest = readGuestSession();
+    onChange(guest ? { user: guest, needsNicknameSetup: false } : null);
+  };
+
   if (!isSupabaseConfigured()) {
-    onChange(null);
+    emitGuestOrNull();
     return () => {};
   }
 
@@ -184,12 +237,13 @@ export function bootstrapAuth(
         void (async () => {
           if (!session?.user) {
             if (event === "INITIAL_SESSION" || event === "SIGNED_OUT") {
-              onChange(null);
+              emitGuestOrNull();
             }
             return;
           }
 
           try {
+            clearGuestSession(true);
             const result = await mapUserFromSession(session.user);
             const isPasswordRecovery = detectPasswordRecovery(event);
             onChange(isPasswordRecovery ? { ...result, isPasswordRecovery: true } : result);
@@ -315,6 +369,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
 }
 
 export async function signOut(): Promise<void> {
+  clearGuestSession(true);
   if (!isSupabaseConfigured()) return;
   await supabase.auth.signOut();
 }
@@ -459,13 +514,20 @@ export async function updateUserNickname(
   userId: string,
   nickname: string,
 ): Promise<AuthResult> {
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 설정이 필요해요." };
-  }
-
   const nickCheck = validateNicknameFormat(nickname.trim());
   if (!nickCheck.ok) {
     return { ok: false, error: nickCheck.error };
+  }
+
+  const guest = readGuestSession();
+  if (guest && guest.id === userId) {
+    const next = { ...guest, nickname: nickCheck.value };
+    writeGuestSession(next);
+    return { ok: true, user: next };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: "Supabase 설정이 필요해요." };
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser();

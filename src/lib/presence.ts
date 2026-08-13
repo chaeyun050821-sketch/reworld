@@ -1,3 +1,4 @@
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 const ONLINE_WINDOW_MS = 90_000;
@@ -5,7 +6,7 @@ const HEARTBEAT_MS = 30_000;
 
 /** Keep last_seen_at fresh while the app tab is open and visible. */
 export function startPresenceHeartbeat(userId: string): () => void {
-  if (!isSupabaseConfigured() || !userId) return () => {};
+  if (!canUseRemoteAccount(userId)) return () => {};
 
   let stopped = false;
 

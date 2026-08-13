@@ -12,6 +12,7 @@ import {
   resolveHandMadeItemImageUrl,
   type HandMadeItem,
 } from "./shop-storage";
+import { isLocalOnlyUserId } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 export type InventoryEntry = {
@@ -214,7 +215,7 @@ export async function loadCommerceSnapshot(userId: string): Promise<CommerceSnap
 }
 
 export async function loadSellerListings(sellerId: string): Promise<MarketplaceListing[]> {
-  if (isSupabaseConfigured() && !sellerId.startsWith("demo-")) {
+  if (isSupabaseConfigured() && !isLocalOnlyUserId(sellerId)) {
     const { data, error } = await supabase
       .from("marketplace_listings")
       .select("id, seller_id, seller_nickname, item_id, price, listed_at")
@@ -523,7 +524,7 @@ export async function loadPeerGiftableItems(userId: string): Promise<ShopCatalog
   const { syncBuyerInventoryFromServer } = await import("./shop-sync");
   const { fetchUserInventory } = await import("./user-sync");
 
-  if (isSupabaseConfigured() && !userId.startsWith("demo-")) {
+  if (isSupabaseConfigured() && !isLocalOnlyUserId(userId)) {
     const remote = await fetchUserInventory(userId);
     if (remote) {
       // Apply peer row into a temporary read via ids already on this device if same browser;
@@ -569,7 +570,7 @@ export async function loadOwnShopItems(userId: string, nickname?: string): Promi
 
 /** Another user's active 내 상점 items. Remote listings are authoritative cross-device. */
 export async function loadPeerShopItems(userId: string): Promise<ShopCatalogItem[] | null> {
-  if (isSupabaseConfigured() && !userId.startsWith("demo-")) {
+  if (isSupabaseConfigured() && !isLocalOnlyUserId(userId)) {
     const { fetchSellerShopListings } = await import("./shop-sync");
     const remote = await fetchSellerShopListings(userId);
     if (remote) return remote.map((listing) => handMadeToGiftableCatalog(listing.item));

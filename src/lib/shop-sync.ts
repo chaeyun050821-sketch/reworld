@@ -20,6 +20,7 @@ import { hydrateCloverFromServer } from "./clover-rewards";
 import { fetchUserInventory, upsertUserInventory } from "./user-sync";
 import { mapSupabaseError, type SyncResult } from "./supabase-errors";
 import { saveShopSaleNotification } from "./notifications";
+import { canUseRemoteAccount } from "./guest";
 import { isSupabaseConfigured, supabase } from "./supabase";
 
 type ShopListingRow = {
@@ -68,7 +69,7 @@ export async function fetchActiveShopListings(): Promise<ShopListingWithItem[]> 
 }
 
 export async function fetchSellerShopListings(sellerId: string): Promise<ShopListingWithItem[] | null> {
-  if (!isSupabaseConfigured()) return [];
+  if (!canUseRemoteAccount(sellerId)) return [];
 
   const { data, error } = await supabase
     .from("shop_listings")
@@ -309,7 +310,7 @@ function listingRowFromRemote(entry: ShopListingWithItem): ShopListing {
  */
 export async function syncSellerShopListings(userId: string, nickname: string): Promise<ShopListing[]> {
   const local = loadMyListings(userId);
-  if (!isSupabaseConfigured()) return local;
+  if (!canUseRemoteAccount(userId)) return local;
 
   let remote = await fetchSellerShopListings(userId);
   if (remote === null) {
@@ -387,8 +388,8 @@ export async function publishShopListing(
   if (listing.price < GLOBAL_SHOP_PRICE_MIN || listing.price > GLOBAL_SHOP_PRICE_MAX) {
     return { ok: false, error: `가격은 ${GLOBAL_SHOP_PRICE_MIN}~${GLOBAL_SHOP_PRICE_MAX} 클로버로 입력해 주세요.` };
   }
-  if (!isSupabaseConfigured()) {
-    return { ok: false, error: "Supabase 연결이 필요해요. 로컬에만 임시 저장됐어요." };
+  if (!canUseRemoteAccount(userId)) {
+    return { ok: true };
   }
 
   const { error } = await supabase.from("shop_listings").upsert(
@@ -423,7 +424,7 @@ export async function unpublishShopListing(userId: string, listingId: string): P
   const nextLocal = previous.filter((listing) => listing.id !== listingId);
   saveMyListings(userId, nextLocal);
 
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(userId)) return { ok: true };
 
   const { data, error } = await supabase
     .from("shop_listings")
@@ -449,7 +450,7 @@ export async function removeShopListingsForItem(sellerId: string, itemId: string
   const nextLocal = previous.filter((listing) => listing.itemId !== itemId);
   saveMyListings(sellerId, nextLocal);
 
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(sellerId)) return { ok: true };
 
   const { error } = await supabase
     .from("shop_listings")
@@ -470,7 +471,7 @@ export async function syncShopListingItemSnapshot(
   itemId: string,
   item: HandMadeItem,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (!canUseRemoteAccount(sellerId)) return { ok: true };
 
   const { error } = await supabase
     .from("shop_listings")
