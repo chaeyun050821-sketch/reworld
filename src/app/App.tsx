@@ -1,5 +1,5 @@
 import WorldPage from "./WorldPage";
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, type Dispatch, type SetStateAction, type CSSProperties, type ReactNode, type RefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type Dispatch, type SetStateAction, type CSSProperties, type ReactNode, type RefObject, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -6719,6 +6719,633 @@ function PixelEditor({
   );
 }
 
+const ITEM_PIXEL_GRID_SIZES = [16, 24, 32, 48, 64] as const;
+
+function canEditItemPixels(item: HandMadeItem): boolean {
+  return item.source !== "purchased" && !!resolveHandMadeItemImageUrl(item);
+}
+
+function createEmptyPixelGrid(size: number): (string | null)[][] {
+  return Array.from({ length: size }, () => Array.from({ length: size }, () => null));
+}
+
+function pixelGridContentBounds(grid: (string | null)[][]): HandMadeItemContentBounds {
+  const size = grid.length;
+  let minX = size;
+  let minY = size;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (!grid[y][x]) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < 0) return FULL_IMAGE_CONTENT_BOUNDS;
+  return {
+    x: minX / size,
+    y: minY / size,
+    w: (maxX - minX + 1) / size,
+    h: (maxY - minY + 1) / size,
+  };
+}
+
+function pixelGridToDataUrl(grid: (string | null)[][]): string {
+  const size = grid.length;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const fill = grid[y][x];
+      if (!fill) continue;
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  return canvas.toDataURL("image/png");
+}
+
+function scalePixelGrid(grid: (string | null)[][], nextSize: number): (string | null)[][] {
+  const prev = grid.length;
+  if (prev === nextSize) return grid.map((row) => [...row]);
+  const next = createEmptyPixelGrid(nextSize);
+  for (let y = 0; y < nextSize; y++) {
+    for (let x = 0; x < nextSize; x++) {
+      const sx = Math.min(prev - 1, Math.floor((x * prev) / nextSize));
+      const sy = Math.min(prev - 1, Math.floor((y * prev) / nextSize));
+      next[y][x] = grid[sy][sx];
+    }
+  }
+  return next;
+}
+
+function imageToPixelGrid(src: string, size: number): Promise<(string | null)[][]> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const srcW = Math.max(256, img.naturalWidth || img.width || 0);
+      const srcH = Math.max(256, img.naturalHeight || img.height || 0);
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = srcW;
+      sourceCanvas.height = srcH;
+      const sourceCtx = sourceCanvas.getContext("2d");
+      if (!sourceCtx) {
+        resolve(createEmptyPixelGrid(size));
+        return;
+      }
+      sourceCtx.drawImage(img, 0, 0, srcW, srcH);
+      const srcData = sourceCtx.getImageData(0, 0, srcW, srcH).data;
+      let minX = srcW;
+      let minY = srcH;
+      let maxX = -1;
+      let maxY = -1;
+      for (let y = 0; y < srcH; y++) {
+        for (let x = 0; x < srcW; x++) {
+          if (srcData[(y * srcW + x) * 4 + 3] < 18) continue;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(createEmptyPixelGrid(size));
+        return;
+      }
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, size, size);
+      if (maxX >= 0) {
+        const cropW = maxX - minX + 1;
+        const cropH = maxY - minY + 1;
+        const fit = Math.min(size / cropW, size / cropH);
+        const drawW = Math.max(1, Math.round(cropW * fit));
+        const drawH = Math.max(1, Math.round(cropH * fit));
+        const dx = Math.floor((size - drawW) / 2);
+        const dy = Math.floor((size - drawH) / 2);
+        ctx.drawImage(img, minX, minY, cropW, cropH, dx, dy, drawW, drawH);
+      } else {
+        ctx.drawImage(img, 0, 0, size, size);
+      }
+      const data = ctx.getImageData(0, 0, size, size).data;
+      const grid = createEmptyPixelGrid(size);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const i = (y * size + x) * 4;
+          if (data[i + 3] < 18) {
+            grid[y][x] = null;
+            continue;
+          }
+          grid[y][x] = `#${[data[i], data[i + 1], data[i + 2]].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+        }
+      }
+      resolve(grid);
+    };
+    img.onerror = () => resolve(createEmptyPixelGrid(size));
+    img.src = src;
+  });
+}
+
+function ItemPixelCanvas({
+  grid,
+  tool,
+  selectedColor,
+  brushSize,
+  onPaint,
+  onErase,
+  onSample,
+}: {
+  grid: (string | null)[][];
+  tool: "paint" | "erase" | "eyedropper";
+  selectedColor: string;
+  brushSize: number;
+  onPaint: (x: number, y: number) => void;
+  onErase: (x: number, y: number) => void;
+  onSample: (color: string) => void;
+}) {
+  const drawingRef = useRef(false);
+  const lastCellRef = useRef<string | null>(null);
+  const size = grid.length;
+
+  const applyCell = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    const cellKey = `${x}-${y}`;
+    if (lastCellRef.current === cellKey && tool !== "eyedropper") return;
+    lastCellRef.current = cellKey;
+    const fill = grid[y][x];
+    if (tool === "eyedropper") {
+      if (fill) onSample(fill);
+      return;
+    }
+    if (tool === "erase") {
+      onErase(x, y);
+      return;
+    }
+    onPaint(x, y);
+  };
+
+  useEffect(() => {
+    const stopDrawing = () => {
+      drawingRef.current = false;
+      lastCellRef.current = null;
+    };
+    window.addEventListener("pointerup", stopDrawing);
+    window.addEventListener("pointercancel", stopDrawing);
+    return () => {
+      window.removeEventListener("pointerup", stopDrawing);
+      window.removeEventListener("pointercancel", stopDrawing);
+    };
+  }, []);
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${size}, 1fr)`,
+        width: "min(280px, 100%)",
+        aspectRatio: "1",
+        border: "1px solid rgba(216,196,155,0.45)",
+        background: "#f7efd9",
+        boxShadow: "0 3px 14px rgba(0,0,0,0.18)",
+        touchAction: "none",
+        userSelect: "none",
+        imageRendering: "pixelated",
+      }}
+      onPointerLeave={() => {
+        if (tool === "eyedropper") return;
+        lastCellRef.current = null;
+      }}
+    >
+      {grid.map((row, r) => row.map((cell, c) => (
+        <div
+          key={`${r}-${c}`}
+          role="button"
+          tabIndex={-1}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            drawingRef.current = tool !== "eyedropper";
+            lastCellRef.current = null;
+            applyCell(c, r);
+            if (tool === "eyedropper") drawingRef.current = false;
+          }}
+          onPointerEnter={() => {
+            if (!drawingRef.current || tool === "eyedropper") return;
+            applyCell(c, r);
+          }}
+          style={{
+            aspectRatio: "1",
+            background: cell ?? ((r + c) % 2 === 0 ? "#fff4dc" : "#f2e5c8"),
+            boxShadow: "inset 0 0 0 0.5px rgba(110,90,50,0.1)",
+            cursor: tool === "erase" ? "cell" : "crosshair",
+            padding: 0,
+          }}
+          aria-label={tool === "erase" ? "픽셀 지우기" : tool === "eyedropper" ? "색 추출" : "픽셀 칠하기"}
+        />
+      )))}
+    </div>
+  );
+}
+
+function ItemPixelEditorLeftPage({
+  avatar,
+  item,
+}: {
+  avatar: AvatarProfile;
+  item: HandMadeItem | null;
+}) {
+  const previewWidth = ITEM_CREATOR_AVATAR_WIDTH;
+  const previewHeight = avatarPreviewHeightForWidth(previewWidth);
+  const framePad = Math.max(6, Math.round(previewWidth * 0.095));
+  const imageSrc = item ? resolveHandMadeItemImageUrl(item) : null;
+  const resolved = item
+    ? resolveDecorPlacementForItem(item, previewWidth, previewHeight)
+    : null;
+
+  return (
+    <div className="relative h-full w-full flex flex-col overflow-hidden" style={{ background: DIARY_PAPER_BG }}>
+      <div className="flex items-center justify-between px-3 py-2 flex-shrink-0 border-b" style={{ borderColor: "rgba(139,154,114,0.2)" }}>
+        <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.38rem", color: "#8b9a72" }}>WEAR SIZE</span>
+        <span style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, color: "#8b9a72" }}>
+          아바타 착용 크기
+        </span>
+      </div>
+      <div className="flex-1 flex items-center justify-center p-4" style={{ minHeight: 0 }}>
+        <div
+          className="relative rounded-xl inline-flex items-center justify-center"
+          style={{
+            padding: framePad,
+            background: AVATAR_STUDIO_PREVIEW_FRAME.background,
+            border: AVATAR_STUDIO_PREVIEW_FRAME.border,
+          }}
+        >
+          <div className="relative">
+            <div className="relative" style={{ zIndex: AVATAR_DECOR_LAYER_Z.avatar }}>
+              <PixelAvatar
+                avatar={avatar}
+                width={previewWidth}
+                height={previewHeight}
+                viewBox={AVATAR_STUDIO_PREVIEW_VIEWBOX}
+              />
+            </div>
+            {item && imageSrc && resolved && (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  width: resolved.itemWidth,
+                  height: resolved.itemHeight,
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(calc(-50% + ${resolved.offsetX}px), calc(-50% + ${resolved.offsetY}px)) rotate(${resolved.rotation}deg)`,
+                  zIndex: getDecorLayer(item) === "back" ? AVATAR_DECOR_LAYER_Z.back : AVATAR_DECOR_LAYER_Z.front,
+                }}
+              >
+                <HandMadeItemDecorImage
+                  item={item}
+                  width={resolved.itemWidth}
+                  height={resolved.itemHeight}
+                  contentBounds={item.contentBounds}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <p className="px-3 pb-3 text-center" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", color: "#8b9a72", lineHeight: 1.45 }}>
+        {item ? `「${item.label}」이 아바타에 입혀지는 실제 크기예요.` : "오른쪽에서 수정할 아이템을 골라 주세요."}
+      </p>
+    </div>
+  );
+}
+
+function ItemPixelEditorRightPage({
+  userId,
+  items,
+  selectedItemId,
+  onSelectItem,
+  onPreviewItem,
+  onClose,
+  onSaved,
+}: {
+  userId: string;
+  items: HandMadeItem[];
+  selectedItemId: string | null;
+  onSelectItem: (id: string) => void;
+  onPreviewItem: (item: HandMadeItem | null) => void;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const editableItems = items.filter(canEditItemPixels);
+  const selectedItem = editableItems.find((item) => item.id === selectedItemId) ?? editableItems[0] ?? null;
+  const [grid, setGrid] = useState<(string | null)[][]>(() => createEmptyPixelGrid(64));
+  const [gridSize, setGridSize] = useState(64);
+  const [brushSize, setBrushSize] = useState(1);
+  const [tool, setTool] = useState<"paint" | "erase" | "eyedropper">("paint");
+  const [selectedColor, setSelectedColor] = useState("#ffffff");
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedItemId && selectedItem) onSelectItem(selectedItem.id);
+  }, [selectedItemId, selectedItem?.id]);
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setGrid(createEmptyPixelGrid(gridSize));
+      loadedForRef.current = null;
+      return;
+    }
+    const src = resolveHandMadeItemImageUrl(selectedItem);
+    if (!src) return;
+    const itemId = selectedItem.id;
+    loadedForRef.current = itemId;
+    void imageToPixelGrid(src, gridSize).then((nextGrid) => {
+      if (loadedForRef.current !== itemId) return;
+      setGrid(nextGrid);
+      setLoadError(null);
+    });
+  }, [selectedItem?.id]);
+
+  const previewUrl = useMemo(() => pixelGridToDataUrl(grid), [grid]);
+  const previewBounds = useMemo(() => pixelGridContentBounds(grid), [grid]);
+  const onPreviewItemRef = useRef(onPreviewItem);
+  onPreviewItemRef.current = onPreviewItem;
+
+  useEffect(() => {
+    if (!selectedItem) {
+      onPreviewItemRef.current(null);
+      return;
+    }
+    onPreviewItemRef.current({
+      ...selectedItem,
+      imageDataUrl: previewUrl,
+      contentBounds: previewBounds,
+    });
+  }, [selectedItem?.id, previewUrl, previewBounds]);
+
+  const selectColor = (color: string) => {
+    const hex = cssColorToHex(color) ?? color.trim().toLowerCase();
+    setSelectedColor(hex);
+    setRecentColors((prev) => [hex, ...prev.filter((entry) => entry !== hex)].slice(0, 8));
+  };
+
+  const paintAround = (x: number, y: number, fill: string | null) => {
+    const radius = Math.max(0, Math.floor((brushSize - 1) / 2));
+    setGrid((prev) => {
+      const next = prev.map((row) => [...row]);
+      const size = next.length;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const px = x + dx;
+          const py = y + dy;
+          if (px < 0 || py < 0 || px >= size || py >= size) continue;
+          next[py][px] = fill;
+        }
+      }
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const changeGridSize = (nextSize: number) => {
+    setGridSize(nextSize);
+    setGrid((prev) => scalePixelGrid(prev, nextSize));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    if (!selectedItem) return;
+    setSaving(true);
+    const imageDataUrl = pixelGridToDataUrl(grid);
+    const contentBounds = pixelGridContentBounds(grid);
+    const updated = updateHandMadeItem(userId, selectedItem.id, { imageDataUrl, contentBounds, artStyle: "pixel" });
+    if (!updated) {
+      setLoadError("아이템을 저장하지 못했어요.");
+      setSaving(false);
+      return;
+    }
+    if (isSupabaseConfigured()) {
+      const result = await upsertUserInventory(userId, getInventorySnapshot(userId));
+      if (!result.ok) setLoadError(result.error);
+    }
+    window.dispatchEvent(new CustomEvent("reworld-inventory-changed", { detail: { userId } }));
+    setSaving(false);
+    setSaved(true);
+    onSaved();
+    window.setTimeout(() => setSaved(false), 1600);
+  };
+
+  const toolBtnStyle = (active: boolean): CSSProperties => ({
+    fontFamily: FONT_UI,
+    fontSize: "0.4rem",
+    fontWeight: 700,
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: active ? "linear-gradient(90deg, #b08a4a, #8b9a72)" : "rgba(255,255,255,0.1)",
+    color: active ? "#fff" : "#f7efd9",
+    border: active ? "1px solid rgba(255,255,255,0.35)" : "1px solid rgba(255,255,255,0.12)",
+  });
+
+  const gridSizeIndex = Math.max(0, ITEM_PIXEL_GRID_SIZES.indexOf(gridSize as (typeof ITEM_PIXEL_GRID_SIZES)[number]));
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden p-2.5" style={{ background: "linear-gradient(180deg, #2a2114, #171309)" }}>
+      <div className="flex items-center justify-between mb-2 flex-shrink-0 gap-2">
+        <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.34rem", color: "#d8c49b" }}>ITEM PIXEL</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2 py-0.5 rounded-full"
+            style={{ fontFamily: FONT_UI, fontSize: "0.44rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}
+          >
+            목록으로
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!selectedItem || saving}
+            className="px-2.5 py-0.5 rounded-full text-white"
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.44rem",
+              fontWeight: 800,
+              background: saved ? "linear-gradient(90deg,#ff6b81,#ff8fa3)" : ACCENT_BTN_BG,
+              opacity: !selectedItem || saving ? 0.65 : 1,
+            }}
+          >
+            {saving ? "저장 중..." : saved ? "저장됨" : "저장"}
+          </button>
+        </div>
+      </div>
+
+      {editableItems.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto mb-2 flex-shrink-0 pb-1">
+          {editableItems.map((item) => {
+            const active = selectedItem?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectItem(item.id)}
+                className="flex-shrink-0 rounded-lg px-1.5 py-1"
+                style={{
+                  background: active ? "rgba(176,138,74,0.35)" : "rgba(255,255,255,0.08)",
+                  border: active ? "1.5px solid rgba(216,196,155,0.7)" : "1px solid rgba(255,255,255,0.12)",
+                }}
+              >
+                <HandMadeItemPreview item={item} size={28} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex items-center gap-1 flex-wrap mb-2 flex-shrink-0">
+        <button type="button" onClick={() => setTool("paint")} style={toolBtnStyle(tool === "paint")}>펜</button>
+        <button type="button" onClick={() => setTool("erase")} style={toolBtnStyle(tool === "erase")}>지우개</button>
+        <button type="button" onClick={() => setTool("eyedropper")} style={toolBtnStyle(tool === "eyedropper")}>스포이드</button>
+        <button
+          type="button"
+          onClick={() => {
+            setGrid(createEmptyPixelGrid(gridSize));
+            setSaved(false);
+          }}
+          style={{
+            fontFamily: FONT_UI,
+            fontSize: "0.4rem",
+            fontWeight: 700,
+            padding: "4px 8px",
+            borderRadius: 999,
+            background: "rgba(180,70,70,0.28)",
+            color: "#ffd0d0",
+            border: "1px solid rgba(255,140,140,0.35)",
+          }}
+        >
+          전체 지우기
+        </button>
+      </div>
+
+      <div className="flex gap-2 mb-2 flex-shrink-0">
+        <label className="flex-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          격자 {gridSize}px
+          <input
+            type="range"
+            min={0}
+            max={ITEM_PIXEL_GRID_SIZES.length - 1}
+            value={gridSizeIndex}
+            onChange={(event) => changeGridSize(ITEM_PIXEL_GRID_SIZES[Number(event.target.value)] ?? 64)}
+            className="w-full"
+          />
+        </label>
+        <label className="flex-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          픽셀 크기 {brushSize}
+          <input
+            type="range"
+            min={1}
+            max={4}
+            value={brushSize}
+            onChange={(event) => setBrushSize(Number(event.target.value))}
+            className="w-full"
+          />
+        </label>
+      </div>
+
+      <div className="flex-1 flex gap-2" style={{ minHeight: 0 }}>
+        <div className="flex-1 flex items-center justify-center" style={{ minWidth: 0 }}>
+          {selectedItem ? (
+            <ItemPixelCanvas
+              grid={grid}
+              tool={tool}
+              selectedColor={selectedColor}
+              brushSize={brushSize}
+              onPaint={(x, y) => paintAround(x, y, selectedColor)}
+              onErase={(x, y) => paintAround(x, y, null)}
+              onSample={(color) => {
+                selectColor(color);
+                setTool("paint");
+              }}
+            />
+          ) : (
+            <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "rgba(247,239,217,0.7)", textAlign: "center", lineHeight: 1.5 }}>
+              직접 만들기로 저장한 아이템이 없어요.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-center gap-1.5 flex-shrink-0 pt-1" style={{ width: 44 }}>
+          <label className="relative block" style={{ width: 32, height: 32, cursor: "pointer" }} title="색상 선택">
+            <span
+              aria-hidden
+              style={{
+                display: "block",
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: selectedColor,
+                border: "2px solid rgba(255,255,255,0.75)",
+              }}
+            />
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(selectedColor) ? selectedColor : "#ffffff"}
+              onChange={(event) => {
+                selectColor(event.target.value);
+                setTool("paint");
+              }}
+              style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", border: "none", padding: 0 }}
+              aria-label="컬러 피커"
+            />
+          </label>
+          <span style={{ fontFamily: FONT_UI, fontSize: "0.3rem", color: "#d8c49b" }}>색상</span>
+          {recentColors.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => {
+                selectColor(color);
+                setTool("paint");
+              }}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 5,
+                background: color,
+                border: selectedColor === color ? "2px solid white" : "1px solid rgba(255,255,255,0.28)",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {loadError && (
+        <p className="mt-1 flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#ff8080", textAlign: "center" }}>
+          {loadError}
+        </p>
+      )}
+      <p className="mt-1 flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "rgba(248,234,198,0.55)" }}>
+        {tool === "erase"
+          ? "지우개: 픽셀을 지워 투명하게 만들어요."
+          : tool === "eyedropper"
+            ? "스포이드: 픽셀을 눌러 색을 가져온 뒤 펜으로 바뀌어요."
+            : "펜: 드래그해서 칠하고, 격자와 픽셀 크기를 바꿔 다듬을 수 있어요."}
+      </p>
+    </div>
+  );
+}
+
 function CreatorCanvas({
   label,
   color,
@@ -6912,6 +7539,7 @@ function ItemCreatorRightPage({
   onSelectItem,
   onDeleteItem,
   onSetDecorLayer,
+  onOpenItemPixelEditor,
   onClose,
   inventoryRevision = 0,
 }: {
@@ -6921,6 +7549,7 @@ function ItemCreatorRightPage({
   onSelectItem: (id: string | null) => void;
   onDeleteItem: (id: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
+  onOpenItemPixelEditor: () => void;
   onClose: () => void;
   inventoryRevision?: number;
 }) {
@@ -7094,6 +7723,14 @@ function ItemCreatorRightPage({
         )}
       </div>
 
+      <button
+        type="button"
+        onClick={onOpenItemPixelEditor}
+        className="flex-shrink-0 w-full py-2.5 mt-2 rounded-full text-white"
+        style={{ fontFamily: FONT_UI, fontSize: "0.54rem", fontWeight: 800, background: "linear-gradient(90deg,#ffe080,#ffd060)", color: "#2a2114", boxShadow: "0 2px 10px rgba(255,208,96,0.35)" }}
+      >
+        아이템 수정하기
+      </button>
       <button
         type="button"
         onClick={() => openHandTrackingDrawPage(userId)}
@@ -14640,11 +15277,16 @@ function RightPage({
   onLeaveFriend,
   onProfileFocus,
   showItemCreator,
+  showItemPixelEditor,
   onOpenItemCreator,
   onCloseItemCreator,
+  onOpenItemPixelEditor,
+  onCloseItemPixelEditor,
+  onPixelPreviewItem,
   selectedCreatorItemId,
   onSelectCreatorItem,
   onDeleteCreatorItem,
+  creatorItems,
   creatorEquippedItemIds,
   inventoryRevision,
   onRenameInventoryItem,
@@ -14664,11 +15306,16 @@ function RightPage({
   onLeaveFriend: () => void;
   onProfileFocus: (nb: FriendNeighbor) => void;
   showItemCreator: boolean;
+  showItemPixelEditor: boolean;
   onOpenItemCreator: () => void;
   onCloseItemCreator: () => void;
+  onOpenItemPixelEditor: () => void;
+  onCloseItemPixelEditor: () => void;
+  onPixelPreviewItem: (item: HandMadeItem | null) => void;
   selectedCreatorItemId: string | null;
   onSelectCreatorItem: (id: string | null) => void;
   onDeleteCreatorItem: (id: string) => void;
+  creatorItems: HandMadeItem[];
   creatorEquippedItemIds: string[];
   inventoryRevision: number;
   onRenameInventoryItem: (itemId: string, label: string) => void;
@@ -14684,6 +15331,19 @@ function RightPage({
   };
 
   if (activeTab === "profile") {
+    if (showItemCreator && showItemPixelEditor) {
+      return (
+        <ItemPixelEditorRightPage
+          userId={user.id}
+          items={creatorItems}
+          selectedItemId={selectedCreatorItemId}
+          onSelectItem={(id) => onSelectCreatorItem(id)}
+          onPreviewItem={onPixelPreviewItem}
+          onClose={onCloseItemPixelEditor}
+          onSaved={() => {}}
+        />
+      );
+    }
     if (showItemCreator) {
       return (
         <ItemCreatorRightPage
@@ -14693,6 +15353,7 @@ function RightPage({
           onSelectItem={onSelectCreatorItem}
           onDeleteItem={onDeleteCreatorItem}
           onSetDecorLayer={onSetDecorLayer}
+          onOpenItemPixelEditor={onOpenItemPixelEditor}
           onClose={onCloseItemCreator}
           inventoryRevision={inventoryRevision}
         />
@@ -14827,6 +15488,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   const [visitingFriend, setVisitingFriend] = useState<FriendNeighbor | null>(null);
   const [leftProfileFriend, setLeftProfileFriend] = useState<FriendNeighbor | null>(null);
   const [showItemCreator, setShowItemCreator] = useState(false);
+  const [showItemPixelEditor, setShowItemPixelEditor] = useState(false);
+  const [pixelEditorPreviewItem, setPixelEditorPreviewItem] = useState<HandMadeItem | null>(null);
   const [creatorAvatar, setCreatorAvatar] = useState<AvatarProfile>(() => DEFAULT_AVATAR_PROFILE);
   const [creatorClothesOn, setCreatorClothesOn] = useState(true);
   const [creatorEquippedBackup, setCreatorEquippedBackup] = useState<string[]>([]);
@@ -14871,11 +15534,15 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorSaveError(null);
     setCreatorSaved(false);
     setShowItemCreator(true);
+    setShowItemPixelEditor(false);
+    setPixelEditorPreviewItem(null);
     if (activeTab !== "profile") setActiveTab("profile");
   };
 
   const handleCloseItemCreator = () => {
     setShowItemCreator(false);
+    setShowItemPixelEditor(false);
+    setPixelEditorPreviewItem(null);
     setSelectedCreatorItemId(null);
     setCreatorOverlayEditing(false);
     setCreatorSaveError(null);
@@ -14883,6 +15550,35 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorDirty(false);
     (cloneAvatarProfile(avatar));
   };
+
+  const handleOpenItemPixelEditor = () => {
+    setShowItemPixelEditor(true);
+    setCreatorOverlayEditing(false);
+  };
+
+  const handleCloseItemPixelEditor = () => {
+    setShowItemPixelEditor(false);
+    setPixelEditorPreviewItem(null);
+  };
+
+  const handlePixelPreviewItem = useCallback((item: HandMadeItem | null) => {
+    setPixelEditorPreviewItem((prev) => {
+      if (!item && !prev) return prev;
+      if (
+        item
+        && prev
+        && item.id === prev.id
+        && item.imageDataUrl === prev.imageDataUrl
+        && item.contentBounds?.x === prev.contentBounds?.x
+        && item.contentBounds?.y === prev.contentBounds?.y
+        && item.contentBounds?.w === prev.contentBounds?.w
+        && item.contentBounds?.h === prev.contentBounds?.h
+      ) {
+        return prev;
+      }
+      return item;
+    });
+  }, []);
 
   const handleSelectCreatorItem = (itemId: string | null) => {
     if (!itemId) {
@@ -15080,6 +15776,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     if (tabId !== activeTab) {
       handleLeaveFriend();
       setShowItemCreator(false);
+      setShowItemPixelEditor(false);
+      setPixelEditorPreviewItem(null);
     }
     setActiveTab(tabId);
   };
@@ -15419,6 +16117,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         }}>
           {leftProfileFriend ? (
             <FriendProfileLeftPage nb={leftProfileFriend} user={user} onVisitFriend={handleVisitFriend} />
+          ) : showItemCreator && showItemPixelEditor && activeTab === "profile" ? (
+            <ItemPixelEditorLeftPage
+              avatar={creatorAvatar}
+              item={pixelEditorPreviewItem}
+            />
           ) : showItemCreator && activeTab === "profile" ? (
             <ItemCreatorLeftPage
               creatorAvatar={creatorAvatar}
@@ -15478,11 +16181,16 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             onLeaveFriend={handleLeaveFriend}
             onProfileFocus={handleProfileFocus}
             showItemCreator={showItemCreator}
+            showItemPixelEditor={showItemPixelEditor}
             onOpenItemCreator={handleOpenItemCreator}
             onCloseItemCreator={handleCloseItemCreator}
+            onOpenItemPixelEditor={handleOpenItemPixelEditor}
+            onCloseItemPixelEditor={handleCloseItemPixelEditor}
+            onPixelPreviewItem={handlePixelPreviewItem}
             selectedCreatorItemId={selectedCreatorItemId}
             onSelectCreatorItem={handleSelectCreatorItem}
             onDeleteCreatorItem={handleDeleteCreatorItem}
+            creatorItems={myAvatarItemsForPreview}
             creatorEquippedItemIds={creatorAvatar.equipped}
             inventoryRevision={inventoryRevision}
             onRenameInventoryItem={handleRenameInventoryItem}
@@ -15495,9 +16203,63 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         {/* BOOKMARK TABS on far right */}
         {/* WORLD 탭 — 월드 페이지에서는 숨김 (빈 인덱스/다이어리만 보이는 상태 제거) */}
         {activeTab !== "world" && (
+        <>
+        <style>{`
+          @keyframes world-index-neon {
+            0%, 100% {
+              box-shadow:
+                0 -3px 8px rgba(var(--diary-mid-rgb), 0.55),
+                -4px 0 10px rgba(var(--diary-main-rgb), 0.5),
+                4px 0 10px rgba(var(--diary-main-rgb), 0.5);
+            }
+            50% {
+              box-shadow:
+                0 -6px 16px rgba(var(--diary-mid-rgb), 0.9),
+                -6px 0 18px rgba(var(--diary-main-rgb), 0.8),
+                6px 0 18px rgba(var(--diary-main-rgb), 0.8);
+            }
+          }
+          @keyframes world-index-border {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+          }
+          .world-index-tab {
+            background: #ffffff;
+            overflow: visible;
+            clip-path: inset(-24px -24px 0 -24px);
+            animation: world-index-neon 1.8s ease-in-out infinite;
+          }
+          .world-index-tab::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 2px 2px 0 2px;
+            background: linear-gradient(
+              120deg,
+              #fff,
+              var(--diary-main),
+              var(--diary-mid),
+              var(--diary-dark),
+              var(--diary-main),
+              #fff
+            );
+            background-size: 220% 220%;
+            animation: world-index-border 2.8s linear infinite;
+            pointer-events: none;
+            -webkit-mask:
+              linear-gradient(#fff 0 0) content-box,
+              linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask:
+              linear-gradient(#fff 0 0) content-box,
+              linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+          }
+        `}</style>
         <motion.button
           onClick={() => handleTabChange("world")}
-          className="absolute flex items-center justify-center"
+          className="absolute flex items-center justify-center world-index-tab"
           style={{
             top: -30,
             right: 40,
@@ -15505,11 +16267,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             width: 80,
             height: 30,
             borderRadius: "8px 8px 0 0",
-            background: "#ffffff",
-            borderTop: "2px solid #ffffff",
-            borderLeft: "1px solid #ffffff",
-            borderRight: "1px solid #ffffff",
-            boxShadow: "0 -2px 8px rgba(0,0,0,0.12)",
             cursor: "pointer",
             transition: "all 0.2s",
           }}
@@ -15528,6 +16285,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             WORLD
           </span>
         </motion.button>
+        </>
         )}
           
 
