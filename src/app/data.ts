@@ -95,6 +95,33 @@ export type RoomAvatarPosition = { x: number };
 
 export const INVENTORY_DECOR_SIZE = 88;
 
+/** Native pixel furniture sizes (viewBox units) so shop sprites match built-in items. */
+export const INVENTORY_ROOM_PLACE_SIZE: Record<string, { w: number; h: number }> = {
+  "shop-item-rose-loveseat": { w: 184, h: 56 },
+  "shop-item-walnut-bookcase": { w: 112, h: 108 },
+  "shop-item-ivory-vanity": { w: 96, h: 112 },
+  "shop-item-mint-tea-cart": { w: 72, h: 68 },
+  "shop-item-record-player": { w: 68, h: 56 },
+  "shop-item-aquarium": { w: 96, h: 104 },
+};
+
+export function inventoryDecorSizeForCategory(categoryId?: RoomCategoryId | null): { w: number; h: number } {
+  switch (categoryId) {
+    case "sofa":
+      return { w: 184, h: 56 };
+    case "large-furniture":
+      return { w: 112, h: 108 };
+    case "side-table":
+      return { w: 72, h: 68 };
+    default:
+      return { w: INVENTORY_DECOR_SIZE, h: INVENTORY_DECOR_SIZE };
+  }
+}
+
+export function inventoryDecorSizeForItem(itemId: string, categoryId?: RoomCategoryId | null): { w: number; h: number } {
+  return INVENTORY_ROOM_PLACE_SIZE[itemId] ?? inventoryDecorSizeForCategory(categoryId);
+}
+
 export type InventoryPlacement = {
   /** Unique placement instance so the same owned item can be placed repeatedly. */
   id: string;
@@ -166,22 +193,37 @@ export const EMPTY_MINIROOM_DATA: MiniroomData = {
 
 const INVENTORY_SELECTION_PREFIX = "inv:";
 
-export function defaultInventoryPlacement(itemId: string, index = 0): InventoryPlacement {
+export function defaultInventoryPlacement(
+  itemId: string,
+  index = 0,
+  size?: { w: number; h: number },
+): InventoryPlacement {
+  const { w, h } = size ?? inventoryDecorSizeForItem(itemId);
   return {
     id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     itemId,
     x: 16 + index * 20,
-    y: ROOM_LEFT_PROP_FLOOR_Y - INVENTORY_DECOR_SIZE,
-    w: INVENTORY_DECOR_SIZE,
-    h: INVENTORY_DECOR_SIZE,
+    y: ROOM_LEFT_PROP_FLOOR_Y - h,
+    w,
+    h,
   };
 }
 
 export function migrateMiniroomInventory(data: MiniroomData): MiniroomData {
-  const placements = (data.inventoryPlacements ?? []).map((placement, index) => ({
-    ...placement,
-    id: placement.id || `inv-legacy-${placement.itemId}-${index}`,
-  }));
+  const placements = (data.inventoryPlacements ?? []).map((placement, index) => {
+    const next = {
+      ...placement,
+      id: placement.id || `inv-legacy-${placement.itemId}-${index}`,
+    };
+    const native = INVENTORY_ROOM_PLACE_SIZE[next.itemId];
+    if (native && next.w === INVENTORY_DECOR_SIZE && next.h === INVENTORY_DECOR_SIZE) {
+      const bottom = next.y + next.h;
+      next.w = native.w;
+      next.h = native.h;
+      next.y = bottom - native.h;
+    }
+    return next;
+  });
   const catalogPlacements = (data.catalogPlacements ?? []).map((placement, index) => ({
     ...placement,
     id: placement.id || `catalog-legacy-${placement.itemId}-${index}`,

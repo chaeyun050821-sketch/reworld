@@ -164,6 +164,7 @@ import {
   canEquipFromAvatarStudio,
   canListInMyShop,
   canPlaceAsInventoryDecor,
+  getItemRoomCategory,
   DEFAULT_ITEM_PLACEMENT,
   DEFAULT_SHOP_COINS,
   deleteHandMadeItem,
@@ -268,6 +269,7 @@ import {
   type RoomInteriorItem,
   type AvatarItem,
   defaultInventoryPlacement,
+  inventoryDecorSizeForItem,
 } from "./data";
 import { usePhotoAlbum } from "./hooks/useSharedPhotos";
 import { usePhotoSocial } from "./hooks/usePhotoSocial";
@@ -2565,6 +2567,7 @@ function MiniRoom({
             width={placement.w}
             height={placement.h}
             preserveAspectRatio="xMidYMax meet"
+            style={{ imageRendering: "pixelated" }}
           />
         );
       })}
@@ -8988,7 +8991,14 @@ function MiniRoomPage({
       const placements = prev.inventoryPlacements ?? [];
       return {
         ...prev,
-        inventoryPlacements: [...placements, defaultInventoryPlacement(item.id, placements.length)],
+        inventoryPlacements: [
+          ...placements,
+          defaultInventoryPlacement(
+            item.id,
+            placements.length,
+            inventoryDecorSizeForItem(item.id, getItemRoomCategory(item)),
+          ),
+        ],
       };
     });
   };

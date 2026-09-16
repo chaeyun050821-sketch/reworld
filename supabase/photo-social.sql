@@ -1,5 +1,5 @@
 -- 사진첩 조회수 · 하트 · 댓글 · 이모티콘 공감
--- Supabase SQL Editor에서 1회 실행
+-- Supabase Dashboard → SQL Editor → 전체 붙여넣기 → Run (여러 번 실행해도 안전)
 
 alter table public.user_photos
   add column if not exists view_count integer not null default 0;
@@ -109,3 +109,154 @@ end;
 $$;
 
 grant execute on function public.increment_photo_view(uuid) to authenticated;
+
+create or replace function public.add_photo_comment(
+  p_photo_id uuid,
+  p_content text,
+  p_author_nickname text
+)
+returns table (
+  id uuid,
+  photo_id uuid,
+  author_id uuid,
+  author_nickname text,
+  content text,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  nick text := coalesce(nullif(trim(p_author_nickname), ''), '익명');
+  body text := trim(p_content);
+begin
+  if uid is null then
+    raise exception '로그인이 필요해요.';
+  end if;
+  if body is null or char_length(body) < 1 then
+    raise exception '내용을 입력해 주세요.';
+  end if;
+  if char_length(body) > 300 then
+    raise exception '댓글은 300자 이내로 작성해 주세요.';
+  end if;
+  if not exists (select 1 from public.user_photos up where up.id = p_photo_id) then
+    raise exception '이 사진이 클라우드에 없어 댓글을 저장할 수 없어요.';
+  end if;
+
+  return query
+  insert into public.photo_comments (photo_id, author_id, author_nickname, content)
+  values (p_photo_id, uid, nick, body)
+  returning
+    public.photo_comments.id,
+    public.photo_comments.photo_id,
+    public.photo_comments.author_id,
+    public.photo_comments.author_nickname,
+    public.photo_comments.content,
+    public.photo_comments.created_at;
+end;
+$$;
+
+grant execute on function public.add_photo_comment(uuid, text, text) to authenticated;
+
+-- 알림 트리거가 실패해도 댓글/좋아요 저장은 유지
+create or replace function public.trg_notify_photo_like()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  owner_id uuid;
+  liker_nick text;
+begin
+  if to_regclass('public.user_notifications') is null
+     or to_regprocedure('public._insert_user_notification(uuid, text, uuid, text, text, text, uuid, uuid, text)') is null then
+    return NEW;
+  end if;
+
+  select p.user_id into owner_id from public.user_photos p where p.id = NEW.photo_id;
+  if owner_id is null then return NEW; end if;
+
+  select nickname into liker_nick from public.profiles where id = NEW.user_id;
+  perform public._insert_user_notification(
+    owner_id,
+    'photo_like',
+    NEW.user_id,
+    liker_nick,
+    coalesce(liker_nick, '알 수 없음') || '님이 사진에 좋아요를 눌렀어요',
+    null,
+    null,
+    NEW.photo_id,
+    'photo_like:' || NEW.photo_id::text || ':' || NEW.user_id::text
+  );
+  return NEW;
+exception
+  when others then
+    raise warning 'photo like notify failed: %', SQLERRM;
+    return NEW;
+end;
+$$;
+
+drop trigger if exists notify_photo_like on public.photo_likes;
+create trigger notify_photo_like
+  after insert on public.photo_likes
+  for each row execute function public.trg_notify_photo_like();
+
+create or replace function public.trg_notify_photo_comment()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  owner_id uuid;
+  preview text;
+begin
+  if to_regclass('public.user_notifications') is null
+     or to_regprocedure('public._insert_user_notification(uuid, text, uuid, text, text, text, uuid, uuid, text)') is null then
+    return NEW;
+  end if;
+
+  select p.user_id into owner_id from public.user_photos p where p.id = NEW.photo_id;
+  if owner_id is null then return NEW; end if;
+
+  preview := left(trim(NEW.content), 40);
+  if char_length(trim(NEW.content)) > 40 then
+    preview := preview || '…';
+  end if;
+
+  perform public._insert_user_notification(
+    owner_id,
+    'photo_comment',
+    NEW.author_id,
+    NEW.author_nickname,
+    coalesce(nullif(trim(NEW.author_nickname), ''), '알 수 없음') || '님이 사진에 댓글을 남겼어요',
+    preview,
+    null,
+    NEW.photo_id,
+    'photo_comment:' || NEW.id::text
+  );
+  return NEW;
+exception
+  when others then
+    raise warning 'photo comment notify failed: %', SQLERRM;
+    return NEW;
+end;
+$$;
+
+drop trigger if exists notify_photo_comment on public.photo_comments;
+create trigger notify_photo_comment
+  after insert on public.photo_comments
+  for each row execute function public.trg_notify_photo_comment();
+
+do $$
+begin
+  alter publication supabase_realtime add table public.photo_comments;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+  when others then
+    raise notice 'Realtime publication skip: %', sqlerrm;
+end $$;

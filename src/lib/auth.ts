@@ -33,11 +33,31 @@ export type AuthActionResult =
   | { ok: true }
   | { ok: false; error: string };
 
-function mapAuthError(message: string): string {
-  const lower = message.toLowerCase();
+function normalizeEmail(email: string): string {
+  return email.replace(/[\u200B-\u200D\uFEFF]/g, "").trim().toLowerCase();
+}
 
-  if (lower.includes("invalid login credentials")) {
-    return "이메일 또는 비밀번호가 맞지 않아요.";
+function userFromSupabase(supabaseUser: SupabaseUser, nicknameFallback = ""): User {
+  const metaNick =
+    typeof supabaseUser.user_metadata?.nickname === "string"
+      ? supabaseUser.user_metadata.nickname.trim()
+      : "";
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email ?? "",
+    nickname: metaNick || nicknameFallback || supabaseUser.email?.split("@")[0] || "user",
+    createdAt: supabaseUser.created_at,
+  };
+}
+
+function mapAuthError(message: string, code?: string): string {
+  const lower = `${message} ${code ?? ""}`.toLowerCase();
+
+  if (code === "email_not_confirmed" || lower.includes("email not confirmed")) {
+    return "이메일 인증이 아직 안 됐어요. 메일함(스팸함 포함)의 확인 링크를 눌러 주세요.";
+  }
+  if (lower.includes("invalid login credentials") || code === "invalid_credentials") {
+    return "이메일 또는 비밀번호가 맞지 않아요. 가입 확인 메일의 링크를 아직 안 눌렀거나, 구글/카카오로만 가입한 계정일 수 있어요.";
   }
   if (lower.includes("already registered") || lower.includes("already been registered")) {
     return "이미 가입된 이메일이에요.";
@@ -257,7 +277,12 @@ export function bootstrapAuth(
             }
           } catch (err) {
             console.error("[auth] session resolve failed:", err);
-            onChange(null);
+            const fallbackUser = userFromSupabase(session.user);
+            onChange({
+              user: fallbackUser,
+              needsNicknameSetup: isSocialProvider(session.user) && !hasCompletedProfile(session.user),
+              isPasswordRecovery: detectPasswordRecovery(event),
+            });
           } finally {
             if (event === "INITIAL_SESSION") initialHandled = true;
           }
@@ -290,7 +315,7 @@ export async function signUp(
     };
   }
 
-  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedEmail = normalizeEmail(email);
   const nickCheck = validateNicknameFormat(nickname);
   if (!nickCheck.ok) {
     return { ok: false, error: nickCheck.error };
@@ -320,7 +345,7 @@ export async function signUp(
   });
 
   if (error) {
-    return { ok: false, error: mapAuthError(error.message) };
+    return { ok: false, error: mapAuthError(error.message, error.code) };
   }
   if (!data.user) {
     return { ok: false, error: "회원가입에 실패했어요." };
@@ -346,7 +371,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     };
   }
 
-  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedEmail = normalizeEmail(email);
 
   if (!trimmedEmail || !password) {
     return { ok: false, error: "이메일과 비밀번호를 입력해 주세요." };
@@ -358,14 +383,20 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   });
 
   if (error) {
-    return { ok: false, error: mapAuthError(error.message) };
+    console.error("[auth] signIn failed:", error.message, error.code, error.status);
+    return { ok: false, error: mapAuthError(error.message, error.code) };
   }
   if (!data.user) {
     return { ok: false, error: "로그인에 실패했어요." };
   }
 
-  const result = await mapUserFromSession(data.user);
-  return { ok: true, user: result.user };
+  try {
+    const result = await mapUserFromSession(data.user);
+    return { ok: true, user: result.user };
+  } catch (err) {
+    console.error("[auth] profile sync after signIn failed:", err);
+    return { ok: true, user: userFromSupabase(data.user) };
+  }
 }
 
 export async function signOut(): Promise<void> {
@@ -382,7 +413,7 @@ export async function requestPasswordReset(email: string): Promise<AuthActionRes
     };
   }
 
-  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedEmail = normalizeEmail(email);
   if (!trimmedEmail) {
     return { ok: false, error: "이메일을 입력해 주세요." };
   }
@@ -395,7 +426,36 @@ export async function requestPasswordReset(email: string): Promise<AuthActionRes
   });
 
   if (error) {
-    return { ok: false, error: mapAuthError(error.message) };
+    return { ok: false, error: mapAuthError(error.message, error.code) };
+  }
+
+  return { ok: true };
+}
+
+export async function resendSignupEmail(email: string): Promise<AuthActionResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      ok: false,
+      error: "Supabase 설정이 필요해요. 프로젝트 루트에 .env 파일을 만들어 주세요.",
+    };
+  }
+
+  const trimmedEmail = normalizeEmail(email);
+  if (!trimmedEmail) {
+    return { ok: false, error: "이메일을 입력해 주세요." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    return { ok: false, error: "올바른 이메일 형식이 아니에요." };
+  }
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: trimmedEmail,
+    options: { emailRedirectTo: getAuthCallbackUrl() },
+  });
+
+  if (error) {
+    return { ok: false, error: mapAuthError(error.message, error.code) };
   }
 
   return { ok: true };
@@ -423,7 +483,7 @@ export async function updatePassword(newPassword: string): Promise<AuthActionRes
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) {
-    return { ok: false, error: mapAuthError(error.message) };
+    return { ok: false, error: mapAuthError(error.message, error.code) };
   }
 
   return { ok: true };
@@ -448,7 +508,7 @@ export async function signInWithSocial(
   });
 
   if (error) {
-    return { ok: false, error: mapAuthError(error.message) };
+    return { ok: false, error: mapAuthError(error.message, error.code) };
   }
 
   return { ok: true };

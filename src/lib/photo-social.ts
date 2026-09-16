@@ -1,6 +1,46 @@
 import { validateBoardContent } from "./content-moderation";
+import { canUseRemoteAccount } from "./guest";
 import { mapSupabaseError } from "./supabase-errors";
 import { isSupabaseConfigured, supabase } from "./supabase";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+function remotePhotoIds(photoIds: string[]): string[] {
+  return photoIds.filter(isUuid);
+}
+
+function mapPhotoSocialError(error: { message?: string; code?: string; details?: string } | null | undefined, fallback: string): string {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""}`;
+  const lower = message.toLowerCase();
+  const code = error?.code ?? "";
+
+  if (
+    code === "PGRST205" ||
+    code === "42P01" ||
+    ((lower.includes("photo_comments") || lower.includes("photo_likes") || lower.includes("photo_reactions")) &&
+      (lower.includes("does not exist") || lower.includes("schema cache") || lower.includes("not find")))
+  ) {
+    return "댓글 테이블이 없어요. Supabase SQL Editor에서 photo-social.sql을 실행해 주세요.";
+  }
+
+  if (code === "23503" || lower.includes("foreign key") || lower.includes("not present in table")) {
+    return "이 사진이 클라우드에 없어 댓글을 저장할 수 없어요. 사진을 다시 올린 뒤 시도해 주세요.";
+  }
+
+  if (code === "42501" || lower.includes("row-level security") || lower.includes("permission denied")) {
+    return "댓글 저장 권한이 없어요. 다시 로그인한 뒤 photo-social.sql을 실행해 주세요.";
+  }
+
+  if (code === "22P02" || lower.includes("invalid input syntax for type uuid")) {
+    return "이 사진에는 댓글을 저장할 수 없어요. 사진을 다시 올려 주세요.";
+  }
+
+  return mapSupabaseError(error?.message || fallback, error?.code);
+}
 
 export type PhotoComment = {
   id: string;
@@ -133,7 +173,7 @@ export async function fetchPhotoSocialBundle(
     return { views: {}, likeCounts: {}, likedByMe: {}, comments: {}, reactions: {} };
   }
 
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(viewerUserId)) {
     return localToBundle(loadLocal(), viewerUserId, photoIds);
   }
 
@@ -151,20 +191,30 @@ export async function fetchPhotoSocialBundle(
     reactions[photoId] = [];
   }
 
+  const queryIds = remotePhotoIds(photoIds);
+  if (queryIds.length === 0) {
+    return { views, likeCounts, likedByMe, comments, reactions };
+  }
+
   const [viewRes, likeRes, commentRes, reactionRes] = await Promise.all([
-    supabase.from("user_photos").select("id, view_count").in("id", photoIds),
-    supabase.from("photo_likes").select("photo_id, user_id").in("photo_id", photoIds),
+    supabase.from("user_photos").select("id, view_count").in("id", queryIds),
+    supabase.from("photo_likes").select("photo_id, user_id").in("photo_id", queryIds),
     supabase
       .from("photo_comments")
       .select("id, photo_id, author_id, author_nickname, content, created_at")
-      .in("photo_id", photoIds)
+      .in("photo_id", queryIds)
       .order("created_at", { ascending: true }),
     supabase
       .from("photo_reactions")
       .select("id, photo_id, actor_id, actor_name, emoticon_id, created_at")
-      .in("photo_id", photoIds)
+      .in("photo_id", queryIds)
       .order("created_at", { ascending: true }),
   ]);
+
+  if (viewRes.error) console.error("[photo-social] views fetch failed:", viewRes.error.message, viewRes.error.code);
+  if (likeRes.error) console.error("[photo-social] likes fetch failed:", likeRes.error.message, likeRes.error.code);
+  if (commentRes.error) console.error("[photo-social] comments fetch failed:", commentRes.error.message, commentRes.error.code);
+  if (reactionRes.error) console.error("[photo-social] reactions fetch failed:", reactionRes.error.message, reactionRes.error.code);
 
   if (!viewRes.error && viewRes.data) {
     for (const row of viewRes.data as PhotoViewRow[]) {
@@ -199,7 +249,7 @@ export async function fetchPhotoSocialBundle(
 export async function incrementPhotoView(photoId: string): Promise<number | null> {
   if (!photoId) return null;
 
-  if (!isSupabaseConfigured()) {
+  if (!isSupabaseConfigured() || !isUuid(photoId)) {
     const local = loadLocal();
     const next = (local.views[photoId] ?? 0) + 1;
     local.views[photoId] = next;
@@ -224,7 +274,10 @@ export async function togglePhotoLike(
   userId: string,
   currentlyLiked: boolean,
 ): Promise<{ ok: true; liked: boolean } | { ok: false; error: string }> {
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId) || !isUuid(photoId)) {
+    if (isSupabaseConfigured() && !canUseRemoteAccount(userId)) {
+      return { ok: false, error: "좋아요는 로그인 후 사용할 수 있어요." };
+    }
     const local = loadLocal();
     const likers = new Set(local.likes[photoId] ?? []);
     if (currentlyLiked) likers.delete(userId);
@@ -259,12 +312,17 @@ export async function createPhotoComment(
   if (!validation.ok) return { ok: false, error: validation.error };
   if (trimmed.length > 300) return { ok: false, error: "댓글은 300자 이내로 작성해 주세요." };
 
-  if (!isSupabaseConfigured()) {
+  const nickname = authorNickname.trim() || "익명";
+
+  if (!canUseRemoteAccount(authorId)) {
+    if (isSupabaseConfigured()) {
+      return { ok: false, error: "댓글은 로그인 후 남길 수 있어요." };
+    }
     const comment: PhotoComment = {
       id: crypto.randomUUID(),
       photoId,
       authorId,
-      authorNickname: authorNickname.trim(),
+      authorNickname: nickname,
       content: trimmed,
       createdAt: new Date().toISOString(),
     };
@@ -274,25 +332,61 @@ export async function createPhotoComment(
     return { ok: true, comment };
   }
 
+  if (!isUuid(photoId) || !isUuid(authorId)) {
+    return { ok: false, error: "이 사진에는 댓글을 저장할 수 없어요. 사진을 다시 올려 주세요." };
+  }
+
+  const rpc = await supabase.rpc("add_photo_comment", {
+    p_photo_id: photoId,
+    p_content: trimmed,
+    p_author_nickname: nickname,
+  });
+
+  if (!rpc.error) {
+    const row = Array.isArray(rpc.data) ? (rpc.data[0] as PhotoCommentRow | undefined) : (rpc.data as PhotoCommentRow | null);
+    if (row?.id) return { ok: true, comment: mapCommentRow(row) };
+  } else if (
+    rpc.error.code !== "PGRST202" &&
+    rpc.error.code !== "42883" &&
+    !rpc.error.message.toLowerCase().includes("add_photo_comment") &&
+    !rpc.error.message.toLowerCase().includes("could not find the function")
+  ) {
+    console.error("[photo-social] comment rpc failed:", rpc.error.message, rpc.error.code, rpc.error.details);
+    return { ok: false, error: mapPhotoSocialError(rpc.error, "댓글 등록에 실패했어요.") };
+  }
+
+  const commentId = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("photo_comments")
     .insert({
+      id: commentId,
       photo_id: photoId,
       author_id: authorId,
-      author_nickname: authorNickname.trim(),
+      author_nickname: nickname,
       content: trimmed,
     })
     .select("id, photo_id, author_id, author_nickname, content, created_at")
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    if (error?.code === "PGRST204" || error?.message?.toLowerCase().includes("photo_comments")) {
-      return { ok: false, error: "댓글 테이블이 없어요. Supabase에서 photo-social.sql을 실행해 주세요." };
-    }
-    return { ok: false, error: mapSupabaseError(error?.message ?? "댓글 등록에 실패했어요.", error?.code) };
+  if (error) {
+    console.error("[photo-social] comment insert failed:", error.message, error.code, error.details);
+    return { ok: false, error: mapPhotoSocialError(error, "댓글 등록에 실패했어요.") };
   }
 
-  return { ok: true, comment: mapCommentRow(data as PhotoCommentRow) };
+  return {
+    ok: true,
+    comment: data
+      ? mapCommentRow(data as PhotoCommentRow)
+      : {
+          id: commentId,
+          photoId,
+          authorId,
+          authorNickname: nickname,
+          content: trimmed,
+          createdAt,
+        },
+  };
 }
 
 export async function deletePhotoComment(
@@ -300,7 +394,7 @@ export async function deletePhotoComment(
   photoId: string,
   commentId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId)) {
     const local = loadLocal();
     local.comments[photoId] = (local.comments[photoId] ?? []).filter((c) => c.id !== commentId);
     saveLocal(local);
@@ -323,7 +417,10 @@ export async function addPhotoReaction(
   actorName: string,
   emoticonId: number,
 ): Promise<{ ok: true; reaction: PhotoReaction } | { ok: false; error: string }> {
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(actorId) || !isUuid(photoId)) {
+    if (isSupabaseConfigured() && !canUseRemoteAccount(actorId)) {
+      return { ok: false, error: "공감은 로그인 후 남길 수 있어요." };
+    }
     const reaction: PhotoReaction = {
       id: crypto.randomUUID(),
       photoId,
@@ -364,7 +461,7 @@ export async function deletePhotoReaction(
   photoId: string,
   reactionId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!isSupabaseConfigured()) {
+  if (!canUseRemoteAccount(userId)) {
     const local = loadLocal();
     local.reactions[photoId] = (local.reactions[photoId] ?? []).filter((r) => r.id !== reactionId);
     saveLocal(local);

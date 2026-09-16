@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   requestPasswordReset,
+  resendSignupEmail,
   signIn,
   signInAsGuest,
   signInWithSocial,
@@ -41,6 +42,7 @@ export default function AuthPage({
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<SocialAuthProvider | null>(null);
   const [guestLoading, setGuestLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const SOCIAL_PROVIDERS: { id: SocialAuthProvider; label: string; emoji: string }[] = [
     { id: "google", label: "Google", emoji: "G" },
@@ -109,13 +111,20 @@ export default function AuthPage({
     }
 
     if (mode === "login") {
-      const result = await signIn(email, password);
-      if (!result.ok) {
-        setError(result.error);
+      try {
+        const result = await signIn(email, password);
+        if (!result.ok) {
+          setError(result.error);
+          setLoading(false);
+          return;
+        }
+        onSuccess(result.user);
+      } catch (err) {
+        console.error("[auth] login threw:", err);
+        setError("로그인 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.");
         setLoading(false);
         return;
       }
-      onSuccess(result.user);
     } else {
       if (password !== confirm) {
         setError("비밀번호 확인이 일치하지 않아요.");
@@ -146,6 +155,23 @@ export default function AuthPage({
     }
     onSuccess(result.user);
     setGuestLoading(false);
+  };
+
+  const handleResendConfirm = async () => {
+    if (!email.trim()) {
+      setError("이메일을 먼저 입력해 주세요.");
+      return;
+    }
+    setResendLoading(true);
+    setError("");
+    setInfo("");
+    const result = await resendSignupEmail(email);
+    setResendLoading(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setInfo("확인 메일을 다시 보냈어요. 메일함(스팸함 포함)을 확인해 주세요.");
   };
 
   const handleSocialLogin = async (provider: SocialAuthProvider) => {
@@ -461,6 +487,23 @@ export default function AuthPage({
                 </motion.p>
               )}
             </AnimatePresence>
+
+            {mode === "login" && error && (
+              <button
+                type="button"
+                onClick={() => void handleResendConfirm()}
+                disabled={resendLoading}
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: "0.54rem",
+                  fontWeight: 700,
+                  color: "#7a8fd4",
+                  textAlign: "center",
+                }}
+              >
+                {resendLoading ? "보내는 중..." : "가입 확인 메일 다시 보내기"}
+              </button>
+            )}
 
             <AnimatePresence>
               {info && !error && (

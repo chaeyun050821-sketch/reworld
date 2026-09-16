@@ -23,6 +23,14 @@ export function mapSupabaseError(message: string, code?: string): string {
     return "사진 저장소가 없어요. Supabase SQL Editor에서 user-photos.sql을 실행해 주세요.";
   }
 
+  if (lower.includes("photo_comments") || lower.includes("photo_likes") || lower.includes("photo_reactions")) {
+    return "사진 댓글 테이블이 없어요. Supabase SQL Editor에서 photo-social.sql을 실행해 주세요.";
+  }
+
+  if (code === "23503" && (lower.includes("photo") || lower.includes("user_photos"))) {
+    return "이 사진이 클라우드에 없어 댓글을 저장할 수 없어요. 사진을 다시 올린 뒤 시도해 주세요.";
+  }
+
   if (lower.includes("user_photos")) {
     return "사진첩 테이블이 없어요. Supabase SQL Editor에서 user-photos.sql을 실행해 주세요.";
   }

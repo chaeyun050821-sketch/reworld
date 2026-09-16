@@ -9,6 +9,7 @@ import brownPigtailHairImg from "../assets/shop-brown-pigtail-hair.png";
 import brownLongHairImg from "../assets/shop-brown-long-hair.png";
 import {
   getItemById,
+  inventoryDecorSizeForItem,
   NEIGHBORS,
   ROOM_LEFT_PROP_FLOOR_Y,
   type RoomCategoryId,
@@ -184,31 +185,21 @@ export function isInventoryRoomSelectionId(id: string): boolean {
   return id.startsWith(INVENTORY_ROOM_ITEM_PREFIX);
 }
 
-const INVENTORY_ROOM_IMAGE_SIZE = 88;
-
-function inventoryImageBounds(categoryId: RoomCategoryId) {
+function inventoryImageBounds(itemId: string, categoryId: RoomCategoryId) {
+  const { w, h } = inventoryDecorSizeForItem(itemId, categoryId);
   switch (categoryId) {
     case "left-prop":
-      return {
-        x: 24,
-        y: ROOM_LEFT_PROP_FLOOR_Y - INVENTORY_ROOM_IMAGE_SIZE,
-        w: INVENTORY_ROOM_IMAGE_SIZE,
-        h: INVENTORY_ROOM_IMAGE_SIZE,
-      };
+      return { x: 24, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
     case "right-prop":
-      return {
-        x: 168,
-        y: ROOM_LEFT_PROP_FLOOR_Y - INVENTORY_ROOM_IMAGE_SIZE,
-        w: INVENTORY_ROOM_IMAGE_SIZE,
-        h: INVENTORY_ROOM_IMAGE_SIZE,
-      };
+      return { x: 168, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
+    case "sofa":
+      return { x: 54, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
+    case "large-furniture":
+      return { x: 16, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
+    case "side-table":
+      return { x: 276, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
     default:
-      return {
-        x: 80,
-        y: ROOM_LEFT_PROP_FLOOR_Y - INVENTORY_ROOM_IMAGE_SIZE,
-        w: INVENTORY_ROOM_IMAGE_SIZE,
-        h: INVENTORY_ROOM_IMAGE_SIZE,
-      };
+      return { x: 80, y: ROOM_LEFT_PROP_FLOOR_Y - h, w, h };
   }
 }
 
@@ -327,7 +318,7 @@ export function handMadeItemToRoomItem(item: HandMadeItem): RoomInteriorItem | n
     layer: 7,
     pixels: [],
     imageSrc,
-    imageBounds: inventoryImageBounds(categoryId),
+    imageBounds: inventoryImageBounds(item.id, categoryId),
   };
 }
 
@@ -393,8 +384,8 @@ export const GLOBAL_SHOP_LISTINGS: ShopListingWithItem[] = [
   officialListing("brown-pigtail-hair", { type: "avatar", label: "갈색 양갈래 머리", cat: "헤어", color: "#8a5a3a", imageDataUrl: brownPigtailHairImg }, 95, "2026-07-27"),
   officialListing("brown-long-hair", { type: "avatar", label: "갈색 긴생머리", cat: "헤어", color: "#7a4a2a", imageDataUrl: brownLongHairImg }, 105, "2026-07-27"),
   officialListing("mushroom-lamp", { type: "room", label: "버섯 조명", cat: "소품", color: "#ff8068", roomCategory: "right-prop", imageDataUrl: officialShopAsset("mushroom-lamp.png") }, 90, "2026-08-01"),
-  officialListing("record-player", { type: "room", label: "빈티지 턴테이블", cat: "소품", color: "#b08050", roomCategory: "left-prop", imageDataUrl: officialShopAsset("record-player.png") }, 125, "2026-08-01"),
-  officialListing("aquarium", { type: "room", label: "미니 어항", cat: "소품", color: "#5bc0d8", roomCategory: "left-prop", imageDataUrl: officialShopAsset("aquarium.png") }, 150, "2026-08-01"),
+  officialListing("record-player", { type: "room", label: "빈티지 턴테이블", cat: "소품", color: "#b08050", roomCategory: "side-table", imageDataUrl: officialShopAsset("record-player.png") }, 125, "2026-08-01"),
+  officialListing("aquarium", { type: "room", label: "미니 어항", cat: "소품", color: "#5bc0d8", roomCategory: "large-furniture", imageDataUrl: officialShopAsset("aquarium.png") }, 150, "2026-08-01"),
   officialListing("pink-hoodie", { type: "avatar", label: "핑크 후드티", cat: "의상", color: "#e58aa8", imageDataUrl: officialShopAsset("pink-hoodie.png") }, 105, "2026-08-01"),
   officialListing("sailor-outfit", { type: "avatar", label: "세일러복", cat: "의상", color: "#6f8fb8", imageDataUrl: officialShopAsset("sailor-outfit.png") }, 120, "2026-08-01"),
   officialListing("ivory-cardigan", { type: "avatar", label: "아이보리 가디건", cat: "의상", color: "#ead8b5", imageDataUrl: officialShopAsset("ivory-cardigan.png") }, 110, "2026-08-01"),
