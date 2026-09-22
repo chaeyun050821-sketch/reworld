@@ -169,6 +169,8 @@ export type HandMadeItem = {
   /** True after the user places the item in item creator and saves. */
   avatarPlaced?: boolean;
   imageDataUrl?: string;
+  /** Logical square grid used by the in-app pixel editor. */
+  pixelGridSize?: number;
   createdAt: string;
 };
 

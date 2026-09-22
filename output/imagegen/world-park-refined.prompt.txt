@@ -1,0 +1,15 @@
+Generation mode: built-in image_gen (imagegen skill)
+Output: src/assets/world-park-refined.png
+Edit target: KakaoTalk_20260916_201736375.png (user attachment)
+Style reference: src/assets/world-pink-house.png
+
+Final prompt:
+Use case: style-transfer.
+Asset type: polished 2D side-scrolling pixel-art park background for the Re:world project.
+Input images: Image 1 is the EDIT TARGET, the simple blue-sky park with two trees, two bushes and two wooden benches. Image 2 is a STYLE AND FINISH REFERENCE ONLY, the detailed three-storey wooden house with warm light. Do not copy its house into the park.
+Primary request: upgrade Image 1 to the same visual quality, fine pixel detail, material definition and cohesive professional game-art finish as Image 2.
+Composition invariants: preserve the park's exact broad composition and object counts: a smaller tree at left, taller tree at right, two low flowering/berry bushes between them, two empty wooden benches at their existing positions, three clouds across the sky, level continuous grass platform and exposed soil cross-section at the bottom. Preserve the relative object sizes, left-to-right order, front-on side-scrolling view, original wide approximately 1.74:1 aspect ratio, the large open central sky and ground line at approximately 83% height. The park is the entire scene; NO buildings.
+Style/medium: finely resolved hand-crafted pixel art consistent with the reference house's fine pixel scale and shaded surfaces; crisp stepped silhouettes and deliberate pixel clusters, not crude enlarged square shapes. Rich but controlled layered greens with leafy foliage clusters, shaded branches and bark, small existing pink berry/flower accents, warm wooden bench slats with visible grain and dimensional edges, detailed grass tufts and earthy pixel soil textures. Natural depth within each object without changing the side view.
+Lighting/mood: retain the original cheerful daytime blue-to-pale-cyan sky and green park identity, use coherent gentle warm sunlight and cool soft pixel shadows. Render the three clouds with layered ivory highlights and pale blue/lavender shadows. Replace distracting coarse checkerboard sky bands with a refined calm pixel sky with subtle tonal transitions. Match the polish of the reference rather than copying its sunset.
+Constraints: preserve scene identity, composition, object count, unobstructed space, and landscape framing. No people, avatars, animals, house, signs, UI, text, logo, watermark, ornamental frame, extra objects or scenery. No photorealism, no vector-flat look, no blur or depth-of-field. Deliver one finished high-resolution landscape PNG, preferably 1792 x 1024, full bleed.
+

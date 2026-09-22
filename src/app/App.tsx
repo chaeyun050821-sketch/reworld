@@ -7411,6 +7411,7 @@ function ItemCreatorLeftPage({
   saving,
   saved,
   saveError,
+  previewItemOverride,
   inventoryRevision = 0,
 }: {
   creatorAvatar: AvatarProfile;
@@ -7427,15 +7428,17 @@ function ItemCreatorLeftPage({
   saving: boolean;
   saved: boolean;
   saveError: string | null;
+  previewItemOverride?: HandMadeItem | null;
   inventoryRevision?: number;
 }) {
   const previewWidth = ITEM_CREATOR_AVATAR_WIDTH;
   const previewHeight = avatarPreviewHeightForWidth(previewWidth);
   const framePad = Math.max(6, Math.round(previewWidth * 0.095));
-  const equippedItems = useMemo(
-    () => getEquippedCompanions(creatorAvatar.equipped, loadAvatarCreatorItems(userId)),
-    [creatorAvatar.equipped, userId, inventoryRevision],
-  );
+  const equippedItems = useMemo(() => {
+    const items = getEquippedCompanions(creatorAvatar.equipped, loadAvatarCreatorItems(userId));
+    if (!previewItemOverride) return items;
+    return items.map((item) => item.id === previewItemOverride.id ? previewItemOverride : item);
+  }, [creatorAvatar.equipped, userId, previewItemOverride, inventoryRevision]);
   const { back: backEquippedItems, front: frontEquippedItems } = splitDecorItemsByLayer(equippedItems);
 
   const renderCreatorOverlay = (item: HandMadeItem) => (
@@ -7532,6 +7535,478 @@ function ItemCreatorLeftPage({
   );
 }
 
+type ItemPixelTool = "paint" | "erase" | "eyedropper";
+type ItemPixelSnapshot = { size: number; pixels: Array<string | null> };
+
+const ITEM_PIXEL_GRID_OPTIONS = [16, 24, 32, 48, 64] as const;
+
+function itemPixelColor(red: number, green: number, blue: number, alpha: number): string | null {
+  if (alpha < 20) return null;
+  const hex = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0");
+  const rgb = `#${hex(red)}${hex(green)}${hex(blue)}`;
+  return alpha >= 250 ? rgb : `${rgb}${hex(alpha)}`;
+}
+
+function itemPixelRgba(color: string): [number, number, number, number] {
+  const value = color.replace("#", "");
+  if (value.length !== 6 && value.length !== 8) return [0, 0, 0, 255];
+  return [
+    Number.parseInt(value.slice(0, 2), 16),
+    Number.parseInt(value.slice(2, 4), 16),
+    Number.parseInt(value.slice(4, 6), 16),
+    value.length === 8 ? Number.parseInt(value.slice(6, 8), 16) : 255,
+  ];
+}
+
+function itemPixelsFromContext(context: CanvasRenderingContext2D, size: number): Array<string | null> {
+  const data = context.getImageData(0, 0, size, size).data;
+  return Array.from({ length: size * size }, (_, index) => {
+    const offset = index * 4;
+    return itemPixelColor(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]);
+  });
+}
+
+function itemPixelsToDataUrl(pixels: Array<string | null>, size: number): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  const image = context.createImageData(size, size);
+  pixels.forEach((color, index) => {
+    if (!color) return;
+    const [red, green, blue, alpha] = itemPixelRgba(color);
+    const offset = index * 4;
+    image.data[offset] = red;
+    image.data[offset + 1] = green;
+    image.data[offset + 2] = blue;
+    image.data[offset + 3] = alpha;
+  });
+  context.putImageData(image, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function itemPixelContentBounds(
+  pixels: Array<string | null>,
+  size: number,
+): HandMadeItemContentBounds {
+  let minX = size;
+  let minY = size;
+  let maxX = -1;
+  let maxY = -1;
+  pixels.forEach((color, index) => {
+    if (!color) return;
+    const x = index % size;
+    const y = Math.floor(index / size);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  });
+  if (maxX < minX || maxY < minY) return FULL_IMAGE_CONTENT_BOUNDS;
+  return {
+    x: minX / size,
+    y: minY / size,
+    w: (maxX - minX + 1) / size,
+    h: (maxY - minY + 1) / size,
+  };
+}
+
+function loadItemPixelGrid(src: string, size: number): Promise<Array<string | null>> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        reject(new Error("canvas unavailable"));
+        return;
+      }
+      context.clearRect(0, 0, size, size);
+      context.imageSmoothingEnabled = false;
+      const ratio = Math.min(size / Math.max(1, image.naturalWidth), size / Math.max(1, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+      const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+      context.drawImage(image, Math.floor((size - width) / 2), Math.floor((size - height) / 2), width, height);
+      resolve(itemPixelsFromContext(context, size));
+    };
+    image.onerror = () => reject(new Error("이미지를 불러오지 못했어요."));
+    image.src = src;
+  });
+}
+
+function resizeItemPixelGrid(
+  pixels: Array<string | null>,
+  oldSize: number,
+  nextSize: number,
+): Array<string | null> {
+  const source = document.createElement("canvas");
+  source.width = oldSize;
+  source.height = oldSize;
+  const sourceContext = source.getContext("2d");
+  if (!sourceContext) return Array(nextSize * nextSize).fill(null);
+  const sourceImage = sourceContext.createImageData(oldSize, oldSize);
+  pixels.forEach((color, index) => {
+    if (!color) return;
+    const [red, green, blue, alpha] = itemPixelRgba(color);
+    const offset = index * 4;
+    sourceImage.data[offset] = red;
+    sourceImage.data[offset + 1] = green;
+    sourceImage.data[offset + 2] = blue;
+    sourceImage.data[offset + 3] = alpha;
+  });
+  sourceContext.putImageData(sourceImage, 0, 0);
+
+  const target = document.createElement("canvas");
+  target.width = nextSize;
+  target.height = nextSize;
+  const targetContext = target.getContext("2d", { willReadFrequently: true });
+  if (!targetContext) return Array(nextSize * nextSize).fill(null);
+  targetContext.imageSmoothingEnabled = false;
+  targetContext.drawImage(source, 0, 0, nextSize, nextSize);
+  return itemPixelsFromContext(targetContext, nextSize);
+}
+
+function ItemPixelEditor({
+  item,
+  onPreview,
+  onSave,
+  onCancel,
+}: {
+  item: HandMadeItem;
+  onPreview: (item: HandMadeItem) => void;
+  onSave: (
+    imageDataUrl: string,
+    contentBounds: HandMadeItemContentBounds,
+    color: string,
+    gridSize: number,
+  ) => Promise<string | null>;
+  onCancel: () => void;
+}) {
+  const initialSize = ITEM_PIXEL_GRID_OPTIONS.includes(item.pixelGridSize as typeof ITEM_PIXEL_GRID_OPTIONS[number])
+    ? item.pixelGridSize!
+    : 32;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingRef = useRef(false);
+  const lastCellRef = useRef<number | null>(null);
+  const [size, setSize] = useState(initialSize);
+  const [pixels, setPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
+  const [tool, setTool] = useState<ItemPixelTool>("paint");
+  const [selectedColor, setSelectedColor] = useState(item.color || "#b08a4a");
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+  const [brushSize, setBrushSize] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [undoStack, setUndoStack] = useState<ItemPixelSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<ItemPixelSnapshot[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const source = resolveHandMadeItemImageUrl(item);
+    if (!source) {
+      setPixels(Array(initialSize * initialSize).fill(null));
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+    void loadItemPixelGrid(source, initialSize)
+      .then((next) => {
+        if (cancelled) return;
+        setSize(initialSize);
+        setPixels(next);
+        setUndoStack([]);
+        setRedoStack([]);
+      })
+      .catch(() => {
+        if (!cancelled) setError("이미지를 픽셀 격자로 불러오지 못했어요.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [item.id, item.imageDataUrl, initialSize]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    canvas.width = size;
+    canvas.height = size;
+    const image = context.createImageData(size, size);
+    pixels.forEach((color, index) => {
+      const checker = (index + Math.floor(index / size)) % 2 === 0 ? 238 : 218;
+      const [red, green, blue, alpha] = color ? itemPixelRgba(color) : [checker, checker, checker, 255];
+      const offset = index * 4;
+      image.data[offset] = red;
+      image.data[offset + 1] = green;
+      image.data[offset + 2] = blue;
+      image.data[offset + 3] = alpha;
+    });
+    context.putImageData(image, 0, 0);
+  }, [pixels, size]);
+
+  useEffect(() => {
+    if (loading) return;
+    const timer = window.setTimeout(() => {
+      const imageDataUrl = itemPixelsToDataUrl(pixels, size);
+      if (!imageDataUrl) return;
+      onPreview({
+        ...item,
+        imageDataUrl,
+        contentBounds: itemPixelContentBounds(pixels, size),
+        color: selectedColor,
+        pixelGridSize: size,
+      });
+    }, 70);
+    return () => window.clearTimeout(timer);
+  }, [item, loading, onPreview, pixels, selectedColor, size]);
+
+  const remember = () => {
+    setUndoStack((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
+    setRedoStack([]);
+  };
+
+  const selectColor = (color: string) => {
+    const normalized = (cssColorToHex(color) ?? color).slice(0, 7).toLowerCase();
+    setSelectedColor(normalized);
+    setRecentColors((current) => [normalized, ...current.filter((entry) => entry !== normalized)].slice(0, 7));
+  };
+
+  const applyAt = (x: number, y: number) => {
+    const centerIndex = y * size + x;
+    if (lastCellRef.current === centerIndex && tool !== "eyedropper") return;
+    lastCellRef.current = centerIndex;
+    if (tool === "eyedropper") {
+      const sampled = pixels[centerIndex];
+      if (sampled) {
+        selectColor(sampled);
+        setTool("paint");
+      }
+      drawingRef.current = false;
+      return;
+    }
+    const start = Math.floor((brushSize - 1) / 2);
+    setPixels((current) => {
+      const next = [...current];
+      for (let offsetY = -start; offsetY < brushSize - start; offsetY += 1) {
+        for (let offsetX = -start; offsetX < brushSize - start; offsetX += 1) {
+          const targetX = x + offsetX;
+          const targetY = y + offsetY;
+          if (targetX < 0 || targetY < 0 || targetX >= size || targetY >= size) continue;
+          next[targetY * size + targetX] = tool === "erase" ? null : selectedColor;
+        }
+      }
+      return next;
+    });
+  };
+
+  const cellFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(size - 1, Math.floor(((event.clientX - rect.left) / rect.width) * size))),
+      y: Math.max(0, Math.min(size - 1, Math.floor(((event.clientY - rect.top) / rect.height) * size))),
+    };
+  };
+
+  const restoreSnapshot = (
+    source: ItemPixelSnapshot[],
+    setSource: Dispatch<SetStateAction<ItemPixelSnapshot[]>>,
+    setTarget: Dispatch<SetStateAction<ItemPixelSnapshot[]>>,
+  ) => {
+    const snapshot = source[source.length - 1];
+    if (!snapshot) return;
+    setTarget((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
+    setSource((current) => current.slice(0, -1));
+    setSize(snapshot.size);
+    setPixels([...snapshot.pixels]);
+  };
+
+  const changeGridSize = (nextSize: number) => {
+    if (nextSize === size) return;
+    remember();
+    setSize(nextSize);
+    setPixels(resizeItemPixelGrid(pixels, size, nextSize));
+  };
+
+  const toolStyle = (active: boolean): CSSProperties => ({
+    padding: "5px 8px",
+    borderRadius: 8,
+    fontFamily: FONT_UI,
+    fontSize: "0.4rem",
+    fontWeight: 800,
+    color: active ? "#2a2114" : "#f7efd9",
+    background: active ? "linear-gradient(90deg,#ffe080,#ffd060)" : "rgba(255,255,255,0.08)",
+    border: active ? "1px solid rgba(255,200,70,0.6)" : "1px solid rgba(255,255,255,0.12)",
+  });
+
+  const save = async () => {
+    if (!pixels.some(Boolean)) {
+      setError("한 칸 이상 채워 주세요.");
+      return;
+    }
+    const imageDataUrl = itemPixelsToDataUrl(pixels, size);
+    if (!imageDataUrl) {
+      setError("이미지를 만들지 못했어요.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const saveError = await onSave(
+      imageDataUrl,
+      itemPixelContentBounds(pixels, size),
+      selectedColor,
+      size,
+    );
+    setSaving(false);
+    if (saveError) setError(saveError);
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-1">
+        <button type="button" onClick={() => setTool("paint")} style={toolStyle(tool === "paint")}>펜</button>
+        <button type="button" onClick={() => setTool("erase")} style={toolStyle(tool === "erase")}>지우개</button>
+        <button type="button" onClick={() => setTool("eyedropper")} style={toolStyle(tool === "eyedropper")}>스포이드</button>
+        <button
+          type="button"
+          disabled={undoStack.length === 0}
+          onClick={() => restoreSnapshot(undoStack, setUndoStack, setRedoStack)}
+          style={{ ...toolStyle(false), opacity: undoStack.length ? 1 : 0.35 }}
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          disabled={redoStack.length === 0}
+          onClick={() => restoreSnapshot(redoStack, setRedoStack, setUndoStack)}
+          style={{ ...toolStyle(false), opacity: redoStack.length ? 1 : 0.35 }}
+        >
+          ↷
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+        <label className="flex items-center gap-1.5" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          <input
+            type="color"
+            value={selectedColor}
+            onChange={(event) => { selectColor(event.target.value); setTool("paint"); }}
+            aria-label="아이템 색상 선택"
+            style={{ width: 27, height: 25, padding: 0, border: "1px solid #fff", borderRadius: 6, background: "transparent" }}
+          />
+          색상
+        </label>
+        <label className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          펜 크기
+          <select
+            value={brushSize}
+            onChange={(event) => setBrushSize(Number(event.target.value))}
+            style={{ color: "#2a2114", borderRadius: 6, padding: "3px 4px", fontSize: "0.4rem" }}
+          >
+            {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}px</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          픽셀
+          <select
+            value={size}
+            onChange={(event) => changeGridSize(Number(event.target.value))}
+            style={{ color: "#2a2114", borderRadius: 6, padding: "3px 4px", fontSize: "0.4rem" }}
+          >
+            {ITEM_PIXEL_GRID_OPTIONS.map((value) => <option key={value} value={value}>{value}×{value}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        {loading ? (
+          <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "#d8c49b" }}>픽셀 격자를 만드는 중...</p>
+        ) : (
+          <div className="relative aspect-square w-full max-w-[252px] overflow-hidden rounded-lg" style={{ border: "2px solid rgba(216,196,155,0.55)", boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
+            <canvas
+              ref={canvasRef}
+              aria-label={`${item.label} 픽셀 편집 캔버스`}
+              className="block h-full w-full"
+              style={{ imageRendering: "pixelated", touchAction: "none", cursor: tool === "erase" ? "cell" : "crosshair" }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                if (tool !== "eyedropper") remember();
+                drawingRef.current = tool !== "eyedropper";
+                lastCellRef.current = null;
+                const cell = cellFromPointer(event);
+                applyAt(cell.x, cell.y);
+              }}
+              onPointerMove={(event) => {
+                if (!drawingRef.current) return;
+                const cell = cellFromPointer(event);
+                applyAt(cell.x, cell.y);
+              }}
+              onPointerUp={() => {
+                drawingRef.current = false;
+                lastCellRef.current = null;
+              }}
+              onPointerCancel={() => {
+                drawingRef.current = false;
+                lastCellRef.current = null;
+              }}
+            />
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage: "linear-gradient(rgba(70,55,35,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(70,55,35,0.16) 1px, transparent 1px)",
+                backgroundSize: `${100 / size}% ${100 / size}%`,
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="flex min-h-5 items-center justify-center gap-1">
+        {recentColors.map((color) => (
+          <button
+            type="button"
+            key={color}
+            aria-label={`${color} 색상 선택`}
+            onClick={() => { selectColor(color); setTool("paint"); }}
+            style={{ width: 17, height: 17, borderRadius: 4, background: color, border: selectedColor === color ? "2px solid #fff" : "1px solid rgba(255,255,255,0.35)" }}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            if (!pixels.some(Boolean) || window.confirm("전체 픽셀을 지울까요?")) {
+              remember();
+              setPixels(Array(size * size).fill(null));
+            }
+          }}
+          style={{ ...toolStyle(false), marginLeft: 4, padding: "3px 6px", color: "#ffb6bf" }}
+        >
+          전체 지우기
+        </button>
+      </div>
+
+      {error && <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", fontWeight: 700, color: "#ff9aa8", textAlign: "center" }}>{error}</p>}
+      <p style={{ fontFamily: FONT_UI, fontSize: "0.34rem", color: "rgba(247,239,217,0.58)", textAlign: "center", lineHeight: 1.35 }}>
+        왼쪽 아바타에서 실제 착용 크기를 보며 편집할 수 있어요.
+      </p>
+      <div className="flex gap-1.5">
+        <button type="button" onClick={onCancel} className="flex-1 rounded-full py-2" style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 800, color: "#f7efd9", background: "rgba(255,255,255,0.1)" }}>
+          취소
+        </button>
+        <button type="button" disabled={saving || loading} onClick={() => { void save(); }} className="flex-[1.6] rounded-full py-2" style={{ fontFamily: FONT_UI, fontSize: "0.46rem", fontWeight: 800, color: "#fff", background: ACCENT_BTN_BG, opacity: saving || loading ? 0.6 : 1 }}>
+          {saving ? "저장 중..." : "아이템 저장"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ItemCreatorRightPage({
   userId,
   selectedCreatorItemId,
@@ -7539,7 +8014,12 @@ function ItemCreatorRightPage({
   onSelectItem,
   onDeleteItem,
   onSetDecorLayer,
+<<<<<<< HEAD
   onOpenItemPixelEditor,
+=======
+  onPreviewItem,
+  onUpdateItemArtwork,
+>>>>>>> 0b1353f (아이템수정)
   onClose,
   inventoryRevision = 0,
 }: {
@@ -7549,11 +8029,24 @@ function ItemCreatorRightPage({
   onSelectItem: (id: string | null) => void;
   onDeleteItem: (id: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
+<<<<<<< HEAD
   onOpenItemPixelEditor: () => void;
+=======
+  onPreviewItem: (item: HandMadeItem | null) => void;
+  onUpdateItemArtwork: (
+    itemId: string,
+    imageDataUrl: string,
+    contentBounds: HandMadeItemContentBounds,
+    color: string,
+    gridSize: number,
+  ) => Promise<string | null>;
+>>>>>>> 0b1353f (아이템수정)
   onClose: () => void;
   inventoryRevision?: number;
 }) {
   const [layerEditMode, setLayerEditMode] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
   const [myInventory, setMyInventory] = useState<HandMadeItem[]>(() => loadMyInventory(userId));
   const myAvatarItems = useMemo(
     () => loadAvatarCreatorItems(userId),
@@ -7564,6 +8057,13 @@ function ItemCreatorRightPage({
     ? myAvatarItems.find(item => item.id === selectedCreatorItemId) ?? null
     : null;
   const selectedLayer = selectedItem ? getDecorLayer(selectedItem) : null;
+  const editableItems = useMemo(
+    () => myAvatarItems.filter((item) => item.source !== "purchased" && !!resolveHandMadeItemImageUrl(item)),
+    [myAvatarItems],
+  );
+  const editingItem = editingItemId
+    ? editableItems.find((item) => item.id === editingItemId) ?? null
+    : null;
 
   useEffect(() => {
     setMyInventory(loadMyInventory(userId));
@@ -7572,6 +8072,101 @@ function ItemCreatorRightPage({
   useEffect(() => {
     if (!selectedCreatorItemId) setLayerEditMode(false);
   }, [selectedCreatorItemId]);
+
+  useEffect(() => {
+    if (editingItemId && !editingItem) {
+      setEditingItemId(null);
+      onPreviewItem(null);
+    }
+  }, [editingItem, editingItemId, onPreviewItem]);
+
+  const openPixelEditor = () => {
+    const next = editableItems.find((item) => item.id === selectedCreatorItemId) ?? editableItems[0];
+    if (!next) {
+      setEditNotice("수정할 수 있는 직접 만든 아이템이 아직 없어요.");
+      window.setTimeout(() => setEditNotice(null), 2800);
+      return;
+    }
+    setEditNotice(null);
+    setLayerEditMode(false);
+    setEditingItemId(next.id);
+    onSelectItem(next.id);
+    onPreviewItem(next);
+  };
+
+  const closePixelEditor = () => {
+    setEditingItemId(null);
+    onPreviewItem(null);
+  };
+
+  const handlePixelPreview = useCallback((preview: HandMadeItem) => {
+    onPreviewItem(preview);
+  }, [onPreviewItem]);
+
+  if (editingItem) {
+    return (
+      <div className="h-full flex flex-col overflow-hidden p-3" style={{ background: "linear-gradient(180deg, #2a2114, #171309)" }}>
+        <div className="mb-2 flex flex-shrink-0 items-center justify-between gap-2">
+          <div>
+            <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.34rem", color: "#d8c49b" }}>ITEM PIXEL EDITOR</span>
+            <p style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "rgba(247,239,217,0.62)", marginTop: 2 }}>{editingItem.label}</p>
+          </div>
+          <button type="button" onClick={closePixelEditor} className="rounded-full px-2 py-1" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>
+            목록
+          </button>
+        </div>
+
+        {editableItems.length > 1 && (
+          <div className="no-scrollbar mb-2 flex flex-shrink-0 gap-1 overflow-x-auto pb-1">
+            {editableItems.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => {
+                  setEditingItemId(item.id);
+                  onSelectItem(item.id);
+                  onPreviewItem(item);
+                }}
+                className="flex flex-shrink-0 items-center gap-1 rounded-lg px-2 py-1"
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: "0.36rem",
+                  fontWeight: 700,
+                  color: "#f7efd9",
+                  background: editingItem.id === item.id ? "rgba(176,138,74,0.38)" : "rgba(255,255,255,0.07)",
+                  border: editingItem.id === item.id ? "1px solid rgba(216,196,155,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                <HandMadeItemPreview item={item} size={20} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <ItemPixelEditor
+          key={editingItem.id}
+          item={editingItem}
+          onPreview={handlePixelPreview}
+          onCancel={closePixelEditor}
+          onSave={async (imageDataUrl, contentBounds, color, gridSize) => {
+            const saveError = await onUpdateItemArtwork(
+              editingItem.id,
+              imageDataUrl,
+              contentBounds,
+              color,
+              gridSize,
+            );
+            if (!saveError) {
+              setMyInventory(loadMyInventory(userId));
+              closePixelEditor();
+            }
+            return saveError;
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden p-3" style={{ background: "linear-gradient(180deg, #2a2114, #171309)" }}>
@@ -7723,6 +8318,19 @@ function ItemCreatorRightPage({
         )}
       </div>
 
+      {editNotice && (
+        <p className="mt-1 flex-shrink-0" style={{ fontFamily: FONT_UI, fontSize: "0.4rem", fontWeight: 700, color: "#ffb6bf", textAlign: "center" }}>
+          {editNotice}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={openPixelEditor}
+        className="flex-shrink-0 w-full py-2 mt-2 rounded-full text-white"
+        style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 800, background: "linear-gradient(90deg,#b08a4a,#8b9a72)", boxShadow: "0 2px 10px rgba(176,138,74,0.28)" }}
+      >
+        🎨 내 아이템 수정하기
+      </button>
       <button
         type="button"
         onClick={onOpenItemPixelEditor}
@@ -15292,6 +15900,8 @@ function RightPage({
   onRenameInventoryItem,
   onDeleteInventoryItem,
   onSetDecorLayer,
+  onPreviewCreatorItem,
+  onUpdateCreatorItemArtwork,
   onShopPurchase,
 }: {
   activeTab: string;
@@ -15321,6 +15931,14 @@ function RightPage({
   onRenameInventoryItem: (itemId: string, label: string) => void;
   onDeleteInventoryItem: (itemId: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
+  onPreviewCreatorItem: (item: HandMadeItem | null) => void;
+  onUpdateCreatorItemArtwork: (
+    itemId: string,
+    imageDataUrl: string,
+    contentBounds: HandMadeItemContentBounds,
+    color: string,
+    gridSize: number,
+  ) => Promise<string | null>;
   onShopPurchase?: () => void;
 }) {
   const [boardFocusPostId, setBoardFocusPostId] = useState<string | null>(null);
@@ -15353,7 +15971,12 @@ function RightPage({
           onSelectItem={onSelectCreatorItem}
           onDeleteItem={onDeleteCreatorItem}
           onSetDecorLayer={onSetDecorLayer}
+<<<<<<< HEAD
           onOpenItemPixelEditor={onOpenItemPixelEditor}
+=======
+          onPreviewItem={onPreviewCreatorItem}
+          onUpdateItemArtwork={onUpdateCreatorItemArtwork}
+>>>>>>> 0b1353f (아이템수정)
           onClose={onCloseItemCreator}
           inventoryRevision={inventoryRevision}
         />
@@ -15501,6 +16124,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   const [creatorSaveError, setCreatorSaveError] = useState<string | null>(null);
   const [inventoryRevision, setInventoryRevision] = useState(0);
   const [creatorDirty, setCreatorDirty] = useState(false);
+  const [creatorItemPreviewOverride, setCreatorItemPreviewOverride] = useState<HandMadeItem | null>(null);
 
   useEffect(() => {
     const handleInventoryChanged = (event: Event) => {
@@ -15517,8 +16141,46 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     () => loadAvatarCreatorItems(user.id),
     [user.id, showItemCreator, creatorInventoryTick],
   );
-  const selectedCreatorItem = myAvatarItemsForPreview.find((item) => item.id === selectedCreatorItemId)
+  const storedSelectedCreatorItem = myAvatarItemsForPreview.find((item) => item.id === selectedCreatorItemId)
     ?? (selectedCreatorItemId ? loadAvatarCreatorItems(user.id).find(item => item.id === selectedCreatorItemId) ?? null : null);
+  const selectedCreatorItem = creatorItemPreviewOverride?.id === selectedCreatorItemId
+    ? creatorItemPreviewOverride
+    : storedSelectedCreatorItem;
+
+  const handlePreviewCreatorItem = useCallback((item: HandMadeItem | null) => {
+    setCreatorItemPreviewOverride(item);
+  }, []);
+
+  const handleUpdateCreatorItemArtwork = useCallback(async (
+    itemId: string,
+    imageDataUrl: string,
+    contentBounds: HandMadeItemContentBounds,
+    color: string,
+    gridSize: number,
+  ): Promise<string | null> => {
+    const updated = updateHandMadeItem(user.id, itemId, {
+      imageDataUrl,
+      contentBounds,
+      color,
+      pixelGridSize: gridSize,
+      artStyle: "pixel",
+    });
+    if (!updated) return "아이템을 찾지 못했어요. 목록을 다시 열어 주세요.";
+
+    setCreatorItemPreviewOverride(updated);
+    setCreatorInventoryTick((tick) => tick + 1);
+    setInventoryRevision((revision) => revision + 1);
+    setCreatorDirty(true);
+    setCreatorSaved(false);
+
+    if (isSupabaseConfigured()) {
+      const listingResult = await syncShopListingItemSnapshot(user.id, itemId, updated);
+      if (!listingResult.ok) setSyncError(listingResult.error);
+      const inventoryResult = await upsertUserInventory(user.id, getInventorySnapshot(user.id));
+      if (!inventoryResult.ok) setSyncError(inventoryResult.error);
+    }
+    return null;
+  }, [user.id]);
 
   const handleOpenItemCreator = () => {
     const saved = loadAvatarProfile(user.id);
@@ -15533,6 +16195,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorDirty(false);
     setCreatorSaveError(null);
     setCreatorSaved(false);
+    setCreatorItemPreviewOverride(null);
     setShowItemCreator(true);
     setShowItemPixelEditor(false);
     setPixelEditorPreviewItem(null);
@@ -15548,6 +16211,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorSaveError(null);
     setCreatorSaved(false);
     setCreatorDirty(false);
+    setCreatorItemPreviewOverride(null);
     (cloneAvatarProfile(avatar));
   };
 
@@ -15584,12 +16248,14 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     if (!itemId) {
       setSelectedCreatorItemId(null);
       setCreatorOverlayEditing(false);
+      setCreatorItemPreviewOverride(null);
       return;
     }
     if (selectedCreatorItemId === itemId) {
       setCreatorOverlayEditing(true);
       return;
     }
+    setCreatorItemPreviewOverride(null);
     setSelectedCreatorItemId(itemId);
     setCreatorOverlayEditing(true);
     setCreatorDirty(true);
@@ -15712,6 +16378,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
       setSelectedCreatorItemId(null);
       setCreatorOverlayEditing(false);
     }
+    if (creatorItemPreviewOverride?.id === itemId) setCreatorItemPreviewOverride(null);
 
     setCreatorInventoryTick(tick => tick + 1);
     setInventoryRevision(revision => revision + 1);
@@ -16138,6 +16805,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
               saving={creatorSaving}
               saved={creatorSaved}
               saveError={creatorSaveError}
+              previewItemOverride={creatorItemPreviewOverride}
               inventoryRevision={creatorInventoryTick}
             />
           ) : (
@@ -16196,6 +16864,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             onRenameInventoryItem={handleRenameInventoryItem}
             onDeleteInventoryItem={handleDeleteInventoryItem}
             onSetDecorLayer={handleSetDecorLayer}
+            onPreviewCreatorItem={handlePreviewCreatorItem}
+            onUpdateCreatorItemArtwork={handleUpdateCreatorItemArtwork}
             onShopPurchase={() => setInventoryRevision(revision => revision + 1)}
           />
         </div>

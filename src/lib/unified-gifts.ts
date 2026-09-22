@@ -182,7 +182,12 @@ function applyLocalItemTransfer(
     createdAt: new Date().toISOString(),
   };
 
-  const nextSenderItems = senderItems.filter((entry) => entry.id !== senderItem.id);
+  // Handmade artwork is the creator's permanent original: gifting creates a
+  // recipient copy. Purchased inventory is consumable and moves to the recipient.
+  const senderKeepsOriginal = senderItem.source !== "purchased";
+  const nextSenderItems = senderKeepsOriginal
+    ? senderItems
+    : senderItems.filter((entry) => entry.id !== senderItem.id);
   const officialListing = officialListingForItem(senderItem);
   if (officialListing) {
     const senderStillOwns = ownsSameCatalogItem(nextSenderItems, officialListing.item.id);
@@ -228,6 +233,8 @@ export async function sendUnifiedItemGift(args: {
 
   const previousListings = loadMyListings(args.senderId);
   const itemIsListed = previousListings.some((listing) => listing.itemId === args.itemId);
+  const senderKeepsOriginal = item.source !== "purchased";
+  const shouldUnlistForTransfer = itemIsListed && !senderKeepsOriginal;
   if (itemIsListed && !args.allowListed) {
     return { ok: false, error: "판매 중인 아이템은 먼저 내려 주세요." };
   }
@@ -244,7 +251,7 @@ export async function sendUnifiedItemGift(args: {
       return { ok: false, error: push.error || "인벤토리 동기화에 실패했어요." };
     }
 
-    if (itemIsListed) {
+    if (shouldUnlistForTransfer) {
       const unlisted = await removeShopListingsForItem(args.senderId, args.itemId);
       if (!unlisted.ok) return { ok: false, error: unlisted.error || "상점 아이템을 내리지 못했어요." };
     }
@@ -255,7 +262,7 @@ export async function sendUnifiedItemGift(args: {
       p_message: args.message.trim() || null,
     });
     if (error) {
-      if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
+      if (shouldUnlistForTransfer) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
       return { ok: false, error: mapGiftRpcError(error.message) };
     }
 
@@ -266,7 +273,7 @@ export async function sendUnifiedItemGift(args: {
       notificationMessage?: string;
     } | null;
     if (payload && payload.ok === false) {
-      if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
+      if (shouldUnlistForTransfer) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
       return { ok: false, error: mapGiftRpcError(payload.error || "선물에 실패했어요.") };
     }
 
@@ -288,14 +295,14 @@ export async function sendUnifiedItemGift(args: {
     return { ok: true, message: `${item.label}을(를) 선물했어요.` };
   }
 
-  if (itemIsListed) {
+  if (shouldUnlistForTransfer) {
     const unlisted = await removeShopListingsForItem(args.senderId, args.itemId);
     if (!unlisted.ok) return { ok: false, error: unlisted.error || "상점 아이템을 내리지 못했어요." };
   }
 
   const local = applyLocalItemTransfer(args.senderId, args.recipientId, args.itemId);
   if (!local.ok) {
-    if (itemIsListed) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
+    if (shouldUnlistForTransfer) await restoreGiftListings(args.senderId, args.senderNickname, item, previousListings);
     return local;
   }
 

@@ -4,7 +4,7 @@
 --
 -- 하는 일:
 --   1) 알림 type 'gift' / 'gift_beg' 허용 (기존 type CHECK를 모두 교체)
---   2) send_unified_inventory_item_gift — 보낸 사람 items에서 제거 → 받는 사람 items에 추가 + gift 알림
+--   2) send_unified_inventory_item_gift — 직접 만든 원본은 유지, 구매품은 이전 + gift 알림
 --   3) send_unified_clover_gift — 클로버 이전 + gift 알림
 --   4) notify_gift_received — 클라이언트가 선물 성공 후 알림을 보강할 때 사용 (idempotent)
 -- security definer 로 RLS를 우회해 양쪽 user_inventory를 한 트랜잭션에서 갱신합니다.
@@ -174,6 +174,7 @@ declare
   v_sender_owned text[];
   v_recipient_owned text[];
   v_item jsonb;
+  v_sender_keeps_original boolean;
   v_item_label text;
   v_catalog_id text;
   v_official_listing_id text;
@@ -221,7 +222,11 @@ begin
 
   if v_item is null then raise exception 'item not found'; end if;
 
-  if exists (
+  -- 직접 만든 아이템은 창작자의 고정 원본이므로 선물해도 보내는 사람에게 남긴다.
+  -- 상점 구매 아이템(source = purchased)만 받는 사람에게 이전된다.
+  v_sender_keeps_original := coalesce(v_item->>'source', 'handmade') <> 'purchased';
+
+  if not v_sender_keeps_original and exists (
     select 1 from public.shop_listings
     where seller_id = v_sender_id and item_id = p_item_id and active = true
   ) then
@@ -247,11 +252,13 @@ begin
     'createdAt', to_char(v_now at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
   );
 
-  -- 보낸 사람: 해당 id 제거 (+ 같은 카탈로그 공식 복제가 남아 있으면 함께 정리하지 않음 — 인스턴스 1개만 이전)
-  select coalesce(jsonb_agg(entry.value order by entry.ordinality), '[]'::jsonb)
-  into v_sender_items
-  from jsonb_array_elements(coalesce(v_sender_items, '[]'::jsonb)) with ordinality as entry(value, ordinality)
-  where entry.value->>'id' <> p_item_id;
+  -- 구매품일 때만 보낸 사람의 보관함에서 해당 인스턴스를 제거한다.
+  if not v_sender_keeps_original then
+    select coalesce(jsonb_agg(entry.value order by entry.ordinality), '[]'::jsonb)
+    into v_sender_items
+    from jsonb_array_elements(coalesce(v_sender_items, '[]'::jsonb)) with ordinality as entry(value, ordinality)
+    where entry.value->>'id' <> p_item_id;
+  end if;
 
   v_recipient_items := jsonb_build_array(v_item) || coalesce(v_recipient_items, '[]'::jsonb);
 
@@ -305,6 +312,7 @@ begin
     'ok', true,
     'item', v_item,
     'itemId', p_item_id,
+    'senderRetained', v_sender_keeps_original,
     'listingId', v_official_listing_id,
     'sourceKey', v_source_key,
     'notificationMessage', v_notif_message

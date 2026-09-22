@@ -19,7 +19,11 @@ import { PIXEL_COLS, PIXEL_ROWS } from "./data";
 import BegGiftModal from "./BegGiftModal";
 import GiftModal, { type GiftSuccessInfo } from "./GiftModal";
 import worldBackgroundImage from "../assets/world-pink-house.png";
+<<<<<<< HEAD
 import worldParkImage from "../assets/world-park.png";
+=======
+import worldParkImage from "../assets/world-park-refined.png";
+>>>>>>> 0b1353f (아이템수정)
 
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 450;
@@ -35,7 +39,7 @@ type WorldFloor = {
   y: number;
   minX: number;
   maxX: number;
-  doorX: number;
+  doorX: number | null;
   maxJumpRise: number;
 };
 
@@ -97,9 +101,39 @@ const WORLD_SCENES: WorldScene[] = [
   },
 ];
 const WORLD_DOOR_ACTIVATION_RADIUS = 34;
+<<<<<<< HEAD
 const WORLD_SPAWN = WORLD_SCENES[0].spawn;
+=======
+type WorldSceneId = "pension" | "park";
+
+type WorldScene = {
+  label: string;
+  image: string;
+  floors: WorldFloor[];
+  spawn: { x: number; y: number; floorIndex: number };
+};
+
+// Both scenes use the same 800×450 coordinate system and full-size image frame.
+const WORLD_SCENES: Record<WorldSceneId, WorldScene> = {
+  pension: {
+    label: "펜션",
+    image: worldBackgroundImage,
+    floors: WORLD_FLOORS,
+    spawn: { x: 400, y: WORLD_FLOORS[2].y, floorIndex: 2 },
+  },
+  park: {
+    label: "공원",
+    image: worldParkImage,
+    // The grass surface in the park image sits at roughly 79% of its height.
+    floors: [{ y: 356, minX: 22, maxX: 778, doorX: null, maxJumpRise: 44 }],
+    spawn: { x: 400, y: 356, floorIndex: 0 },
+  },
+};
+const WORLD_SPAWN = { ...WORLD_SCENES.pension.spawn, sceneId: "pension" as const };
+>>>>>>> 0b1353f (아이템수정)
 
 type LocalPlayerPosition = {
+  sceneId: WorldSceneId;
   x: number;
   y: number;
   floorIndex: number;
@@ -190,7 +224,11 @@ interface PlayerData {
   x: number;
   y: number;
   floorIndex?: number;
+<<<<<<< HEAD
   sceneIndex?: number;
+=======
+  sceneId?: WorldSceneId;
+>>>>>>> 0b1353f (아이템수정)
   direction: "left" | "right";
   isMoving: boolean;
   isJumping?: boolean;
@@ -303,9 +341,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const pointerHoldsRef = useRef<Map<number, "left" | "right">>(new Map());
   const jumpRequestedRef = useRef(false);
   const floorChangeRequestedRef = useRef<-1 | 1 | null>(null);
+<<<<<<< HEAD
   const sceneIndexRef = useRef(0);
   const floorsRef = useRef(WORLD_SCENES[0].floors);
   const platformsRef = useRef(WORLD_SCENES[0].platforms);
+=======
+  const scenePositionsRef = useRef<Partial<Record<WorldSceneId, LocalPlayerPosition>>>({});
+>>>>>>> 0b1353f (아이템수정)
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const publicChatScrollRef = useRef<HTMLDivElement>(null);
   const publicChatInputRef = useRef<HTMLInputElement>(null);
@@ -365,7 +407,11 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         x: position.x,
         y: position.y,
         floorIndex: position.floorIndex,
+<<<<<<< HEAD
         sceneIndex: sceneIndexRef.current,
+=======
+        sceneId: position.sceneId,
+>>>>>>> 0b1353f (아이템수정)
         direction: position.direction,
         isMoving: position.isMoving,
         isJumping: position.isJumping,
@@ -373,6 +419,37 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       },
     });
   }, [user?.id, user?.nickname, myAvatar]);
+
+  const changeScene = useCallback((sceneId: WorldSceneId) => {
+    const previous = physicsRef.current;
+    if (previous.sceneId === sceneId) return;
+    scenePositionsRef.current[previous.sceneId] = { ...previous };
+    const scene = WORLD_SCENES[sceneId];
+    const saved = scenePositionsRef.current[sceneId] ?? scene.spawn;
+    const floor = scene.floors[saved.floorIndex];
+    const position: LocalPlayerPosition = {
+      sceneId,
+      x: Math.max(floor.minX, Math.min(floor.maxX, saved.x)),
+      y: floor.y,
+      floorIndex: saved.floorIndex,
+      direction: sceneId === "park" ? "right" : "left",
+      isMoving: false,
+      isJumping: false,
+    };
+    pressedKeysRef.current.clear();
+    jumpRequestedRef.current = false;
+    floorChangeRequestedRef.current = null;
+    physicsRef.current = { ...position, velocityY: 0, onGround: true };
+    setMyPos(position);
+    setSelectedPlayerId(null);
+    setShowMyItems(false);
+    broadcastMyPosition(position);
+  }, [broadcastMyPosition]);
+
+  useEffect(() => {
+    const parkImage = new Image();
+    parkImage.src = worldParkImage;
+  }, []);
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -760,7 +837,11 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             x: position.x,
             y: position.y,
             floorIndex: position.floorIndex,
+<<<<<<< HEAD
             sceneIndex: sceneIndexRef.current,
+=======
+            sceneId: position.sceneId,
+>>>>>>> 0b1353f (아이템수정)
             direction: position.direction,
             isMoving: position.isMoving,
             isJumping: position.isJumping,
@@ -1027,6 +1108,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       const right = pressedKeysRef.current.has("right");
       const horizontalDirection = left === right ? 0 : left ? -1 : 1;
 
+<<<<<<< HEAD
       let currentFloor = floorsRef.current[next.floorIndex] ?? floorsRef.current[0];
       const requestedFloorChange = floorChangeRequestedRef.current;
       if (requestedFloorChange !== null) {
@@ -1034,6 +1116,17 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         const targetFloor = floorsRef.current[targetFloorIndex];
         const isAtDoor = Math.abs(next.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
         if (targetFloor && next.onGround && isAtDoor) {
+=======
+      const scene = WORLD_SCENES[next.sceneId];
+      let currentFloor = scene.floors[next.floorIndex] ?? scene.floors[scene.spawn.floorIndex];
+      const requestedFloorChange = floorChangeRequestedRef.current;
+      if (requestedFloorChange !== null) {
+        const targetFloorIndex = next.floorIndex + requestedFloorChange;
+        const targetFloor = scene.floors[targetFloorIndex];
+        const isAtDoor = currentFloor.doorX !== null &&
+          Math.abs(next.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
+        if (targetFloor && targetFloor.doorX !== null && next.onGround && isAtDoor) {
+>>>>>>> 0b1353f (아이템수정)
           next.floorIndex = targetFloorIndex;
           next.x = targetFloor.doorX;
           next.y = targetFloor.y;
@@ -1116,6 +1209,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       physicsRef.current = next;
 
       const visiblePosition: LocalPlayerPosition = {
+        sceneId: next.sceneId,
         x: Math.round(next.x * 10) / 10,
         y: Math.round(next.y * 10) / 10,
         floorIndex: next.floorIndex,
@@ -1124,6 +1218,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         isJumping: next.isJumping,
       };
       setMyPos((current) =>
+        current.sceneId === visiblePosition.sceneId &&
         current.x === visiblePosition.x &&
         current.y === visiblePosition.y &&
         current.floorIndex === visiblePosition.floorIndex &&
@@ -1135,6 +1230,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       );
 
       const positionChanged =
+        lastBroadcastPosition.sceneId !== visiblePosition.sceneId ||
         Math.abs(lastBroadcastPosition.x - visiblePosition.x) >= 0.5 ||
         Math.abs(lastBroadcastPosition.y - visiblePosition.y) >= 0.5 ||
         lastBroadcastPosition.floorIndex !== visiblePosition.floorIndex ||
@@ -1290,6 +1386,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   );
 
   const begItems = begTarget ? (peerInventories[begTarget.userId] ?? []) : [];
+<<<<<<< HEAD
   const currentScene = WORLD_SCENES[sceneIndex] ?? WORLD_SCENES[0];
   const currentFloors = currentScene.floors;
   const currentFloor = currentFloors[myPos.floorIndex] ?? currentFloors[0];
@@ -1299,10 +1396,24 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const canMoveUp = isStandingAtDoor && myPos.floorIndex > 0;
   const canMoveDown = isStandingAtDoor && myPos.floorIndex < currentFloors.length - 1;
   const visiblePlayers = Object.values(players).filter((player) => (player.sceneIndex ?? 0) === sceneIndex);
+=======
+  const currentScene = WORLD_SCENES[myPos.sceneId];
+  const isPension = myPos.sceneId === "pension";
+  const visiblePlayers = Object.values(players).filter(
+    (player) => (player.sceneId ?? "pension") === myPos.sceneId,
+  );
+  const currentFloor = currentScene.floors[myPos.floorIndex] ?? currentScene.floors[currentScene.spawn.floorIndex];
+  const isStandingAtDoor =
+    currentFloor.doorX !== null && !myPos.isJumping &&
+    Math.abs(myPos.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
+  const canMoveUp = isStandingAtDoor && myPos.floorIndex > 0;
+  const canMoveDown = isStandingAtDoor && myPos.floorIndex < currentScene.floors.length - 1;
+>>>>>>> 0b1353f (아이템수정)
 
   return (
     <div
       ref={worldRef}
+      data-world-scene={myPos.sceneId}
       className="relative w-full h-full overflow-hidden rounded-lg flex flex-col select-none cursor-default"
       style={{ backgroundColor: currentScene.sky, touchAction: "none" }}
       onClick={() => {
@@ -1337,13 +1448,19 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
         <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-2xl border border-amber-200 shadow-sm flex items-center gap-3">
           <span className="text-base">🤝</span>
+<<<<<<< HEAD
           <span className="text-sm font-bold text-amber-900">{currentScene.label}</span>
+=======
+          <span className="text-sm font-bold text-amber-900">만남의 광장</span>
+          <span className="text-xs font-semibold text-amber-800" aria-live="polite">{currentScene.label}</span>
+>>>>>>> 0b1353f (아이템수정)
           <span className="text-xs bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-semibold shadow-inner">
             접속자: {visiblePlayers.length + 1}명
           </span>
         </div>
       </div>
 
+<<<<<<< HEAD
       {!showControlsGuide && (
         <button
           type="button"
@@ -1356,10 +1473,29 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           터치 조작
         </button>
       )}
+=======
+      <button
+        type="button"
+        aria-label={isPension ? "공원으로 이동" : "펜션으로 돌아가기"}
+        title={isPension ? "공원으로 이동" : "펜션으로 돌아가기"}
+        className={`absolute top-1/2 z-30 flex h-20 w-12 -translate-y-1/2 flex-col items-center justify-center rounded-xl border-2 border-amber-800/70 bg-[#fff4dc]/95 text-amber-950 shadow-[3px_3px_0_rgba(74,46,23,0.45)] transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-700 ${isPension ? "right-4" : "left-4"}`}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.code === "Space") event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          event.currentTarget.blur();
+          changeScene(isPension ? "park" : "pension");
+        }}
+      >
+        <span aria-hidden="true" className="font-mono text-3xl font-black leading-none">{isPension ? ">" : "<"}</span>
+        <span className="mt-1 text-[11px] font-bold">{isPension ? "공원" : "펜션"}</span>
+      </button>
+>>>>>>> 0b1353f (아이템수정)
 
       {showControlsGuide && (
         <div
-          className="absolute top-5 right-6 z-30 rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 px-4 pb-3 pt-4 shadow-[4px_4px_0_rgba(51,42,46,0.55)]"
+          className="absolute top-5 right-20 z-30 rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 px-4 pb-3 pt-4 shadow-[4px_4px_0_rgba(51,42,46,0.55)]"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           role="dialog"
@@ -1373,8 +1509,12 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           >
             ×
           </button>
+<<<<<<< HEAD
           <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 이동, 점프, 위층, 아래층">
             <p className="mb-0.5 w-full text-center text-[9px] font-bold text-stone-600">버튼을 눌러 이동</p>
+=======
+          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label={isPension ? "좌우 방향키 이동, Space 점프, ↑ 위층, ↓ 아래층" : "좌우 방향키 이동, Space 점프"}>
+>>>>>>> 0b1353f (아이템수정)
             <div className="flex w-full gap-1.5">
               {([
                 ["left", "←", "왼쪽"] as const,
@@ -1408,6 +1548,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             >
               <kbd className="font-mono">SPACE</kbd>
               <span>점프</span>
+<<<<<<< HEAD
             </button>
             {currentScene.showDoors && (
               <>
@@ -1444,6 +1585,47 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             </div>
               </>
             )}
+=======
+            </div>
+            {isPension && (
+              <>
+                <p className="mt-1 text-[9px] font-bold text-stone-600">
+                  {isStandingAtDoor ? `${currentScene.floors.length - myPos.floorIndex}층 문 앞` : "문 앞에서 활성화"}
+                </p>
+                <div className="mt-0.5 flex w-full flex-col gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!canMoveUp}
+                    className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
+                      canMoveUp
+                        ? "bg-[#ffe5ec] text-stone-800 hover:bg-[#ffd1df]"
+                        : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
+                    }`}
+                    onClick={() => queueFloorChange(-1)}
+                  >
+                    <kbd className="font-mono text-[11px]">↑</kbd>
+                    <span>위층으로 이동</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canMoveDown}
+                    className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
+                      canMoveDown
+                        ? "bg-[#e8e0ff] text-stone-800 hover:bg-[#dcd0ff]"
+                        : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
+                    }`}
+                    onClick={() => queueFloorChange(1)}
+                  >
+                    <kbd className="font-mono text-[11px]">↓</kbd>
+                    <span>아래층으로 이동</span>
+                  </button>
+                </div>
+              </>
+            )}
+            <p className="mt-1 text-[9px] font-bold text-stone-600">
+              {isPension ? "오른쪽 > 버튼으로 공원 이동" : "왼쪽 < 버튼으로 펜션 이동"}
+            </p>
+>>>>>>> 0b1353f (아이템수정)
           </div>
         </div>
       )}
@@ -1513,7 +1695,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       )}
 
       <img
+<<<<<<< HEAD
         src={currentScene.background}
+=======
+        src={currentScene.image}
+        width={WORLD_WIDTH}
+        height={WORLD_HEIGHT}
+>>>>>>> 0b1353f (아이템수정)
         alt=""
         aria-hidden
         draggable={false}
