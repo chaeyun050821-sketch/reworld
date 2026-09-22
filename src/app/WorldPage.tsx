@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { AvatarWithCompanions } from "./App";
 import {
@@ -15,22 +15,15 @@ import {
 import { fetchUserInventory } from "../lib/user-sync";
 import { loadNotifications, subscribeNotifications } from "../lib/notifications";
 import { getShopItemImage, type ShopCatalogItem } from "./shop-catalog";
-import { PIXEL_COLS, PIXEL_ROWS } from "./data";
 import BegGiftModal from "./BegGiftModal";
 import GiftModal, { type GiftSuccessInfo } from "./GiftModal";
 import worldBackgroundImage from "../assets/world-pink-house.png";
-<<<<<<< HEAD
-import worldParkImage from "../assets/world-park.png";
-=======
 import worldParkImage from "../assets/world-park-refined.png";
->>>>>>> 0b1353f (아이템수정)
 
 const WORLD_WIDTH = 800;
 const WORLD_HEIGHT = 450;
 const WORLD_AVATAR_WIDTH = 28;
 const WORLD_AVATAR_HEIGHT = avatarPreviewHeightForWidth(WORLD_AVATAR_WIDTH);
-/** PixelAvatar draws a 32x48 viewBox inside a taller box, so it letterboxes vertically. */
-const WORLD_AVATAR_ART_RATIO = PIXEL_ROWS / PIXEL_COLS;
 const WORLD_WALK_SPEED = 64;
 const WORLD_JUMP_VELOCITY = 200;
 const WORLD_GRAVITY = 520;
@@ -43,67 +36,13 @@ type WorldFloor = {
   maxJumpRise: number;
 };
 
-type WorldPlatform = {
-  minX: number;
-  maxX: number;
-  y: number;
-};
-
-type WorldScene = {
-  id: string;
-  label: string;
-  background: string;
-  sky: string;
-  floors: WorldFloor[];
-  platforms: WorldPlatform[];
-  spawn: { x: number; y: number; floorIndex: number };
-  showDoors: boolean;
-};
-
 /** 3층 픽셀 하우스의 바닥선·외벽 안쪽·문 중심을 800×450 좌표로 옮긴 값. */
-const WORLD_HOUSE_FLOORS: WorldFloor[] = [
+const WORLD_FLOORS: WorldFloor[] = [
   { y: 182, minX: 222, maxX: 578, doorX: 400, maxJumpRise: 36 },
   { y: 284, minX: 82, maxX: 718, doorX: 400, maxJumpRise: 28 },
   { y: 389, minX: 82, maxX: 718, doorX: 400, maxJumpRise: 30 },
 ];
-/** 공원 배경의 잔디 윗면은 world y 367.5. 신발이 살짝 잔디에 묻히도록 369로 맞춘다. */
-const WORLD_PARK_GROUND_Y = 369;
-const WORLD_PARK_FLOORS: WorldFloor[] = [
-  { y: WORLD_PARK_GROUND_Y, minX: 24, maxX: 776, doorX: 400, maxJumpRise: 72 },
-];
-/** 아바타 폭(28)에 맞춘 작은 벤치. 좌석 높이는 점프로 올라갈 수 있는 약 18px. */
-const WORLD_PARK_BENCH_W = 46;
-const WORLD_PARK_BENCH_SEAT_Y = WORLD_PARK_GROUND_Y - 18;
-const WORLD_PARK_PLATFORMS: WorldPlatform[] = [
-  { minX: 318, maxX: 318 + WORLD_PARK_BENCH_W, y: WORLD_PARK_BENCH_SEAT_Y },
-  { minX: 568, maxX: 568 + WORLD_PARK_BENCH_W, y: WORLD_PARK_BENCH_SEAT_Y },
-];
-const WORLD_SCENES: WorldScene[] = [
-  {
-    id: "house",
-    label: "만남의 광장",
-    background: worldBackgroundImage,
-    sky: "#75c8ff",
-    floors: WORLD_HOUSE_FLOORS,
-    platforms: [],
-    spawn: { x: WORLD_HOUSE_FLOORS[2].doorX, y: WORLD_HOUSE_FLOORS[2].y, floorIndex: 2 },
-    showDoors: true,
-  },
-  {
-    id: "park",
-    label: "공원",
-    background: worldParkImage,
-    sky: "#3fa2ef",
-    floors: WORLD_PARK_FLOORS,
-    platforms: WORLD_PARK_PLATFORMS,
-    spawn: { x: 120, y: WORLD_PARK_FLOORS[0].y, floorIndex: 0 },
-    showDoors: false,
-  },
-];
 const WORLD_DOOR_ACTIVATION_RADIUS = 34;
-<<<<<<< HEAD
-const WORLD_SPAWN = WORLD_SCENES[0].spawn;
-=======
 type WorldSceneId = "pension" | "park";
 
 type WorldScene = {
@@ -130,7 +69,6 @@ const WORLD_SCENES: Record<WorldSceneId, WorldScene> = {
   },
 };
 const WORLD_SPAWN = { ...WORLD_SCENES.pension.spawn, sceneId: "pension" as const };
->>>>>>> 0b1353f (아이템수정)
 
 type LocalPlayerPosition = {
   sceneId: WorldSceneId;
@@ -145,39 +83,7 @@ type LocalPlayerPosition = {
 type PlayerPhysics = LocalPlayerPosition & {
   velocityY: number;
   onGround: boolean;
-  platformY: number | null;
 };
-
-function ParkBench({ platform, groundY }: { platform: WorldPlatform; groundY: number }) {
-  const backrest = 11;
-  const top = platform.y - backrest;
-  const height = groundY - top;
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 46 29"
-      preserveAspectRatio="none"
-      className="absolute pointer-events-none"
-      style={{
-        left: `${(platform.minX / WORLD_WIDTH) * 100}%`,
-        top: `${(top / WORLD_HEIGHT) * 100}%`,
-        width: `${((platform.maxX - platform.minX) / WORLD_WIDTH) * 100}%`,
-        height: `${(height / WORLD_HEIGHT) * 100}%`,
-        zIndex: 4,
-        imageRendering: "pixelated",
-      }}
-    >
-      <rect x="7" y="20" width="3" height="9" fill="#4a4a52" />
-      <rect x="36" y="20" width="3" height="9" fill="#4a4a52" />
-      <rect x="2" y="16" width="42" height="5" fill="#c48448" />
-      <rect x="2" y="15" width="42" height="2" fill="#e0a060" />
-      <rect x="3" y="4" width="40" height="3" fill="#a86c38" />
-      <rect x="3" y="7" width="3" height="9" fill="#8a582c" />
-      <rect x="40" y="7" width="3" height="9" fill="#8a582c" />
-      <rect x="6" y="8" width="2" height="7" fill="#d4c0a0" opacity="0.35" />
-    </svg>
-  );
-}
 
 type GiftReceivedToast = {
   id: string;
@@ -224,11 +130,7 @@ interface PlayerData {
   x: number;
   y: number;
   floorIndex?: number;
-<<<<<<< HEAD
-  sceneIndex?: number;
-=======
   sceneId?: WorldSceneId;
->>>>>>> 0b1353f (아이템수정)
   direction: "left" | "right";
   isMoving: boolean;
   isJumping?: boolean;
@@ -326,7 +228,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const [myItems, setMyItems] = useState<ShopCatalogItem[]>([]);
   const [myItemsLoading, setMyItemsLoading] = useState(false);
   const [showControlsGuide, setShowControlsGuide] = useState(true);
-  const [sceneIndex, setSceneIndex] = useState(0);
 
   const physicsRef = useRef<PlayerPhysics>({
     ...WORLD_SPAWN,
@@ -335,19 +236,11 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     isJumping: false,
     velocityY: 0,
     onGround: true,
-    platformY: null,
   });
   const pressedKeysRef = useRef<Set<"left" | "right">>(new Set());
-  const pointerHoldsRef = useRef<Map<number, "left" | "right">>(new Map());
   const jumpRequestedRef = useRef(false);
   const floorChangeRequestedRef = useRef<-1 | 1 | null>(null);
-<<<<<<< HEAD
-  const sceneIndexRef = useRef(0);
-  const floorsRef = useRef(WORLD_SCENES[0].floors);
-  const platformsRef = useRef(WORLD_SCENES[0].platforms);
-=======
   const scenePositionsRef = useRef<Partial<Record<WorldSceneId, LocalPlayerPosition>>>({});
->>>>>>> 0b1353f (아이템수정)
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const publicChatScrollRef = useRef<HTMLDivElement>(null);
   const publicChatInputRef = useRef<HTMLInputElement>(null);
@@ -360,15 +253,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   const recentGiftToastKeysRef = useRef<Map<string, number>>(new Map());
   const renderedAvatarWidth = Math.max(18, Math.round(WORLD_AVATAR_WIDTH * viewportScale.x));
   const renderedAvatarHeight = Math.max(32, Math.round(WORLD_AVATAR_HEIGHT * viewportScale.y));
-  /**
-   * The avatar SVG is centred inside its box, so the shoes stop short of the box
-   * bottom. Push the whole avatar (and its worn items) down by that gap so the
-   * feet land exactly on the floor line instead of hovering above it.
-   */
-  const renderedAvatarFootGap = Math.max(
-    0,
-    Math.round((renderedAvatarHeight - renderedAvatarWidth * WORLD_AVATAR_ART_RATIO) / 2),
-  );
 
   const showConversationToast = useCallback((message: string) => {
     if (conversationToastTimerRef.current) window.clearTimeout(conversationToastTimerRef.current);
@@ -407,11 +291,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         x: position.x,
         y: position.y,
         floorIndex: position.floorIndex,
-<<<<<<< HEAD
-        sceneIndex: sceneIndexRef.current,
-=======
         sceneId: position.sceneId,
->>>>>>> 0b1353f (아이템수정)
         direction: position.direction,
         isMoving: position.isMoving,
         isJumping: position.isJumping,
@@ -837,11 +717,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             x: position.x,
             y: position.y,
             floorIndex: position.floorIndex,
-<<<<<<< HEAD
-            sceneIndex: sceneIndexRef.current,
-=======
             sceneId: position.sceneId,
->>>>>>> 0b1353f (아이템수정)
             direction: position.direction,
             isMoving: position.isMoving,
             isJumping: position.isJumping,
@@ -946,40 +822,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     setShowMyItems(false);
   }, []);
 
-  const goToScene = useCallback((nextIndex: number) => {
-    const wrapped = (nextIndex + WORLD_SCENES.length) % WORLD_SCENES.length;
-    const scene = WORLD_SCENES[wrapped];
-    sceneIndexRef.current = wrapped;
-    floorsRef.current = scene.floors;
-    platformsRef.current = scene.platforms;
-    const nextPhysics: PlayerPhysics = {
-      ...scene.spawn,
-      direction: "right",
-      isMoving: false,
-      isJumping: false,
-      velocityY: 0,
-      onGround: true,
-      platformY: null,
-    };
-    physicsRef.current = nextPhysics;
-    pressedKeysRef.current.clear();
-    pointerHoldsRef.current.clear();
-    jumpRequestedRef.current = false;
-    floorChangeRequestedRef.current = null;
-    setSceneIndex(wrapped);
-    setMyPos({
-      x: nextPhysics.x,
-      y: nextPhysics.y,
-      floorIndex: nextPhysics.floorIndex,
-      direction: nextPhysics.direction,
-      isMoving: false,
-      isJumping: false,
-    });
-    setSelectedPlayerId(null);
-    setShowMyItems(false);
-    broadcastMyPosition(nextPhysics);
-  }, [broadcastMyPosition]);
-
   const setMovePressed = useCallback((direction: "left" | "right", pressed: boolean) => {
     if (pressed) pressedKeysRef.current.add(direction);
     else pressedKeysRef.current.delete(direction);
@@ -989,39 +831,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     }
   }, []);
 
-  const beginMoveHold = useCallback((pointerId: number, direction: "left" | "right") => {
-    pointerHoldsRef.current.set(pointerId, direction);
-    setMovePressed(direction, true);
-  }, [setMovePressed]);
-
-  const endMoveHold = useCallback((pointerId: number) => {
-    const direction = pointerHoldsRef.current.get(pointerId);
-    if (!direction) return;
-    pointerHoldsRef.current.delete(pointerId);
-    const stillHeld = [...pointerHoldsRef.current.values()].includes(direction);
-    if (!stillHeld) setMovePressed(direction, false);
-  }, [setMovePressed]);
-
-  const bindMoveHold = useCallback((direction: "left" | "right") => ({
-    onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      beginMoveHold(event.pointerId, direction);
-    },
-    onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      endMoveHold(event.pointerId);
-    },
-    onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      endMoveHold(event.pointerId);
-    },
-    onLostPointerCapture: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      endMoveHold(event.pointerId);
-    },
-  }), [beginMoveHold, endMoveHold]);
-
   useEffect(() => {
     const isTypingTarget = (target: EventTarget | null) => {
       const element = target instanceof HTMLElement ? target : null;
@@ -1029,20 +838,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
-      const typing = isTypingTarget(event.target);
-      const inPublicChat = event.target === publicChatInputRef.current;
-      if ((event.key === "t" || event.key === "T") && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        if (typing && !inPublicChat) return;
-        event.preventDefault();
-        setPublicChatOpen((open) => {
-          if (open) setPublicChatInput("");
-          return !open;
-        });
-        setSelectedPlayerId(null);
-        return;
-      }
-      if (typing) return;
+      if (isTypingTarget(event.target)) return;
       if (event.key === "Enter") {
         event.preventDefault();
         setPublicChatOpen(true);
@@ -1108,15 +904,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       const right = pressedKeysRef.current.has("right");
       const horizontalDirection = left === right ? 0 : left ? -1 : 1;
 
-<<<<<<< HEAD
-      let currentFloor = floorsRef.current[next.floorIndex] ?? floorsRef.current[0];
-      const requestedFloorChange = floorChangeRequestedRef.current;
-      if (requestedFloorChange !== null) {
-        const targetFloorIndex = next.floorIndex + requestedFloorChange;
-        const targetFloor = floorsRef.current[targetFloorIndex];
-        const isAtDoor = Math.abs(next.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
-        if (targetFloor && next.onGround && isAtDoor) {
-=======
       const scene = WORLD_SCENES[next.sceneId];
       let currentFloor = scene.floors[next.floorIndex] ?? scene.floors[scene.spawn.floorIndex];
       const requestedFloorChange = floorChangeRequestedRef.current;
@@ -1126,7 +913,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         const isAtDoor = currentFloor.doorX !== null &&
           Math.abs(next.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
         if (targetFloor && targetFloor.doorX !== null && next.onGround && isAtDoor) {
->>>>>>> 0b1353f (아이템수정)
           next.floorIndex = targetFloorIndex;
           next.x = targetFloor.doorX;
           next.y = targetFloor.y;
@@ -1147,7 +933,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         if (next.onGround) {
           next.velocityY = -WORLD_JUMP_VELOCITY;
           next.onGround = false;
-          next.platformY = null;
         }
         jumpRequestedRef.current = false;
       }
@@ -1160,44 +945,10 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           next.y = highestAllowedY;
           next.velocityY = Math.max(0, next.velocityY);
         }
-        if (next.velocityY >= 0) {
-          let landedY: number | null = null;
-          for (const platform of platformsRef.current) {
-            if (
-              next.x >= platform.minX &&
-              next.x <= platform.maxX &&
-              previous.y <= platform.y + 1.5 &&
-              next.y >= platform.y
-            ) {
-              landedY = platform.y;
-              break;
-            }
-          }
-          if (landedY != null) {
-            next.y = landedY;
-            next.velocityY = 0;
-            next.onGround = true;
-            next.platformY = landedY;
-          } else if (next.y >= currentFloor.y) {
-            next.y = currentFloor.y;
-            next.velocityY = 0;
-            next.onGround = true;
-            next.platformY = null;
-          }
-        }
-      } else if (next.platformY != null) {
-        const seated = platformsRef.current.find(
-          (platform) =>
-            Math.abs(platform.y - next.platformY!) < 0.6 &&
-            next.x >= platform.minX &&
-            next.x <= platform.maxX,
-        );
-        if (seated) {
-          next.y = seated.y;
+        if (next.velocityY >= 0 && next.y >= currentFloor.y) {
+          next.y = currentFloor.y;
           next.velocityY = 0;
-        } else {
-          next.onGround = false;
-          next.platformY = null;
+          next.onGround = true;
         }
       } else {
         next.y = currentFloor.y;
@@ -1386,17 +1137,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
   );
 
   const begItems = begTarget ? (peerInventories[begTarget.userId] ?? []) : [];
-<<<<<<< HEAD
-  const currentScene = WORLD_SCENES[sceneIndex] ?? WORLD_SCENES[0];
-  const currentFloors = currentScene.floors;
-  const currentFloor = currentFloors[myPos.floorIndex] ?? currentFloors[0];
-  const isStandingAtDoor =
-    currentScene.showDoors &&
-    !myPos.isJumping && Math.abs(myPos.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
-  const canMoveUp = isStandingAtDoor && myPos.floorIndex > 0;
-  const canMoveDown = isStandingAtDoor && myPos.floorIndex < currentFloors.length - 1;
-  const visiblePlayers = Object.values(players).filter((player) => (player.sceneIndex ?? 0) === sceneIndex);
-=======
   const currentScene = WORLD_SCENES[myPos.sceneId];
   const isPension = myPos.sceneId === "pension";
   const visiblePlayers = Object.values(players).filter(
@@ -1408,14 +1148,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     Math.abs(myPos.x - currentFloor.doorX) <= WORLD_DOOR_ACTIVATION_RADIUS;
   const canMoveUp = isStandingAtDoor && myPos.floorIndex > 0;
   const canMoveDown = isStandingAtDoor && myPos.floorIndex < currentScene.floors.length - 1;
->>>>>>> 0b1353f (아이템수정)
 
   return (
     <div
       ref={worldRef}
       data-world-scene={myPos.sceneId}
       className="relative w-full h-full overflow-hidden rounded-lg flex flex-col select-none cursor-default"
-      style={{ backgroundColor: currentScene.sky, touchAction: "none" }}
+      style={{ backgroundColor: "#75c8ff", touchAction: "none" }}
       onClick={() => {
         setSelectedPlayerId(null);
         setShowMyItems(false);
@@ -1448,32 +1187,14 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
 
         <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-2xl border border-amber-200 shadow-sm flex items-center gap-3">
           <span className="text-base">🤝</span>
-<<<<<<< HEAD
-          <span className="text-sm font-bold text-amber-900">{currentScene.label}</span>
-=======
           <span className="text-sm font-bold text-amber-900">만남의 광장</span>
           <span className="text-xs font-semibold text-amber-800" aria-live="polite">{currentScene.label}</span>
->>>>>>> 0b1353f (아이템수정)
           <span className="text-xs bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-semibold shadow-inner">
-            접속자: {visiblePlayers.length + 1}명
+            접속자: {Object.keys(players).length + 1}명
           </span>
         </div>
       </div>
 
-<<<<<<< HEAD
-      {!showControlsGuide && (
-        <button
-          type="button"
-          className="absolute top-5 right-6 z-30 rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 px-3 py-2 text-[11px] font-black text-stone-800 shadow-[4px_4px_0_rgba(51,42,46,0.55)]"
-          onClick={(event) => {
-            event.stopPropagation();
-            setShowControlsGuide(true);
-          }}
-        >
-          터치 조작
-        </button>
-      )}
-=======
       <button
         type="button"
         aria-label={isPension ? "공원으로 이동" : "펜션으로 돌아가기"}
@@ -1491,15 +1212,13 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         <span aria-hidden="true" className="font-mono text-3xl font-black leading-none">{isPension ? ">" : "<"}</span>
         <span className="mt-1 text-[11px] font-bold">{isPension ? "공원" : "펜션"}</span>
       </button>
->>>>>>> 0b1353f (아이템수정)
 
       {showControlsGuide && (
         <div
           className="absolute top-5 right-20 z-30 rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 px-4 pb-3 pt-4 shadow-[4px_4px_0_rgba(51,42,46,0.55)]"
           onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
           role="dialog"
-          aria-label="터치 조작"
+          aria-label="키보드 조작 안내"
         >
           <button
             type="button"
@@ -1509,83 +1228,21 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           >
             ×
           </button>
-<<<<<<< HEAD
-          <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label="좌우 이동, 점프, 위층, 아래층">
-            <p className="mb-0.5 w-full text-center text-[9px] font-bold text-stone-600">버튼을 눌러 이동</p>
-=======
           <div className="flex min-w-[166px] flex-col items-center gap-1" aria-label={isPension ? "좌우 방향키 이동, Space 점프, ↑ 위층, ↓ 아래층" : "좌우 방향키 이동, Space 점프"}>
->>>>>>> 0b1353f (아이템수정)
             <div className="flex w-full gap-1.5">
-              {([
-                ["left", "←", "왼쪽"] as const,
-                ["right", "→", "오른쪽"] as const,
-              ]).map(([direction, key, label]) => (
-                <button
-                  key={direction}
-                  type="button"
-                  aria-label={`${label} 이동`}
-                  className="flex h-9 flex-1 select-none items-center justify-center gap-1 border-2 border-stone-600 bg-white px-1 text-[9px] font-black text-stone-800 shadow-[0_2px_0_#57504d] active:translate-y-[2px] active:bg-amber-100 active:shadow-none"
-                  style={{ touchAction: "none" }}
-                  onContextMenu={(event) => event.preventDefault()}
-                  {...bindMoveHold(direction)}
+              {([ ["←", "왼쪽 이동"], ["→", "오른쪽 이동"] ] as const).map(([key, label]) => (
+                <div
+                  key={key}
+                  className="flex h-7 flex-1 items-center justify-center gap-1 border-2 border-stone-600 bg-white px-1 text-[9px] font-black text-stone-800 shadow-[0_2px_0_#57504d]"
                 >
                   <kbd className="font-mono text-[12px]">{key}</kbd>
                   <span>{label}</span>
-                </button>
+                </div>
               ))}
             </div>
-            <button
-              type="button"
-              aria-label="점프"
-              className="mt-1 flex h-9 w-full select-none items-center justify-center gap-2 border-2 border-stone-600 bg-white px-2 text-[10px] font-black text-stone-800 shadow-[0_2px_0_#57504d] active:translate-y-[2px] active:bg-amber-100 active:shadow-none"
-              style={{ touchAction: "none" }}
-              onContextMenu={(event) => event.preventDefault()}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                queueJump();
-              }}
-            >
+            <div className="mt-1 flex h-7 w-full items-center justify-center gap-2 border-2 border-stone-600 bg-white px-2 text-[10px] font-black text-stone-800 shadow-[0_2px_0_#57504d]">
               <kbd className="font-mono">SPACE</kbd>
               <span>점프</span>
-<<<<<<< HEAD
-            </button>
-            {currentScene.showDoors && (
-              <>
-            <p className="mt-1 text-[9px] font-bold text-stone-600">
-              {isStandingAtDoor ? `${currentFloors.length - myPos.floorIndex}층 문 앞` : "문 앞에서 활성화"}
-            </p>
-            <div className="mt-0.5 flex w-full flex-col gap-1.5">
-              <button
-                type="button"
-                disabled={!canMoveUp}
-                className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
-                  canMoveUp
-                    ? "bg-[#ffe5ec] text-stone-800 hover:bg-[#ffd1df]"
-                    : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
-                }`}
-                onClick={() => queueFloorChange(-1)}
-              >
-                <kbd className="font-mono text-[11px]">↑</kbd>
-                <span>위층으로 이동</span>
-              </button>
-              <button
-                type="button"
-                disabled={!canMoveDown}
-                className={`flex h-8 w-full items-center gap-2 rounded border-2 border-stone-600 px-2 text-left text-[10px] font-black shadow-[0_2px_0_#57504d] transition-colors ${
-                  canMoveDown
-                    ? "bg-[#e8e0ff] text-stone-800 hover:bg-[#dcd0ff]"
-                    : "cursor-not-allowed bg-stone-200 text-stone-400 opacity-65"
-                }`}
-                onClick={() => queueFloorChange(1)}
-              >
-                <kbd className="font-mono text-[11px]">↓</kbd>
-                <span>아래층으로 이동</span>
-              </button>
-            </div>
-              </>
-            )}
-=======
             </div>
             {isPension && (
               <>
@@ -1625,7 +1282,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             <p className="mt-1 text-[9px] font-bold text-stone-600">
               {isPension ? "오른쪽 > 버튼으로 공원 이동" : "왼쪽 < 버튼으로 펜션 이동"}
             </p>
->>>>>>> 0b1353f (아이템수정)
           </div>
         </div>
       )}
@@ -1695,26 +1351,15 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       )}
 
       <img
-<<<<<<< HEAD
-        src={currentScene.background}
-=======
         src={currentScene.image}
         width={WORLD_WIDTH}
         height={WORLD_HEIGHT}
->>>>>>> 0b1353f (아이템수정)
         alt=""
         aria-hidden
         draggable={false}
         className="absolute inset-0 z-0 pointer-events-none w-full h-full"
         style={{ objectFit: "fill", imageRendering: "pixelated" }}
       />
-      {currentScene.platforms.map((platform) => (
-        <ParkBench
-          key={`${platform.minX}-${platform.y}`}
-          platform={platform}
-          groundY={currentFloors[0]?.y ?? WORLD_PARK_GROUND_Y}
-        />
-      ))}
 
       <div className="relative w-full h-full z-10">
         {visiblePlayers.map((player) => (
@@ -1778,13 +1423,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               </div>
             )}
 
-            <div
-              style={{
-                transform: `translateY(${renderedAvatarFootGap}px) ${
-                  player.direction === "left" ? "scaleX(-1)" : "scaleX(1)"
-                }`,
-              }}
-            >
+            <div style={{ transform: player.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}>
               <div className={player.isMoving && !player.isJumping ? "walking" : ""}>
                 <AvatarWithCompanions
                   avatar={player.avatar}
@@ -1831,13 +1470,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white/95 border-b border-r border-amber-200 rotate-45" />
             </div>
           )}
-          <div
-            style={{
-              transform: `translateY(${renderedAvatarFootGap}px) ${
-                myPos.direction === "left" ? "scaleX(-1)" : "scaleX(1)"
-              }`,
-            }}
-          >
+          <div style={{ transform: myPos.direction === "left" ? "scaleX(-1)" : "scaleX(1)" }}>
             <div className={`${myPos.isMoving && !myPos.isJumping ? "walking" : ""} transition-transform group-hover:scale-110`}>
               <AvatarWithCompanions
                 avatar={myAvatar}
@@ -1855,7 +1488,6 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
         </div>
       </div>
 
-      {publicChatOpen ? (
       <div
         className="absolute bottom-4 left-4 z-[45] w-[min(320px,calc(100%-32px))] overflow-hidden rounded-2xl border border-white/50 bg-slate-950/70 shadow-xl backdrop-blur-sm"
         onClick={(event) => event.stopPropagation()}
@@ -1866,7 +1498,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           aria-live="polite"
         >
           {publicChatMessages.length === 0 ? (
-            <p className="pt-6 text-center text-white/65">메시지를 입력해 보세요. T로 닫을 수 있어요.</p>
+            <p className="pt-6 text-center text-white/65">Enter를 눌러 광장 대화를 시작해보세요.</p>
           ) : (
             publicChatMessages.map((message) => (
               <p key={message.id} className="break-words">
@@ -1878,7 +1510,8 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
             ))
           )}
         </div>
-        <form onSubmit={sendPublicChatMessage} className="flex gap-2 border-t border-white/15 bg-white/10 p-2">
+        {publicChatOpen ? (
+          <form onSubmit={sendPublicChatMessage} className="flex gap-2 border-t border-white/15 bg-white/10 p-2">
             <input
               ref={publicChatInputRef}
               value={publicChatInput}
@@ -1889,7 +1522,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
                   setPublicChatInput("");
                 }
               }}
-              placeholder="문구 입력 후 Enter · T로 닫기"
+              placeholder="문구 입력 후 Enter"
               className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white px-2.5 py-1.5 text-xs text-gray-800 outline-none focus:border-sky-300"
             />
             <button
@@ -1900,40 +1533,15 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
               전송
             </button>
           </form>
-      </div>
-      ) : (
-        <button
-          type="button"
-          className="absolute bottom-4 left-4 z-[45] rounded-2xl border border-white/50 bg-slate-950/70 px-3 py-2 text-[11px] font-bold text-white/90 shadow-xl backdrop-blur-sm hover:bg-slate-950/85"
-          onClick={(event) => {
-            event.stopPropagation();
-            setPublicChatOpen(true);
-          }}
-        >
-          T · 대화
-        </button>
-      )}
-
-      <div
-        className={`absolute z-[46] flex items-center gap-2 ${activeChat ? "bottom-4 right-[19.5rem]" : "bottom-4 right-4"}`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          type="button"
-          aria-label="이전 배경"
-          className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 text-lg font-black text-stone-800 shadow-[4px_4px_0_rgba(51,42,46,0.55)] hover:bg-amber-100 active:translate-y-[2px] active:shadow-none"
-          onClick={() => goToScene(sceneIndex - 1)}
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          aria-label="다음 배경"
-          className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-stone-600 bg-[#f7ead5]/95 text-lg font-black text-stone-800 shadow-[4px_4px_0_rgba(51,42,46,0.55)] hover:bg-amber-100 active:translate-y-[2px] active:shadow-none"
-          onClick={() => goToScene(sceneIndex + 1)}
-        >
-          →
-        </button>
+        ) : (
+          <button
+            type="button"
+            className="w-full border-t border-white/15 bg-white/10 py-2 text-[11px] font-bold text-white/80 hover:bg-white/20"
+            onClick={() => setPublicChatOpen(true)}
+          >
+            Enter · 대화 입력
+          </button>
+        )}
       </div>
 
       {activeChat && (

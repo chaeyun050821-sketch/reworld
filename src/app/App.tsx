@@ -7922,12 +7922,7 @@ function ItemCreatorRightPage({
   onSelectItem,
   onDeleteItem,
   onSetDecorLayer,
-<<<<<<< HEAD
   onOpenItemPixelEditor,
-=======
-  onPreviewItem,
-  onUpdateItemArtwork,
->>>>>>> 0b1353f (아이템수정)
   onClose,
   inventoryRevision = 0,
 }: {
@@ -7937,18 +7932,7 @@ function ItemCreatorRightPage({
   onSelectItem: (id: string | null) => void;
   onDeleteItem: (id: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
-<<<<<<< HEAD
   onOpenItemPixelEditor: () => void;
-=======
-  onPreviewItem: (item: HandMadeItem | null) => void;
-  onUpdateItemArtwork: (
-    itemId: string,
-    imageDataUrl: string,
-    contentBounds: HandMadeItemContentBounds,
-    color: string,
-    gridSize: number,
-  ) => Promise<string | null>;
->>>>>>> 0b1353f (아이템수정)
   onClose: () => void;
   inventoryRevision?: number;
 }) {
@@ -15879,12 +15863,7 @@ function RightPage({
           onSelectItem={onSelectCreatorItem}
           onDeleteItem={onDeleteCreatorItem}
           onSetDecorLayer={onSetDecorLayer}
-<<<<<<< HEAD
           onOpenItemPixelEditor={onOpenItemPixelEditor}
-=======
-          onPreviewItem={onPreviewCreatorItem}
-          onUpdateItemArtwork={onUpdateCreatorItemArtwork}
->>>>>>> 0b1353f (아이템수정)
           onClose={onCloseItemCreator}
           inventoryRevision={inventoryRevision}
         />
