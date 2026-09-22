@@ -11,6 +11,15 @@ import AuthPage from "./AuthPage";
 import NicknameSetupPage from "./NicknameSetupPage";
 import GiftModal from "./GiftModal";
 import { FONT_KR, FONT_PIXEL, FONT_UI } from "./ui-fonts";
+import {
+  ITEM_PIXEL_GRID_SIZE,
+  itemPixelContentBounds,
+  itemPixelRgba,
+  itemPixelsToDataUrl,
+  loadItemPixelGrid,
+  type ItemPixelSnapshot,
+  type ItemPixelTool,
+} from "./item-pixels";
 import { bootstrapAuth, signOut, updateUserNickname, type User } from "../lib/auth";
 import { isGuestUserId } from "../lib/guest";
 import {
@@ -7554,140 +7563,6 @@ function ItemCreatorLeftPage({
       </div>
     </div>
   );
-}
-
-type ItemPixelTool = "paint" | "erase" | "eyedropper";
-type ItemPixelSnapshot = { size: number; pixels: Array<string | null> };
-
-const ITEM_PIXEL_GRID_SIZE = 32;
-
-function itemPixelColor(red: number, green: number, blue: number, alpha: number): string | null {
-  if (alpha < 20) return null;
-  const hex = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0");
-  const rgb = `#${hex(red)}${hex(green)}${hex(blue)}`;
-  return alpha >= 250 ? rgb : `${rgb}${hex(alpha)}`;
-}
-
-function itemPixelRgba(color: string): [number, number, number, number] {
-  const value = color.replace("#", "");
-  if (value.length !== 6 && value.length !== 8) return [0, 0, 0, 255];
-  return [
-    Number.parseInt(value.slice(0, 2), 16),
-    Number.parseInt(value.slice(2, 4), 16),
-    Number.parseInt(value.slice(4, 6), 16),
-    value.length === 8 ? Number.parseInt(value.slice(6, 8), 16) : 255,
-  ];
-}
-
-function itemPixelsFromContext(context: CanvasRenderingContext2D, size: number): Array<string | null> {
-  const data = context.getImageData(0, 0, size, size).data;
-  return Array.from({ length: size * size }, (_, index) => {
-    const offset = index * 4;
-    return itemPixelColor(data[offset], data[offset + 1], data[offset + 2], data[offset + 3]);
-  });
-}
-
-function itemPixelsToDataUrl(pixels: Array<string | null>, size: number): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext("2d");
-  if (!context) return "";
-  const image = context.createImageData(size, size);
-  pixels.forEach((color, index) => {
-    if (!color) return;
-    const [red, green, blue, alpha] = itemPixelRgba(color);
-    const offset = index * 4;
-    image.data[offset] = red;
-    image.data[offset + 1] = green;
-    image.data[offset + 2] = blue;
-    image.data[offset + 3] = alpha;
-  });
-  context.putImageData(image, 0, 0);
-  return canvas.toDataURL("image/png");
-}
-
-function itemPixelContentBounds(
-  pixels: Array<string | null>,
-  size: number,
-): HandMadeItemContentBounds {
-  let minX = size;
-  let minY = size;
-  let maxX = -1;
-  let maxY = -1;
-  pixels.forEach((color, index) => {
-    if (!color) return;
-    const x = index % size;
-    const y = Math.floor(index / size);
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-  });
-  if (maxX < minX || maxY < minY) return FULL_IMAGE_CONTENT_BOUNDS;
-  return {
-    x: minX / size,
-    y: minY / size,
-    w: (maxX - minX + 1) / size,
-    h: (maxY - minY + 1) / size,
-  };
-}
-
-function loadItemPixelGrid(src: string, size: number): Promise<Array<string | null>> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) {
-        reject(new Error("canvas unavailable"));
-        return;
-      }
-      context.clearRect(0, 0, size, size);
-      context.imageSmoothingEnabled = false;
-      const ratio = Math.min(size / Math.max(1, image.naturalWidth), size / Math.max(1, image.naturalHeight));
-      const width = Math.max(1, Math.round(image.naturalWidth * ratio));
-      const height = Math.max(1, Math.round(image.naturalHeight * ratio));
-      context.drawImage(image, Math.floor((size - width) / 2), Math.floor((size - height) / 2), width, height);
-      resolve(itemPixelsFromContext(context, size));
-    };
-    image.onerror = () => reject(new Error("이미지를 불러오지 못했어요."));
-    image.src = src;
-  });
-}
-
-function resizeItemPixelGrid(
-  pixels: Array<string | null>,
-  oldSize: number,
-  nextSize: number,
-): Array<string | null> {
-  const source = document.createElement("canvas");
-  source.width = oldSize;
-  source.height = oldSize;
-  const sourceContext = source.getContext("2d");
-  if (!sourceContext) return Array(nextSize * nextSize).fill(null);
-  const sourceImage = sourceContext.createImageData(oldSize, oldSize);
-  pixels.forEach((color, index) => {
-    if (!color) return;
-    const [red, green, blue, alpha] = itemPixelRgba(color);
-    const offset = index * 4;
-    sourceImage.data[offset] = red;
-    sourceImage.data[offset + 1] = green;
-    sourceImage.data[offset + 2] = blue;
-    sourceImage.data[offset + 3] = alpha;
-  });
-  sourceContext.putImageData(sourceImage, 0, 0);
-
-  const target = document.createElement("canvas");
-  target.width = nextSize;
-  target.height = nextSize;
-  const targetContext = target.getContext("2d", { willReadFrequently: true });
-  if (!targetContext) return Array(nextSize * nextSize).fill(null);
-  targetContext.imageSmoothingEnabled = false;
-  targetContext.drawImage(source, 0, 0, nextSize, nextSize);
-  return itemPixelsFromContext(targetContext, nextSize);
 }
 
 function ItemPixelEditor({
