@@ -7440,6 +7440,9 @@ function ItemCreatorLeftPage({
     return items.map((item) => item.id === previewItemOverride.id ? previewItemOverride : item);
   }, [creatorAvatar.equipped, userId, previewItemOverride, inventoryRevision]);
   const { back: backEquippedItems, front: frontEquippedItems } = splitDecorItemsByLayer(equippedItems);
+  const selectedPlacement = selectedItem
+    ? withPlacementReference(normalizeItemPlacement(selectedItem.placement), previewWidth, previewHeight)
+    : null;
 
   const renderCreatorOverlay = (item: HandMadeItem) => (
     <EditablePlacedItemOverlay
@@ -7507,6 +7510,24 @@ function ItemCreatorLeftPage({
       </div>
 
       <div className="flex-shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1">
+        {selectedItem && selectedPlacement && (
+          <label className="rounded-lg px-2 py-1.5" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, color: "#6c5b3f", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(176,138,74,0.28)" }}>
+            아이템 크기 {Math.round(selectedPlacement.scale * 100)}%
+            <input
+              type="range"
+              min="0.3"
+              max="2"
+              step="0.05"
+              value={Math.max(0.3, Math.min(2, selectedPlacement.scale))}
+              onChange={(event) => onPlacementChange(withPlacementReference({
+                ...selectedPlacement,
+                scale: clampItemScale(Number(event.target.value)),
+              }, previewWidth, previewHeight))}
+              aria-label="아바타에서의 아이템 크기 조절"
+              style={{ display: "block", width: "100%", marginTop: 4, accentColor: "#b08a4a" }}
+            />
+          </label>
+        )}
         {saveError && (
           <p style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 600, color: "#ff4757", textAlign: "center" }}>
             {saveError}
@@ -7538,7 +7559,7 @@ function ItemCreatorLeftPage({
 type ItemPixelTool = "paint" | "erase" | "eyedropper";
 type ItemPixelSnapshot = { size: number; pixels: Array<string | null> };
 
-const ITEM_PIXEL_GRID_OPTIONS = [16, 24, 32, 48, 64] as const;
+const ITEM_PIXEL_GRID_SIZE = 32;
 
 function itemPixelColor(red: number, green: number, blue: number, alpha: number): string | null {
   if (alpha < 20) return null;
@@ -7685,18 +7706,21 @@ function ItemPixelEditor({
   ) => Promise<string | null>;
   onCancel: () => void;
 }) {
-  const initialSize = ITEM_PIXEL_GRID_OPTIONS.includes(item.pixelGridSize as typeof ITEM_PIXEL_GRID_OPTIONS[number])
-    ? item.pixelGridSize!
-    : 32;
+  // The edit surface always uses one fixed grid. Only the visible pixel unit is
+  // resized, so the background and the item can never use different pixel sizes.
+  const initialSize = ITEM_PIXEL_GRID_SIZE;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastCellRef = useRef<number | null>(null);
   const [size, setSize] = useState(initialSize);
   const [pixels, setPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
+  const [originalPixels, setOriginalPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
+  const [originalSize, setOriginalSize] = useState(initialSize);
   const [tool, setTool] = useState<ItemPixelTool>("paint");
   const [selectedColor, setSelectedColor] = useState(item.color || "#b08a4a");
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [brushSize, setBrushSize] = useState(1);
+  const [pixelDisplaySize, setPixelDisplaySize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -7709,7 +7733,10 @@ function ItemPixelEditor({
     setError(null);
     const source = resolveHandMadeItemImageUrl(item);
     if (!source) {
-      setPixels(Array(initialSize * initialSize).fill(null));
+      const empty = Array(initialSize * initialSize).fill(null);
+      setPixels(empty);
+      setOriginalPixels([...empty]);
+      setOriginalSize(initialSize);
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -7718,6 +7745,8 @@ function ItemPixelEditor({
         if (cancelled) return;
         setSize(initialSize);
         setPixels(next);
+        setOriginalPixels([...next]);
+        setOriginalSize(initialSize);
         setUndoStack([]);
         setRedoStack([]);
       })
@@ -7826,11 +7855,12 @@ function ItemPixelEditor({
     setPixels([...snapshot.pixels]);
   };
 
-  const changeGridSize = (nextSize: number) => {
-    if (nextSize === size) return;
-    remember();
-    setSize(nextSize);
-    setPixels(resizeItemPixelGrid(pixels, size, nextSize));
+  const restoreOriginalItem = () => {
+    setUndoStack((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
+    setRedoStack([]);
+    setSize(originalSize);
+    setPixels([...originalPixels]);
+    setError(null);
   };
 
   const toolStyle = (active: boolean): CSSProperties => ({
@@ -7912,14 +7942,17 @@ function ItemPixelEditor({
           </select>
         </label>
         <label className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
-          픽셀
-          <select
-            value={size}
-            onChange={(event) => changeGridSize(Number(event.target.value))}
-            style={{ color: "#2a2114", borderRadius: 6, padding: "3px 4px", fontSize: "0.4rem" }}
-          >
-            {ITEM_PIXEL_GRID_OPTIONS.map((value) => <option key={value} value={value}>{value}×{value}</option>)}
-          </select>
+          픽셀 크기 {pixelDisplaySize}px
+          <input
+            type="range"
+            min="9"
+            max="10"
+            step="1"
+            value={pixelDisplaySize}
+            onChange={(event) => setPixelDisplaySize(Number(event.target.value))}
+            aria-label="픽셀 크기 조절"
+            style={{ width: 52, accentColor: "#d8c49b" }}
+          />
         </label>
       </div>
 
@@ -7927,7 +7960,15 @@ function ItemPixelEditor({
         {loading ? (
           <p style={{ fontFamily: FONT_UI, fontSize: "0.46rem", color: "#d8c49b" }}>픽셀 격자를 만드는 중...</p>
         ) : (
-          <div className="relative aspect-square w-full max-w-[252px] overflow-hidden rounded-lg" style={{ border: "2px solid rgba(216,196,155,0.55)", boxShadow: "0 4px 16px rgba(0,0,0,0.28)" }}>
+          <div
+            className="relative overflow-hidden rounded-lg"
+            style={{
+              width: size * pixelDisplaySize,
+              height: size * pixelDisplaySize,
+              border: "2px solid rgba(216,196,155,0.55)",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+            }}
+          >
             <canvas
               ref={canvasRef}
               aria-label={`${item.label} 픽셀 편집 캔버스`}
@@ -7956,13 +7997,6 @@ function ItemPixelEditor({
                 lastCellRef.current = null;
               }}
             />
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                backgroundImage: "linear-gradient(rgba(70,55,35,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(70,55,35,0.16) 1px, transparent 1px)",
-                backgroundSize: `${100 / size}% ${100 / size}%`,
-              }}
-            />
           </div>
         )}
       </div>
@@ -7980,9 +8014,8 @@ function ItemPixelEditor({
         <button
           type="button"
           onClick={() => {
-            if (!pixels.some(Boolean) || window.confirm("전체 픽셀을 지울까요?")) {
-              remember();
-              setPixels(Array(size * size).fill(null));
+            if (window.confirm("수정한 부분을 지우고 처음 만든 아이템으로 되돌릴까요?")) {
+              restoreOriginalItem();
             }
           }}
           style={{ ...toolStyle(false), marginLeft: 4, padding: "3px 6px", color: "#ffb6bf" }}
@@ -8112,7 +8145,7 @@ function ItemCreatorRightPage({
             <p style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "rgba(247,239,217,0.62)", marginTop: 2 }}>{editingItem.label}</p>
           </div>
           <button type="button" onClick={closePixelEditor} className="rounded-full px-2 py-1" style={{ fontFamily: FONT_UI, fontSize: "0.42rem", fontWeight: 700, background: "rgba(255,255,255,0.12)", color: "#f7efd9" }}>
-            목록
+            ← 뒤로가기
           </button>
         </div>
 
