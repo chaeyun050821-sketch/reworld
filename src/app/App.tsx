@@ -7923,6 +7923,8 @@ function ItemCreatorRightPage({
   onDeleteItem,
   onSetDecorLayer,
   onOpenItemPixelEditor,
+  onPreviewItem,
+  onUpdateItemArtwork,
   onClose,
   inventoryRevision = 0,
 }: {
@@ -7933,6 +7935,14 @@ function ItemCreatorRightPage({
   onDeleteItem: (id: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
   onOpenItemPixelEditor: () => void;
+  onPreviewItem: (item: HandMadeItem | null) => void;
+  onUpdateItemArtwork: (
+    itemId: string,
+    imageDataUrl: string,
+    contentBounds: HandMadeItemContentBounds,
+    color: string,
+    gridSize: number,
+  ) => Promise<string | null>;
   onClose: () => void;
   inventoryRevision?: number;
 }) {
@@ -15864,6 +15874,8 @@ function RightPage({
           onDeleteItem={onDeleteCreatorItem}
           onSetDecorLayer={onSetDecorLayer}
           onOpenItemPixelEditor={onOpenItemPixelEditor}
+          onPreviewItem={onPreviewCreatorItem}
+          onUpdateItemArtwork={onUpdateCreatorItemArtwork}
           onClose={onCloseItemCreator}
           inventoryRevision={inventoryRevision}
         />
