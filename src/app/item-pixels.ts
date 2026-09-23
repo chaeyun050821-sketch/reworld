@@ -6,6 +6,66 @@ export type ItemPixelSnapshot = { size: number; pixels: Array<string | null> };
 // A fixed source grid keeps item pixels and the editor background in sync.
 export const ITEM_PIXEL_GRID_SIZE = 32;
 
+/**
+ * Convert the underlying pixel-art grid to a different resolution while keeping
+ * the rendered item footprint unchanged. Upscaling duplicates source cells;
+ * downscaling selects the dominant source color for each destination cell.
+ */
+export function resampleItemPixelGrid(
+  pixels: Array<string | null>,
+  sourceSize: number,
+  targetSize: number,
+): Array<string | null> {
+  if (sourceSize <= 0 || targetSize <= 0) return [];
+  if (sourceSize === targetSize) return [...pixels];
+
+  const sourceAt = (x: number, y: number) => pixels[y * sourceSize + x] ?? null;
+
+  // Each larger grid cell is a direct subdivision of one source cell, so this
+  // keeps hard pixel-art edges rather than introducing interpolated colors.
+  if (targetSize > sourceSize) {
+    return Array.from({ length: targetSize * targetSize }, (_, index) => {
+      const x = index % targetSize;
+      const y = Math.floor(index / targetSize);
+      return sourceAt(
+        Math.min(sourceSize - 1, Math.floor((x * sourceSize) / targetSize)),
+        Math.min(sourceSize - 1, Math.floor((y * sourceSize) / targetSize)),
+      );
+    });
+  }
+
+  return Array.from({ length: targetSize * targetSize }, (_, index) => {
+    const targetX = index % targetSize;
+    const targetY = Math.floor(index / targetSize);
+    const startX = (targetX * sourceSize) / targetSize;
+    const endX = ((targetX + 1) * sourceSize) / targetSize;
+    const startY = (targetY * sourceSize) / targetSize;
+    const endY = ((targetY + 1) * sourceSize) / targetSize;
+    const weights = new Map<string, number>();
+
+    for (let y = Math.floor(startY); y < Math.ceil(endY); y += 1) {
+      if (y < 0 || y >= sourceSize) continue;
+      const overlapY = Math.max(0, Math.min(endY, y + 1) - Math.max(startY, y));
+      for (let x = Math.floor(startX); x < Math.ceil(endX); x += 1) {
+        if (x < 0 || x >= sourceSize) continue;
+        const overlapX = Math.max(0, Math.min(endX, x + 1) - Math.max(startX, x));
+        const color = sourceAt(x, y) ?? "__transparent__";
+        weights.set(color, (weights.get(color) ?? 0) + overlapX * overlapY);
+      }
+    }
+
+    let dominantColor = "__transparent__";
+    let dominantWeight = -1;
+    for (const [color, weight] of weights) {
+      if (weight > dominantWeight) {
+        dominantColor = color;
+        dominantWeight = weight;
+      }
+    }
+    return dominantColor === "__transparent__" ? null : dominantColor;
+  });
+}
+
 export function itemPixelColor(red: number, green: number, blue: number, alpha: number): string | null {
   if (alpha < 20) return null;
   const hex = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0");

@@ -17,6 +17,7 @@ import {
   itemPixelRgba,
   itemPixelsToDataUrl,
   loadItemPixelGrid,
+  resampleItemPixelGrid,
   type ItemPixelSnapshot,
   type ItemPixelTool,
 } from "./item-pixels";
@@ -7581,9 +7582,9 @@ function ItemPixelEditor({
   ) => Promise<string | null>;
   onCancel: () => void;
 }) {
-  // The edit surface always uses one fixed grid. Only the visible pixel unit is
-  // resized, so the background and the item can never use different pixel sizes.
-  const initialSize = ITEM_PIXEL_GRID_SIZE;
+  const initialSize = item.pixelGridSize && item.pixelGridSize > 0
+    ? item.pixelGridSize
+    : ITEM_PIXEL_GRID_SIZE;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const lastCellRef = useRef<number | null>(null);
@@ -7595,7 +7596,6 @@ function ItemPixelEditor({
   const [selectedColor, setSelectedColor] = useState(item.color || "#b08a4a");
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [brushSize, setBrushSize] = useState(1);
-  const [pixelDisplaySize, setPixelDisplaySize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -7738,6 +7738,22 @@ function ItemPixelEditor({
     setError(null);
   };
 
+  const resizePixelGrid = (nextSize: number) => {
+    if (nextSize === size || nextSize <= 0) return;
+    setUndoStack((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
+    setRedoStack([]);
+    setPixels((current) => resampleItemPixelGrid(current, size, nextSize));
+    setSize(nextSize);
+    setError(null);
+  };
+
+  const smallerPixelGridSize = ITEM_PIXEL_GRID_SIZES.includes((size / 2) as (typeof ITEM_PIXEL_GRID_SIZES)[number])
+    ? size / 2
+    : [...ITEM_PIXEL_GRID_SIZES].reverse().find((gridSize) => gridSize < size);
+  const largerPixelGridSize = ITEM_PIXEL_GRID_SIZES.includes((size * 2) as (typeof ITEM_PIXEL_GRID_SIZES)[number])
+    ? size * 2
+    : ITEM_PIXEL_GRID_SIZES.find((gridSize) => gridSize > size);
+
   const toolStyle = (active: boolean): CSSProperties => ({
     padding: "5px 8px",
     borderRadius: 8,
@@ -7816,19 +7832,29 @@ function ItemPixelEditor({
             {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}px</option>)}
           </select>
         </label>
-        <label className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
-          픽셀 크기 {pixelDisplaySize}px
-          <input
-            type="range"
-            min="9"
-            max="10"
-            step="1"
-            value={pixelDisplaySize}
-            onChange={(event) => setPixelDisplaySize(Number(event.target.value))}
-            aria-label="픽셀 크기 조절"
-            style={{ width: 52, accentColor: "#d8c49b" }}
-          />
-        </label>
+        <div className="flex items-center gap-1" style={{ fontFamily: FONT_UI, fontSize: "0.38rem", color: "#d8c49b" }}>
+          <button
+            type="button"
+            disabled={!largerPixelGridSize}
+            onClick={() => largerPixelGridSize && resizePixelGrid(largerPixelGridSize)}
+            aria-label="픽셀 줄이기"
+            title="기존 픽셀을 더 작은 칸으로 나눕니다"
+            style={{ ...toolStyle(false), padding: "3px 6px", opacity: largerPixelGridSize ? 1 : 0.35 }}
+          >
+            픽셀 줄이기
+          </button>
+          <button
+            type="button"
+            disabled={!smallerPixelGridSize}
+            onClick={() => smallerPixelGridSize && resizePixelGrid(smallerPixelGridSize)}
+            aria-label="픽셀 키우기"
+            title="여러 픽셀을 대표 색상 하나의 큰 칸으로 합칩니다"
+            style={{ ...toolStyle(false), padding: "3px 6px", opacity: smallerPixelGridSize ? 1 : 0.35 }}
+          >
+            픽셀 키우기
+          </button>
+          <span aria-live="polite">{size}×{size}</span>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -7838,8 +7864,8 @@ function ItemPixelEditor({
           <div
             className="relative overflow-hidden rounded-lg"
             style={{
-              width: size * pixelDisplaySize,
-              height: size * pixelDisplaySize,
+              width: "min(320px, 100%)",
+              aspectRatio: "1",
               border: "2px solid rgba(216,196,155,0.55)",
               boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
             }}
@@ -7922,7 +7948,6 @@ function ItemCreatorRightPage({
   onSelectItem,
   onDeleteItem,
   onSetDecorLayer,
-  onOpenItemPixelEditor,
   onPreviewItem,
   onUpdateItemArtwork,
   onClose,
@@ -7934,7 +7959,6 @@ function ItemCreatorRightPage({
   onSelectItem: (id: string | null) => void;
   onDeleteItem: (id: string) => void;
   onSetDecorLayer: (itemId: string, layer: "front" | "back") => void;
-  onOpenItemPixelEditor: () => void;
   onPreviewItem: (item: HandMadeItem | null) => void;
   onUpdateItemArtwork: (
     itemId: string,
@@ -8232,14 +8256,6 @@ function ItemCreatorRightPage({
         style={{ fontFamily: FONT_UI, fontSize: "0.5rem", fontWeight: 800, background: "linear-gradient(90deg,#b08a4a,#8b9a72)", boxShadow: "0 2px 10px rgba(176,138,74,0.28)" }}
       >
         🎨 내 아이템 수정하기
-      </button>
-      <button
-        type="button"
-        onClick={onOpenItemPixelEditor}
-        className="flex-shrink-0 w-full py-2.5 mt-2 rounded-full text-white"
-        style={{ fontFamily: FONT_UI, fontSize: "0.54rem", fontWeight: 800, background: "linear-gradient(90deg,#ffe080,#ffd060)", color: "#2a2114", boxShadow: "0 2px 10px rgba(255,208,96,0.35)" }}
-      >
-        아이템 수정하기
       </button>
       <button
         type="button"
@@ -15787,12 +15803,8 @@ function RightPage({
   onLeaveFriend,
   onProfileFocus,
   showItemCreator,
-  showItemPixelEditor,
   onOpenItemCreator,
   onCloseItemCreator,
-  onOpenItemPixelEditor,
-  onCloseItemPixelEditor,
-  onPixelPreviewItem,
   selectedCreatorItemId,
   onSelectCreatorItem,
   onDeleteCreatorItem,
@@ -15818,12 +15830,8 @@ function RightPage({
   onLeaveFriend: () => void;
   onProfileFocus: (nb: FriendNeighbor) => void;
   showItemCreator: boolean;
-  showItemPixelEditor: boolean;
   onOpenItemCreator: () => void;
   onCloseItemCreator: () => void;
-  onOpenItemPixelEditor: () => void;
-  onCloseItemPixelEditor: () => void;
-  onPixelPreviewItem: (item: HandMadeItem | null) => void;
   selectedCreatorItemId: string | null;
   onSelectCreatorItem: (id: string | null) => void;
   onDeleteCreatorItem: (id: string) => void;
@@ -15851,19 +15859,6 @@ function RightPage({
   };
 
   if (activeTab === "profile") {
-    if (showItemCreator && showItemPixelEditor) {
-      return (
-        <ItemPixelEditorRightPage
-          userId={user.id}
-          items={creatorItems}
-          selectedItemId={selectedCreatorItemId}
-          onSelectItem={(id) => onSelectCreatorItem(id)}
-          onPreviewItem={onPixelPreviewItem}
-          onClose={onCloseItemPixelEditor}
-          onSaved={() => {}}
-        />
-      );
-    }
     if (showItemCreator) {
       return (
         <ItemCreatorRightPage
@@ -15873,7 +15868,6 @@ function RightPage({
           onSelectItem={onSelectCreatorItem}
           onDeleteItem={onDeleteCreatorItem}
           onSetDecorLayer={onSetDecorLayer}
-          onOpenItemPixelEditor={onOpenItemPixelEditor}
           onPreviewItem={onPreviewCreatorItem}
           onUpdateItemArtwork={onUpdateCreatorItemArtwork}
           onClose={onCloseItemCreator}
@@ -16010,8 +16004,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
   const [visitingFriend, setVisitingFriend] = useState<FriendNeighbor | null>(null);
   const [leftProfileFriend, setLeftProfileFriend] = useState<FriendNeighbor | null>(null);
   const [showItemCreator, setShowItemCreator] = useState(false);
-  const [showItemPixelEditor, setShowItemPixelEditor] = useState(false);
-  const [pixelEditorPreviewItem, setPixelEditorPreviewItem] = useState<HandMadeItem | null>(null);
   const [creatorAvatar, setCreatorAvatar] = useState<AvatarProfile>(() => DEFAULT_AVATAR_PROFILE);
   const [creatorClothesOn, setCreatorClothesOn] = useState(true);
   const [creatorEquippedBackup, setCreatorEquippedBackup] = useState<string[]>([]);
@@ -16096,15 +16088,11 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorSaved(false);
     setCreatorItemPreviewOverride(null);
     setShowItemCreator(true);
-    setShowItemPixelEditor(false);
-    setPixelEditorPreviewItem(null);
     if (activeTab !== "profile") setActiveTab("profile");
   };
 
   const handleCloseItemCreator = () => {
     setShowItemCreator(false);
-    setShowItemPixelEditor(false);
-    setPixelEditorPreviewItem(null);
     setSelectedCreatorItemId(null);
     setCreatorOverlayEditing(false);
     setCreatorSaveError(null);
@@ -16113,35 +16101,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     setCreatorItemPreviewOverride(null);
     (cloneAvatarProfile(avatar));
   };
-
-  const handleOpenItemPixelEditor = () => {
-    setShowItemPixelEditor(true);
-    setCreatorOverlayEditing(false);
-  };
-
-  const handleCloseItemPixelEditor = () => {
-    setShowItemPixelEditor(false);
-    setPixelEditorPreviewItem(null);
-  };
-
-  const handlePixelPreviewItem = useCallback((item: HandMadeItem | null) => {
-    setPixelEditorPreviewItem((prev) => {
-      if (!item && !prev) return prev;
-      if (
-        item
-        && prev
-        && item.id === prev.id
-        && item.imageDataUrl === prev.imageDataUrl
-        && item.contentBounds?.x === prev.contentBounds?.x
-        && item.contentBounds?.y === prev.contentBounds?.y
-        && item.contentBounds?.w === prev.contentBounds?.w
-        && item.contentBounds?.h === prev.contentBounds?.h
-      ) {
-        return prev;
-      }
-      return item;
-    });
-  }, []);
 
   const handleSelectCreatorItem = (itemId: string | null) => {
     if (!itemId) {
@@ -16342,8 +16301,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
     if (tabId !== activeTab) {
       handleLeaveFriend();
       setShowItemCreator(false);
-      setShowItemPixelEditor(false);
-      setPixelEditorPreviewItem(null);
     }
     setActiveTab(tabId);
   };
@@ -16683,11 +16640,6 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         }}>
           {leftProfileFriend ? (
             <FriendProfileLeftPage nb={leftProfileFriend} user={user} onVisitFriend={handleVisitFriend} />
-          ) : showItemCreator && showItemPixelEditor && activeTab === "profile" ? (
-            <ItemPixelEditorLeftPage
-              avatar={creatorAvatar}
-              item={pixelEditorPreviewItem}
-            />
           ) : showItemCreator && activeTab === "profile" ? (
             <ItemCreatorLeftPage
               creatorAvatar={creatorAvatar}
@@ -16748,12 +16700,8 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             onLeaveFriend={handleLeaveFriend}
             onProfileFocus={handleProfileFocus}
             showItemCreator={showItemCreator}
-            showItemPixelEditor={showItemPixelEditor}
             onOpenItemCreator={handleOpenItemCreator}
             onCloseItemCreator={handleCloseItemCreator}
-            onOpenItemPixelEditor={handleOpenItemPixelEditor}
-            onCloseItemPixelEditor={handleCloseItemPixelEditor}
-            onPixelPreviewItem={handlePixelPreviewItem}
             selectedCreatorItemId={selectedCreatorItemId}
             onSelectCreatorItem={handleSelectCreatorItem}
             onDeleteCreatorItem={handleDeleteCreatorItem}
