@@ -7590,8 +7590,6 @@ function ItemPixelEditor({
   const lastCellRef = useRef<number | null>(null);
   const [size, setSize] = useState(initialSize);
   const [pixels, setPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
-  const [originalPixels, setOriginalPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
-  const [originalSize, setOriginalSize] = useState(initialSize);
   const [tool, setTool] = useState<ItemPixelTool>("paint");
   const [selectedColor, setSelectedColor] = useState(item.color || "#b08a4a");
   const [recentColors, setRecentColors] = useState<string[]>([]);
@@ -7601,7 +7599,7 @@ function ItemPixelEditor({
   const [error, setError] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<ItemPixelSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<ItemPixelSnapshot[]>([]);
-  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -7611,8 +7609,6 @@ function ItemPixelEditor({
     if (!source) {
       const empty = Array(initialSize * initialSize).fill(null);
       setPixels(empty);
-      setOriginalPixels([...empty]);
-      setOriginalSize(initialSize);
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -7621,8 +7617,6 @@ function ItemPixelEditor({
         if (cancelled) return;
         setSize(initialSize);
         setPixels(next);
-        setOriginalPixels([...next]);
-        setOriginalSize(initialSize);
         setUndoStack([]);
         setRedoStack([]);
       })
@@ -7731,17 +7725,16 @@ function ItemPixelEditor({
     setPixels([...snapshot.pixels]);
   };
 
-  const restoreOriginalItem = () => {
+  const clearAllPixels = () => {
     setUndoStack((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
     setRedoStack([]);
-    setSize(originalSize);
-    setPixels([...originalPixels]);
+    setPixels(Array(size * size).fill(null));
     setError(null);
   };
 
-  const confirmRestoreOriginalItem = () => {
-    restoreOriginalItem();
-    setShowRestoreConfirm(false);
+  const confirmClearAllPixels = () => {
+    clearAllPixels();
+    setShowClearConfirm(false);
   };
 
   const resizePixelGrid = (nextSize: number) => {
@@ -7920,7 +7913,7 @@ function ItemPixelEditor({
         ))}
         <button
           type="button"
-          onClick={() => setShowRestoreConfirm(true)}
+          onClick={() => setShowClearConfirm(true)}
           style={{ ...toolStyle(false), marginLeft: 4, padding: "3px 6px", color: "#ffb6bf" }}
         >
           전체 지우기
@@ -7940,45 +7933,45 @@ function ItemPixelEditor({
         </button>
       </div>
 
-      <AlertDialog open={showRestoreConfirm} onOpenChange={setShowRestoreConfirm}>
+      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
         <AlertDialogContent
           className="max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:max-w-[330px]"
           style={{
-            background: "linear-gradient(160deg, #2a2114 0%, #171309 100%)",
-            border: "1px solid rgba(216,196,155,0.42)",
-            boxShadow: "0 16px 44px rgba(16,8,4,0.55), inset 0 1px 0 rgba(255,255,255,0.08)",
+            background: "linear-gradient(160deg, #fffaf1 0%, #fff0f5 100%)",
+            border: "2px solid #ffd1df",
+            boxShadow: "0 16px 44px rgba(127,69,99,0.28), inset 0 1px 0 rgba(255,255,255,0.9)",
           }}
         >
-          <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: "radial-gradient(rgba(216,196,155,0.55) 0.7px, transparent 0.7px)", backgroundSize: "8px 8px" }} />
+          <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: "radial-gradient(#ffc8d7 0.7px, transparent 0.7px)", backgroundSize: "9px 9px" }} />
           <div className="relative p-4">
             <div className="mb-3 flex items-center gap-2">
-              <span className="grid size-9 place-items-center rounded-lg" style={{ background: "linear-gradient(135deg, #ff6b81, #d84d68)", boxShadow: "0 3px 10px rgba(255,71,87,0.3)", fontSize: "1rem" }}>↺</span>
+              <span className="grid size-9 place-items-center rounded-full" style={{ background: "linear-gradient(135deg, #ffd860, #ff9bbb)", boxShadow: "0 3px 10px rgba(255,128,161,0.32)", fontSize: "1rem" }}>🧽</span>
               <div>
-                <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#d8c49b", letterSpacing: "0.08em" }}>RE:WORLD ITEM MAKER</span>
-                <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.72rem", fontWeight: 900, color: "#f7efd9", marginTop: 3 }}>
-                  처음 만든 아이템으로 되돌릴까요?
+                <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#c87a98", letterSpacing: "0.08em" }}>RE:WORLD ITEM MAKER</span>
+                <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.72rem", fontWeight: 900, color: "#793d58", marginTop: 3 }}>
+                  아이템을 전부 지우시겠습니까?
                 </AlertDialogTitle>
               </div>
             </div>
-            <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "rgba(247,239,217,0.68)", lineHeight: 1.6 }}>
-              지금까지 수정한 픽셀과 해상도 변경 내용이 사라지고, 처음 불러온 모습으로 돌아가요.
+            <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#8c5970", lineHeight: 1.6 }}>
+              캔버스의 모든 픽셀이 지워져요. 지운 뒤에는 되돌리기 버튼으로 복구할 수 있어요.
             </AlertDialogDescription>
-            <div className="mt-3 rounded-lg px-2.5 py-2" style={{ background: "rgba(255,107,129,0.1)", border: "1px solid rgba(255,150,165,0.2)" }}>
-              <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#ffc0ca", lineHeight: 1.45 }}>저장하기 전이라면, 취소를 눌러 현재 작업을 계속할 수 있어요.</p>
+            <div className="mt-3 rounded-lg px-2.5 py-2" style={{ background: "rgba(255,216,96,0.18)", border: "1px solid rgba(255,180,100,0.34)" }}>
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#9c6843", lineHeight: 1.45 }}>앗, 실수해도 바로 되돌릴 수 있으니 안심하세요!</p>
             </div>
             <AlertDialogFooter className="mt-4 gap-2 sm:gap-2">
               <AlertDialogCancel
                 className="mt-0 flex-1 rounded-full border-0 px-3 py-2"
-                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 800, color: "#f7efd9", background: "rgba(255,255,255,0.1)" }}
+                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 800, color: "#89566d", background: "#fff", border: "1px solid #f2c7d5" }}
               >
-                계속 수정하기
+                아니요
               </AlertDialogCancel>
               <AlertDialogAction
-                onClick={confirmRestoreOriginalItem}
+                onClick={confirmClearAllPixels}
                 className="flex-1 rounded-full border-0 px-3 py-2"
-                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "white", background: "linear-gradient(90deg,#ff4757,#ff6b81)", boxShadow: "0 2px 10px rgba(255,71,87,0.28)" }}
+                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "white", background: "linear-gradient(90deg,#ff91af,#ff7096)", boxShadow: "0 2px 10px rgba(255,112,150,0.3)" }}
               >
-                되돌리기
+                네, 지우기
               </AlertDialogAction>
             </AlertDialogFooter>
           </div>
@@ -8915,11 +8908,14 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
   const [shotIdx, setShotIdx] = useState(0);
   const [flash, setFlash] = useState(false);
   const [previewShot, setPreviewShot] = useState<string | null>(null);
+  const [avatarPosition, setAvatarPosition] = useState({ x: 18, y: 68 });
+  const [draggingAvatar, setDraggingAvatar] = useState(false);
   const { addUpload, addGradient } = usePhotoAlbum(userId);
   const { bindVideo, status, errorReason, retry, capture } = useLiveCamera();
   const blobUrlsRef = useRef<Set<string>>(new Set());
   const stageRef = useRef<HTMLDivElement | null>(null);
   const avatarBoxRef = useRef<HTMLDivElement | null>(null);
+  const avatarDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -8930,6 +8926,40 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
 
   const visibleEmoticons = useMemo(() => getVisibleEmoticons(userId), [userId]);
   const selectedEmoticon = visibleEmoticons.find(e => e.id === selected);
+
+  const startAvatarDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    avatarDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: avatarPosition.x,
+      originY: avatarPosition.y,
+    };
+    setDraggingAvatar(true);
+  };
+
+  const moveAvatar = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = avatarDragRef.current;
+    const stage = stageRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !stage) return;
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    setAvatarPosition({
+      x: Math.max(7, Math.min(93, drag.originX + ((event.clientX - drag.startX) / rect.width) * 100)),
+      y: Math.max(10, Math.min(82, drag.originY + ((event.clientY - drag.startY) / rect.height) * 100)),
+    });
+  };
+
+  const finishAvatarDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (avatarDragRef.current?.pointerId !== event.pointerId) return;
+    avatarDragRef.current = null;
+    setDraggingAvatar(false);
+  };
 
   const prepareAvatarOverlay = async (): Promise<CaptureOverlay | undefined> => {
     if (!showChar) return undefined;
@@ -9121,13 +9151,35 @@ function PhotoBoothPage({ onBack, avatar, userId }: { onBack: () => void; avatar
             </AnimatePresence>
             <AnimatePresence>
               {showChar && (
-                <motion.div className="absolute bottom-16 left-4"
-                  initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <div ref={avatarBoxRef} style={{ filter: "drop-shadow(0 2px 8px rgba(216,196,155,0.55))" }}>
-                    <AvatarWithCompanions avatar={avatar} userId={userId} width={78} height={102} companionScale={0.5} />
-                  </div>
-                </motion.div>
+                <div
+                  className="absolute z-10"
+                  aria-label="아바타 위치 조절"
+                  title="드래그해서 아바타 위치를 바꿔 보세요"
+                  style={{
+                    left: `${avatarPosition.x}%`,
+                    top: `${avatarPosition.y}%`,
+                    transform: "translate(-50%, -50%)",
+                    cursor: draggingAvatar ? "grabbing" : "grab",
+                    touchAction: "none",
+                  }}
+                  onPointerDown={startAvatarDrag}
+                  onPointerMove={moveAvatar}
+                  onPointerUp={finishAvatarDrag}
+                  onPointerCancel={finishAvatarDrag}
+                  onLostPointerCapture={finishAvatarDrag}
+                >
+                  <motion.div
+                    initial={{ scale: 0, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0, opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  >
+                    <div ref={avatarBoxRef} style={{ filter: "drop-shadow(0 2px 8px rgba(216,196,155,0.55))" }}>
+                      <AvatarWithCompanions avatar={avatar} userId={userId} width={78} height={102} companionScale={0.5} />
+                    </div>
+                    <span className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-0.5" style={{ fontFamily: FONT_UI, fontSize: "0.3rem", fontWeight: 700, color: "white", background: "rgba(65,35,70,0.62)", opacity: draggingAvatar ? 1 : 0.76 }}>
+                      ↔ 드래그
+                    </span>
+                  </motion.div>
+                </div>
               )}
             </AnimatePresence>
             <AnimatePresence>

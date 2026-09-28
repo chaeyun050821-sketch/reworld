@@ -36,6 +36,14 @@ type WorldFloor = {
   maxJumpRise: number;
 };
 
+/** A one-way surface: players can jump through it and land on top while falling. */
+type WorldPlatform = {
+  id: string;
+  y: number;
+  minX: number;
+  maxX: number;
+};
+
 /** 3층 픽셀 하우스의 바닥선·외벽 안쪽·문 중심을 800×450 좌표로 옮긴 값. */
 const WORLD_FLOORS: WorldFloor[] = [
   { y: 182, minX: 222, maxX: 578, doorX: 400, maxJumpRise: 36 },
@@ -49,6 +57,7 @@ type WorldScene = {
   label: string;
   image: string;
   floors: WorldFloor[];
+  platforms?: WorldPlatform[];
   spawn: { x: number; y: number; floorIndex: number };
 };
 
@@ -65,6 +74,12 @@ const WORLD_SCENES: Record<WorldSceneId, WorldScene> = {
     image: worldParkImage,
     // The grass surface in the park image sits at roughly 79% of its height.
     floors: [{ y: 356, minX: 22, maxX: 778, doorX: null, maxJumpRise: 44 }],
+    // Bench seats are one-way platforms, so a player can jump up from the grass
+    // and walk across the seat without getting blocked by the bench image.
+    platforms: [
+      { id: "left-bench", y: 335, minX: 270, maxX: 372 },
+      { id: "right-bench", y: 335, minX: 521, maxX: 628 },
+    ],
     spawn: { x: 400, y: 356, floorIndex: 0 },
   },
 };
@@ -83,6 +98,7 @@ type LocalPlayerPosition = {
 type PlayerPhysics = LocalPlayerPosition & {
   velocityY: number;
   onGround: boolean;
+  standingPlatformId: string | null;
 };
 
 type GiftReceivedToast = {
@@ -236,6 +252,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     isJumping: false,
     velocityY: 0,
     onGround: true,
+    standingPlatformId: null,
   });
   const pressedKeysRef = useRef<Set<"left" | "right">>(new Set());
   const jumpRequestedRef = useRef(false);
@@ -319,7 +336,7 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
     pressedKeysRef.current.clear();
     jumpRequestedRef.current = false;
     floorChangeRequestedRef.current = null;
-    physicsRef.current = { ...position, velocityY: 0, onGround: true };
+    physicsRef.current = { ...position, velocityY: 0, onGround: true, standingPlatformId: null };
     setMyPos(position);
     setSelectedPlayerId(null);
     setShowMyItems(false);
@@ -929,15 +946,27 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
       }
       next.x = Math.max(currentFloor.minX, Math.min(currentFloor.maxX, next.x));
 
+      const platforms = scene.platforms ?? [];
+      const standingPlatform = platforms.find((platform) => platform.id === next.standingPlatformId);
+      const isStillOnPlatform = standingPlatform && next.x >= standingPlatform.minX && next.x <= standingPlatform.maxX;
+      // Walking beyond a bench edge starts a natural fall back to the grass.
+      if (next.onGround && next.standingPlatformId && !isStillOnPlatform) {
+        next.onGround = false;
+        next.standingPlatformId = null;
+        next.velocityY = 0;
+      }
+
       if (jumpRequestedRef.current) {
         if (next.onGround) {
           next.velocityY = -WORLD_JUMP_VELOCITY;
           next.onGround = false;
+          next.standingPlatformId = null;
         }
         jumpRequestedRef.current = false;
       }
 
       if (!next.onGround) {
+        const previousY = next.y;
         next.velocityY += WORLD_GRAVITY * deltaSeconds;
         next.y += next.velocityY * deltaSeconds;
         const highestAllowedY = currentFloor.y - currentFloor.maxJumpRise;
@@ -945,13 +974,25 @@ export default function WorldPage({ user, myAvatar, inventoryRevision = 0, onGoH
           next.y = highestAllowedY;
           next.velocityY = Math.max(0, next.velocityY);
         }
-        if (next.velocityY >= 0 && next.y >= currentFloor.y) {
+        const landingPlatform = next.velocityY >= 0
+          ? platforms.find((platform) =>
+            next.x >= platform.minX && next.x <= platform.maxX &&
+            previousY <= platform.y && next.y >= platform.y,
+          )
+          : undefined;
+        if (landingPlatform) {
+          next.y = landingPlatform.y;
+          next.velocityY = 0;
+          next.onGround = true;
+          next.standingPlatformId = landingPlatform.id;
+        } else if (next.velocityY >= 0 && next.y >= currentFloor.y) {
           next.y = currentFloor.y;
           next.velocityY = 0;
           next.onGround = true;
+          next.standingPlatformId = null;
         }
       } else {
-        next.y = currentFloor.y;
+        next.y = standingPlatform && isStillOnPlatform ? standingPlatform.y : currentFloor.y;
         next.velocityY = 0;
       }
 
