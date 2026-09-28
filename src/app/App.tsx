@@ -16853,6 +16853,14 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             0%, 100% { opacity: 0.35; transform: translateX(-12%) scale(0.86); }
             50% { opacity: 0.9; transform: translateX(12%) scale(1.08); }
           }
+          @keyframes world-index-white-glow {
+            0%, 100% { box-shadow: 0 -2px 7px rgba(255, 255, 255, 0.55), 0 0 10px rgba(255, 255, 255, 0.32); }
+            50% { box-shadow: 0 -4px 13px rgba(255, 255, 255, 1), 0 0 20px rgba(255, 255, 255, 0.72); }
+          }
+          @keyframes world-index-white-shine {
+            0% { background-position: 200% 50%; }
+            100% { background-position: -40% 50%; }
+          }
           .world-index-tab {
             background: #ffffff;
             overflow: visible;
@@ -16906,6 +16914,17 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             position: relative;
             z-index: 1;
           }
+          .world-index-tab--white {
+            animation: world-index-white-glow 1.8s ease-in-out infinite;
+          }
+          .world-index-tab--white::before {
+            background: linear-gradient(100deg, #fff 0%, #fff 32%, rgba(255,255,255,0.52) 48%, #fff 58%, #fff 100%);
+            background-size: 260% 100%;
+            animation: world-index-white-shine 1.8s ease-in-out infinite;
+          }
+          .world-index-tab--white::after {
+            text-shadow: 0 0 5px #fff, 0 0 10px rgba(255,255,255,0.9);
+          }
         `}</style>
         <motion.button
           type="button"
@@ -16927,7 +16946,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           <span
             style={{
               fontFamily: FONT_UI,
-              fontSize: "0.52rem",
+              fontSize: "0.5rem",
               fontWeight: 800,
               letterSpacing: "0.025em",
               userSelect: "none",
@@ -16941,7 +16960,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
         </motion.button>
         <motion.button
           onClick={() => handleTabChange("world")}
-          className="absolute flex items-center justify-center world-index-tab"
+          className="absolute flex items-center justify-center world-index-tab world-index-tab--white"
           style={{
             top: -30,
             right: 40,
