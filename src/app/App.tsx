@@ -16845,8 +16845,13 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             }
           }
           @keyframes world-index-border {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 200% 50%; }
+            0% { background-position: 0% 50%; filter: saturate(1) brightness(1); }
+            50% { filter: saturate(1.35) brightness(1.18); }
+            100% { background-position: 200% 50%; filter: saturate(1) brightness(1); }
+          }
+          @keyframes world-index-sparkle {
+            0%, 100% { opacity: 0.35; transform: translateX(-12%) scale(0.86); }
+            50% { opacity: 0.9; transform: translateX(12%) scale(1.08); }
           }
           .world-index-tab {
             background: #ffffff;
@@ -16859,19 +16864,22 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             position: absolute;
             inset: 0;
             border-radius: inherit;
-            padding: 2px 2px 0 2px;
+            padding: 3px 3px 0 3px;
             background: linear-gradient(
-              120deg,
-              #fff,
-              var(--diary-main),
-              var(--diary-mid),
-              var(--diary-dark),
-              var(--diary-main),
-              #fff
+              100deg,
+              #ff5a92,
+              #ffab4c,
+              #fff05a,
+              #58e69a,
+              #57caff,
+              #9c7cff,
+              #ff6ac1,
+              #ff5a92
             );
-            background-size: 220% 220%;
-            animation: world-index-border 2.8s linear infinite;
+            background-size: 260% 100%;
+            animation: world-index-border 2.4s linear infinite;
             pointer-events: none;
+            z-index: 0;
             -webkit-mask:
               linear-gradient(#fff 0 0) content-box,
               linear-gradient(#fff 0 0);
@@ -16880,6 +16888,23 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
               linear-gradient(#fff 0 0) content-box,
               linear-gradient(#fff 0 0);
             mask-composite: exclude;
+          }
+          .world-index-tab::after {
+            content: "✦  ·  ✧  ·  ✦";
+            position: absolute;
+            inset: -10px 5px auto;
+            color: #fff;
+            font-size: 11px;
+            letter-spacing: 9px;
+            line-height: 1;
+            text-shadow: 0 0 5px #ff70bb, 0 0 7px #6fdcff;
+            pointer-events: none;
+            z-index: 2;
+            animation: world-index-sparkle 1.45s ease-in-out infinite;
+          }
+          .world-index-tab > span {
+            position: relative;
+            z-index: 1;
           }
         `}</style>
         <motion.button
@@ -16896,14 +16921,13 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             borderRadius: "8px 8px 0 0",
             cursor: "pointer",
             transition: "all 0.2s",
-            background: "linear-gradient(90deg, #ff8fa8 0%, #ffc96a 20%, #f8f58a 40%, #82e6af 58%, #77cfff 77%, #c29bff 100%)",
           }}
           whileHover={{ y: -2 }}
         >
           <span
             style={{
               fontFamily: FONT_UI,
-              fontSize: "0.34rem",
+              fontSize: "0.52rem",
               fontWeight: 800,
               letterSpacing: "0.025em",
               userSelect: "none",
@@ -16912,7 +16936,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
               whiteSpace: "nowrap",
             }}
           >
-            핸드트래킹으로 아이템 직접만들기
+            Item self-drawing
           </span>
         </motion.button>
         <motion.button
