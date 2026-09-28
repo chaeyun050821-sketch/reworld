@@ -7601,6 +7601,7 @@ function ItemPixelEditor({
   const [error, setError] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<ItemPixelSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<ItemPixelSnapshot[]>([]);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -7736,6 +7737,11 @@ function ItemPixelEditor({
     setSize(originalSize);
     setPixels([...originalPixels]);
     setError(null);
+  };
+
+  const confirmRestoreOriginalItem = () => {
+    restoreOriginalItem();
+    setShowRestoreConfirm(false);
   };
 
   const resizePixelGrid = (nextSize: number) => {
@@ -7914,11 +7920,7 @@ function ItemPixelEditor({
         ))}
         <button
           type="button"
-          onClick={() => {
-            if (window.confirm("수정한 부분을 지우고 처음 만든 아이템으로 되돌릴까요?")) {
-              restoreOriginalItem();
-            }
-          }}
+          onClick={() => setShowRestoreConfirm(true)}
           style={{ ...toolStyle(false), marginLeft: 4, padding: "3px 6px", color: "#ffb6bf" }}
         >
           전체 지우기
@@ -7937,6 +7939,51 @@ function ItemPixelEditor({
           {saving ? "저장 중..." : "아이템 저장"}
         </button>
       </div>
+
+      <AlertDialog open={showRestoreConfirm} onOpenChange={setShowRestoreConfirm}>
+        <AlertDialogContent
+          className="max-w-[calc(100%-2rem)] overflow-hidden p-0 sm:max-w-[330px]"
+          style={{
+            background: "linear-gradient(160deg, #2a2114 0%, #171309 100%)",
+            border: "1px solid rgba(216,196,155,0.42)",
+            boxShadow: "0 16px 44px rgba(16,8,4,0.55), inset 0 1px 0 rgba(255,255,255,0.08)",
+          }}
+        >
+          <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: "radial-gradient(rgba(216,196,155,0.55) 0.7px, transparent 0.7px)", backgroundSize: "8px 8px" }} />
+          <div className="relative p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid size-9 place-items-center rounded-lg" style={{ background: "linear-gradient(135deg, #ff6b81, #d84d68)", boxShadow: "0 3px 10px rgba(255,71,87,0.3)", fontSize: "1rem" }}>↺</span>
+              <div>
+                <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#d8c49b", letterSpacing: "0.08em" }}>RE:WORLD ITEM MAKER</span>
+                <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.72rem", fontWeight: 900, color: "#f7efd9", marginTop: 3 }}>
+                  처음 만든 아이템으로 되돌릴까요?
+                </AlertDialogTitle>
+              </div>
+            </div>
+            <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "rgba(247,239,217,0.68)", lineHeight: 1.6 }}>
+              지금까지 수정한 픽셀과 해상도 변경 내용이 사라지고, 처음 불러온 모습으로 돌아가요.
+            </AlertDialogDescription>
+            <div className="mt-3 rounded-lg px-2.5 py-2" style={{ background: "rgba(255,107,129,0.1)", border: "1px solid rgba(255,150,165,0.2)" }}>
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#ffc0ca", lineHeight: 1.45 }}>저장하기 전이라면, 취소를 눌러 현재 작업을 계속할 수 있어요.</p>
+            </div>
+            <AlertDialogFooter className="mt-4 gap-2 sm:gap-2">
+              <AlertDialogCancel
+                className="mt-0 flex-1 rounded-full border-0 px-3 py-2"
+                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 800, color: "#f7efd9", background: "rgba(255,255,255,0.1)" }}
+              >
+                계속 수정하기
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmRestoreOriginalItem}
+                className="flex-1 rounded-full border-0 px-3 py-2"
+                style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "white", background: "linear-gradient(90deg,#ff4757,#ff6b81)", boxShadow: "0 2px 10px rgba(255,71,87,0.28)" }}
+              >
+                되돌리기
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
