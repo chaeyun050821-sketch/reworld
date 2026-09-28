@@ -1,3 +1,11 @@
+export type PhotoAvatarSnapshot = {
+  config: {
+    body: string;
+    pixels: Record<string, string>;
+  };
+  equipped: string[];
+};
+
 export type PhotoDecoration =
   | {
       id: string;
@@ -21,6 +29,8 @@ export type PhotoDecoration =
       size: number;
       x: number;
       y: number;
+      /** Outfit at the moment this sticker was added; it must not follow closet changes. */
+      avatarSnapshot?: PhotoAvatarSnapshot;
     }
   | {
       id: string;
@@ -74,12 +84,33 @@ export function normalizePhotoDecoration(raw: unknown): PhotoDecoration | null {
   }
 
   if (type === "avatar") {
+    const rawSnapshot = row.avatarSnapshot;
+    const rawConfig = rawSnapshot && typeof rawSnapshot === "object"
+      ? (rawSnapshot as Record<string, unknown>).config
+      : null;
+    const rawConfigRecord = rawConfig && typeof rawConfig === "object"
+      ? rawConfig as Record<string, unknown>
+      : null;
+    const rawPixels = rawConfigRecord?.pixels;
+    const pixels = rawPixels && typeof rawPixels === "object"
+      ? Object.fromEntries(Object.entries(rawPixels).filter(([, value]) => typeof value === "string"))
+      : null;
+    const rawEquipped = rawSnapshot && typeof rawSnapshot === "object"
+      ? (rawSnapshot as Record<string, unknown>).equipped
+      : null;
+    const avatarSnapshot = typeof rawConfigRecord?.body === "string" && Array.isArray(rawEquipped)
+      ? {
+          config: { body: rawConfigRecord.body, pixels: pixels ?? {} },
+          equipped: rawEquipped.filter((item): item is string => typeof item === "string"),
+        }
+      : undefined;
     return {
       id,
       type: "avatar",
       size: clamp(asFiniteNumber(row.size, 1), 0.4, 2.8),
       x,
       y,
+      avatarSnapshot,
     };
   }
 

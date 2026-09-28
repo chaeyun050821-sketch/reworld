@@ -4524,13 +4524,14 @@ function PhotoDecorationsOverlay({
               )}
             </div>
           );
-        } else if (decoration.type === "avatar" && avatar) {
+        } else if (decoration.type === "avatar" && (decoration.avatarSnapshot ?? avatar)) {
+          const avatarAtPhotoTime = decoration.avatarSnapshot ?? avatar!;
           const width = Math.max(12, Math.round(w * 0.18 * decoration.size));
           const height = Math.max(16, Math.round(avatarPreviewHeightForWidth(width)));
           content = (
             <div className="relative" style={{ width, height }}>
               <AvatarWithCompanions
-                avatar={avatar}
+                avatar={avatarAtPhotoTime}
                 userId={userId}
                 inventory={inventoryItems.length > 0 ? inventoryItems : undefined}
                 width={width}
@@ -5014,6 +5015,7 @@ function PhotoPage({
       {
         id: createDecorationId("avatar"),
         type: "avatar",
+        avatarSnapshot: cloneAvatarProfile(avatar),
         size: DEFAULT_PHOTO_AVATAR_SIZE,
         x: 50,
         y: 58,
@@ -7590,6 +7592,8 @@ function ItemPixelEditor({
   const lastCellRef = useRef<number | null>(null);
   const [size, setSize] = useState(initialSize);
   const [pixels, setPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
+  const [originalPixels, setOriginalPixels] = useState<Array<string | null>>(() => Array(initialSize * initialSize).fill(null));
+  const [originalSize, setOriginalSize] = useState(initialSize);
   const [tool, setTool] = useState<ItemPixelTool>("paint");
   const [selectedColor, setSelectedColor] = useState(item.color || "#b08a4a");
   const [recentColors, setRecentColors] = useState<string[]>([]);
@@ -7609,6 +7613,8 @@ function ItemPixelEditor({
     if (!source) {
       const empty = Array(initialSize * initialSize).fill(null);
       setPixels(empty);
+      setOriginalPixels([...empty]);
+      setOriginalSize(initialSize);
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -7617,6 +7623,8 @@ function ItemPixelEditor({
         if (cancelled) return;
         setSize(initialSize);
         setPixels(next);
+        setOriginalPixels([...next]);
+        setOriginalSize(initialSize);
         setUndoStack([]);
         setRedoStack([]);
       })
@@ -7725,15 +7733,16 @@ function ItemPixelEditor({
     setPixels([...snapshot.pixels]);
   };
 
-  const clearAllPixels = () => {
+  const restoreOriginalItem = () => {
     setUndoStack((current) => [...current.slice(-29), { size, pixels: [...pixels] }]);
     setRedoStack([]);
-    setPixels(Array(size * size).fill(null));
+    setSize(originalSize);
+    setPixels([...originalPixels]);
     setError(null);
   };
 
   const confirmClearAllPixels = () => {
-    clearAllPixels();
+    restoreOriginalItem();
     setShowClearConfirm(false);
   };
 
@@ -7949,15 +7958,15 @@ function ItemPixelEditor({
               <div>
                 <span style={{ fontFamily: FONT_PIXEL, fontSize: "0.28rem", color: "#c87a98", letterSpacing: "0.08em" }}>RE:WORLD ITEM MAKER</span>
                 <AlertDialogTitle style={{ fontFamily: FONT_UI, fontSize: "0.72rem", fontWeight: 900, color: "#793d58", marginTop: 3 }}>
-                  아이템을 전부 지우시겠습니까?
+                  수정한 내용을 전부 지우시겠습니까?
                 </AlertDialogTitle>
               </div>
             </div>
             <AlertDialogDescription style={{ fontFamily: FONT_UI, fontSize: "0.48rem", color: "#8c5970", lineHeight: 1.6 }}>
-              캔버스의 모든 픽셀이 지워져요. 지운 뒤에는 되돌리기 버튼으로 복구할 수 있어요.
+              직접 수정한 픽셀과 해상도 변경만 지워지고, 처음 불러온 아이템 모습으로 돌아가요.
             </AlertDialogDescription>
             <div className="mt-3 rounded-lg px-2.5 py-2" style={{ background: "rgba(255,216,96,0.18)", border: "1px solid rgba(255,180,100,0.34)" }}>
-              <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#9c6843", lineHeight: 1.45 }}>앗, 실수해도 바로 되돌릴 수 있으니 안심하세요!</p>
+              <p style={{ fontFamily: FONT_UI, fontSize: "0.4rem", color: "#9c6843", lineHeight: 1.45 }}>원래 아이템은 사라지지 않아요. 되돌리기로 현재 작업도 복구할 수 있어요!</p>
             </div>
             <AlertDialogFooter className="mt-4 gap-2 sm:gap-2">
               <AlertDialogCancel
@@ -7971,7 +7980,7 @@ function ItemPixelEditor({
                 className="flex-1 rounded-full border-0 px-3 py-2"
                 style={{ fontFamily: FONT_UI, fontSize: "0.48rem", fontWeight: 900, color: "white", background: "linear-gradient(90deg,#ff91af,#ff7096)", boxShadow: "0 2px 10px rgba(255,112,150,0.3)" }}
               >
-                네, 지우기
+                네, 수정 지우기
               </AlertDialogAction>
             </AlertDialogFooter>
           </div>
@@ -16873,6 +16882,39 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
             mask-composite: exclude;
           }
         `}</style>
+        <motion.button
+          type="button"
+          onClick={() => openHandTrackingDrawPage(user.id)}
+          className="absolute flex items-center justify-center world-index-tab"
+          title="핸드트래킹으로 아이템 직접 만들기"
+          style={{
+            top: -30,
+            right: 124,
+            zIndex: 40,
+            width: 172,
+            height: 30,
+            borderRadius: "8px 8px 0 0",
+            cursor: "pointer",
+            transition: "all 0.2s",
+            background: "linear-gradient(90deg, #ff8fa8 0%, #ffc96a 20%, #f8f58a 40%, #82e6af 58%, #77cfff 77%, #c29bff 100%)",
+          }}
+          whileHover={{ y: -2 }}
+        >
+          <span
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: "0.34rem",
+              fontWeight: 800,
+              letterSpacing: "0.025em",
+              userSelect: "none",
+              color: "#3f275d",
+              textShadow: "0 1px 0 rgba(255,255,255,0.72)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            핸드트래킹으로 아이템 직접만들기
+          </span>
+        </motion.button>
         <motion.button
           onClick={() => handleTabChange("world")}
           className="absolute flex items-center justify-center world-index-tab"
