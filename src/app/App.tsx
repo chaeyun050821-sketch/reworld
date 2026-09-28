@@ -16946,7 +16946,7 @@ function SpreadPage({ user, onClose, onLogout, onUserUpdate }: { user: User; onC
           <span
             style={{
               fontFamily: FONT_UI,
-              fontSize: "0.5rem",
+              fontSize: "0.7rem",
               fontWeight: 800,
               letterSpacing: "0.025em",
               userSelect: "none",
