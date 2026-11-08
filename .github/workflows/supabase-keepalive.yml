@@ -2,10 +2,15 @@ name: Supabase keep-alive
 
 # 무료 Supabase 프로젝트는 약 일주일 동안 요청이 없으면 일시정지된다.
 # 일주일에 두 번(월·목 오전 9시 KST) 가벼운 조회 요청을 보내 DB가 멈추지 않게 한다.
+# 접속 정보는 배포된 사이트가 브라우저에 내려주는 공개(publishable) 키를 그대로 읽어 쓴다.
+# 저장소 Secret(SUPABASE_URL, SUPABASE_ANON_KEY)을 등록하면 그 값을 우선 사용한다.
 on:
   schedule:
     - cron: "0 0 * * 1,4"
   workflow_dispatch:
+
+env:
+  SITE_URL: https://reworld-bay.vercel.app
 
 jobs:
   ping:
@@ -17,9 +22,18 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "SUPABASE_URL / SUPABASE_ANON_KEY 저장소 Secret이 설정되지 않았습니다." >&2
+            html=$(curl -sS "$SITE_URL/")
+            for asset in $(echo "$html" | grep -oE '/assets/[^"]+\.js' | sort -u); do
+              js=$(curl -sS "$SITE_URL$asset")
+              [ -z "$SUPABASE_URL" ] && SUPABASE_URL=$(echo "$js" | grep -oE 'https://[a-z0-9]{20}\.supabase\.co' | head -1)
+              [ -z "$SUPABASE_ANON_KEY" ] && SUPABASE_ANON_KEY=$(echo "$js" | grep -oE 'sb_publishable_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | head -1)
+            done
+          fi
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Supabase 접속 정보를 찾지 못했습니다." >&2
             exit 1
           fi
+          echo "::add-mask::$SUPABASE_ANON_KEY"
           status=$(curl -sS -o /dev/null -w "%{http_code}" \
             "$SUPABASE_URL/rest/v1/shop_listings?select=*&limit=1" \
             -H "apikey: $SUPABASE_ANON_KEY" \
